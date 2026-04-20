@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "dist/main/index.mjs",
+  "main": "dist-electron/main/index.mjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -36,6 +36,7 @@
     "appId": "com.emby.player",
     "files": [
       "dist/**",
+      "dist-electron/**",
       "package.json"
     ]
   }

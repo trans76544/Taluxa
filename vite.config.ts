@@ -9,9 +9,19 @@ export default defineConfig({
     electron({
       main: {
         entry: 'src/electron/main/index.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron/main',
+          },
+        },
       },
       preload: {
         input: 'src/electron/preload/index.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron/preload',
+          },
+        },
       },
     }),
   ],
