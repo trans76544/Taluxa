@@ -3,29 +3,40 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "dist/main/index.mjs",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "dist": "electron-builder"
   },
   "dependencies": {
-    "electron-store": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "react-router-dom": "latest"
+    "electron-store": "^10.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "latest",
-    "@testing-library/react": "latest",
-    "@vitejs/plugin-react": "latest",
-    "electron": "latest",
-    "electron-builder": "latest",
-    "jsdom": "latest",
-    "msw": "latest",
-    "typescript": "latest",
-    "vite": "latest",
-    "vite-plugin-electron": "latest",
-    "vitest": "latest"
+    "@types/node": "^22.15.3",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.6",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
+    "@vitejs/plugin-react": "^4.3.2",
+    "electron": "^32.2.3",
+    "electron-builder": "^24.13.3",
+    "jsdom": "^25.0.1",
+    "msw": "^2.4.11",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8",
+    "vite-plugin-electron": "^0.29.0",
+    "vitest": "^2.1.8"
+  },
+  "build": {
+    "appId": "com.emby.player",
+    "files": [
+      "dist/**",
+      "package.json"
+    ]
   }
 }

@@ -1,5 +1,8 @@
 import { BrowserWindow } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function createMainWindow() {
   const mainWindow = new BrowserWindow({
@@ -9,7 +12,7 @@ export function createMainWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.mjs'),
     },
   });
 
