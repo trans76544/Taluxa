@@ -378,6 +378,14 @@ describe('App', () => {
       expect(storage.write).toHaveBeenCalledWith({
         accounts: [
           expect.objectContaining({
+            id: 'https://demo.emby.local::user-1',
+            serverUrl: 'https://demo.emby.local',
+            userId: 'user-1',
+            userName: 'Alice',
+            accessToken: 'token-123',
+            lastUsedAt: expect.any(String),
+          }),
+          expect.objectContaining({
             id: 'https://demo.emby.local::user-2',
             serverUrl: 'https://demo.emby.local',
             userId: 'user-2',
@@ -474,7 +482,7 @@ describe('App', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByText('https://demo.emby.local')).toBeInTheDocument();
+    expect(screen.getAllByText('https://demo.emby.local')).toHaveLength(2);
     expect(screen.getByText('80%')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -519,5 +527,47 @@ describe('App', () => {
       );
     });
     expect(screen.getByTestId('active-account-name')).toHaveTextContent('Bob');
+  });
+
+  it('renders the account sidebar on authenticated routes and switches libraries when a user is selected', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount(),
+          createSavedAccount({
+            id: 'https://backup.emby.local::user-2',
+            serverUrl: 'https://backup.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Alice' })).toHaveClass('is-active');
+    expect(screen.getByRole('link', { name: 'Add account' })).toHaveAttribute('href', '#/login');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+
+    await waitFor(() => {
+      expect(fetchViewsMock).toHaveBeenLastCalledWith(
+        'https://backup.emby.local',
+        'user-2',
+        'token-456'
+      );
+    });
+    expect(screen.getByRole('button', { name: 'Bob' })).toHaveClass('is-active');
   });
 });

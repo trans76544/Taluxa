@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -11,23 +11,59 @@ import {
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchViews } from '@shared/api/emby/library';
 import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playback';
+import type { LibraryItem, LibraryView } from '@shared/models/library';
+import type { PlaybackProgress } from '@shared/models/progress';
+import type { SavedAccount } from '@shared/models/session';
 import { createAccountId } from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
+import { AccountSidebar } from '@renderer/components/AccountSidebar';
+import { Layout } from '@renderer/components/Layout';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
-import { Layout } from '@renderer/components/Layout';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { LibraryViewsPage } from '@renderer/features/library/LibraryViewsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
-import type { LibraryItem, LibraryView } from '@shared/models/library';
-import type { PlaybackProgress } from '@shared/models/progress';
-import type { SavedAccount } from '@shared/models/session';
 
 interface PlayerLocationState {
   title?: string;
   serverPositionTicks?: number | null;
+}
+
+function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedAccount) {
+  const accountsById = new Map<string, SavedAccount>();
+
+  for (const account of currentAccounts) {
+    accountsById.set(account.id, account);
+  }
+
+  accountsById.set(nextAccount.id, nextAccount);
+
+  return Array.from(accountsById.values());
+}
+
+function AuthenticatedLayout({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title?: string;
+}) {
+  const { accounts, activeAccountId, session, setActiveAccountId } = useAuth();
+  const sidebar = session ? (
+    <AccountSidebar
+      accounts={accounts}
+      activeAccountId={activeAccountId}
+      onSelectAccount={setActiveAccountId}
+    />
+  ) : null;
+
+  return (
+    <Layout sidebar={sidebar} title={title}>
+      {children}
+    </Layout>
+  );
 }
 
 function HomeGate() {
@@ -173,7 +209,7 @@ function PlayerRoute() {
   }
 
   return (
-    <Layout title={title}>
+    <AuthenticatedLayout title={title}>
       {session ? (
         <PlayerPage
           itemId={itemId}
@@ -186,7 +222,7 @@ function PlayerRoute() {
       <p>
         <Link to="/libraries">Back to libraries</Link>
       </p>
-    </Layout>
+    </AuthenticatedLayout>
   );
 }
 
@@ -229,7 +265,7 @@ function LoginRoute() {
       };
 
       const nextState = {
-        accounts: [savedAccount],
+        accounts: mergeSavedAccounts(accounts, savedAccount),
         activeAccountId: accountId,
       };
 
@@ -294,10 +330,10 @@ function LibrariesRoute() {
   }, [serverUrl, session]);
 
   return (
-    <Layout>
+    <AuthenticatedLayout>
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
       {isLoading ? <p>Loading libraries...</p> : <LibraryViewsPage views={views} />}
-    </Layout>
+    </AuthenticatedLayout>
   );
 }
 
@@ -343,14 +379,14 @@ function LibraryItemsRoute() {
   }, [serverUrl, session, viewId]);
 
   return (
-    <Layout title={libraryName}>
+    <AuthenticatedLayout title={libraryName}>
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
       {isLoading ? (
         <p>Loading items...</p>
       ) : (
         <LibraryItemsPage libraryName={libraryName} items={items} />
       )}
-    </Layout>
+    </AuthenticatedLayout>
   );
 }
 

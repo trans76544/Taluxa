@@ -1,28 +1,57 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useAuth } from '@renderer/features/auth/AuthContext';
+import { AccountSidebar } from './AccountSidebar';
 
 interface LayoutProps {
   children: ReactNode;
+  sidebar?: ReactNode;
   title?: string;
 }
 
-export function Layout({ children, title = 'Emby Player' }: LayoutProps) {
+export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps) {
+  const { accounts, activeAccountId, session, setActiveAccountId } = useAuth();
+  const resolvedSidebar =
+    sidebar ??
+    (session && accounts.length > 0 ? (
+      <AccountSidebar
+        accounts={accounts}
+        activeAccountId={activeAccountId}
+        onSelectAccount={setActiveAccountId}
+      />
+    ) : null);
+
+  if (!resolvedSidebar) {
+    return (
+      <main className="shell">
+        <section className="panel">
+          <header className="layout-header">
+            <div>
+              <p className="eyebrow">Emby Player</p>
+              <h1>{title}</h1>
+            </div>
+          </header>
+
+          {children}
+        </section>
+      </main>
+    );
+  }
+
   return (
-    <main className="shell">
-      <section className="panel">
-        <header className="stack">
-          <div>
-            <p className="eyebrow">Emby Player</p>
-            <h1>{title}</h1>
-          </div>
+    <main className="shell shell--app">
+      <aside className="shell-sidebar">{resolvedSidebar}</aside>
 
-          <nav aria-label="Primary" className="layout-nav">
-            <Link to="/libraries">Libraries</Link>
-            <Link to="/settings">Settings</Link>
-          </nav>
-        </header>
+      <section className="shell-content">
+        <div className="panel panel--content">
+          <header className="layout-header">
+            <div>
+              <p className="eyebrow">Emby Player</p>
+              <h1>{title}</h1>
+            </div>
+          </header>
 
-        {children}
+          {children}
+        </div>
       </section>
     </main>
   );
