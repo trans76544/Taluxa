@@ -6,7 +6,7 @@ import { App } from './App';
 describe('App', () => {
   it('shows the sign in page by default', async () => {
     render(
-      <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <HashRouter>
         <App />
       </HashRouter>
     );
