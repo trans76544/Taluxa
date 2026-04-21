@@ -1,10 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Session } from '@shared/models/session';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createAccountId } from '@shared/store/persistence';
+import type { SavedAccount, Session } from '@shared/models/session';
 import type { Settings } from '@shared/models/settings';
 
 interface AuthState {
-  serverUrl: string;
-  session: Session | null;
+  accounts: SavedAccount[];
+  activeAccountId: string | null;
   settings: Settings;
 }
 
@@ -14,81 +15,173 @@ interface AuthStateUpdate {
   settings?: Settings;
 }
 
+interface AuthProviderProps {
+  children: ReactNode;
+  initialState?: Partial<AuthState>;
+  isHydrated?: boolean;
+}
+
 interface AuthContextValue extends AuthState {
+  activeAccount: SavedAccount | null;
   isHydrated: boolean;
+  serverUrl: string;
+  session: Session | null;
   clearAuthState: () => void;
+  setActiveAccountId: (accountId: string) => void;
   setAuthState: (next: AuthStateUpdate) => void;
+  upsertAccount: (account: SavedAccount, settings?: Partial<Settings>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [authState, setAuthState] = useState<AuthState>({
-    serverUrl: '',
-    session: null,
-    settings: {
-      rememberSession: true,
-      defaultVolume: 1,
-    },
-  });
-  const [isHydrated, setIsHydrated] = useState(false);
+const defaultSettings: Settings = {
+  rememberSession: true,
+  defaultVolume: 1,
+};
 
-  function updateAuthState(next: AuthStateUpdate) {
-    setAuthState((current) => ({
-      serverUrl: next.serverUrl,
-      session: next.session,
-      settings: next.settings ?? current.settings,
+function createDefaultAuthState(): AuthState {
+  return {
+    accounts: [],
+    activeAccountId: null,
+    settings: defaultSettings,
+  };
+}
+
+function mergeAccounts(
+  currentAccounts: SavedAccount[],
+  nextAccounts: SavedAccount[]
+): SavedAccount[] {
+  const accountsById = new Map<string, SavedAccount>();
+
+  for (const account of currentAccounts) {
+    accountsById.set(account.id, account);
+  }
+
+  for (const account of nextAccounts) {
+    accountsById.set(account.id, account);
+  }
+
+  return Array.from(accountsById.values());
+}
+
+function normalizeActiveAccountId(
+  accounts: SavedAccount[],
+  activeAccountId: string | null | undefined
+): string | null {
+  if (activeAccountId === undefined) {
+    return accounts[0]?.id ?? null;
+  }
+
+  if (activeAccountId === null) {
+    return null;
+  }
+
+  return accounts.some((account) => account.id === activeAccountId)
+    ? activeAccountId
+    : accounts[0]?.id ?? null;
+}
+
+function normalizeAuthState(initialState?: Partial<AuthState>): AuthState {
+  const accounts = initialState?.accounts ?? [];
+
+  return {
+    accounts,
+    activeAccountId: normalizeActiveAccountId(accounts, initialState?.activeAccountId),
+    settings: initialState?.settings ?? defaultSettings,
+  };
+}
+
+function toSession(account: SavedAccount | null): Session | null {
+  if (!account) {
+    return null;
+  }
+
+  return {
+    userId: account.userId,
+    userName: account.userName,
+    accessToken: account.accessToken,
+  };
+}
+
+export function AuthProvider({
+  children,
+  initialState,
+  isHydrated = true,
+}: AuthProviderProps) {
+  const [authState, setAuthState] = useState<AuthState | null>(null);
+  const resolvedAuthState = authState ?? normalizeAuthState(initialState);
+  const activeAccount =
+    resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
+    null;
+
+  function updateState(updater: (current: AuthState) => AuthState) {
+    setAuthState((current) => updater(current ?? normalizeAuthState(initialState)));
+  }
+
+  function setActiveAccountId(accountId: string) {
+    updateState((current) =>
+      current.accounts.some((account) => account.id === accountId)
+        ? {
+            ...current,
+            activeAccountId: accountId,
+          }
+        : current
+    );
+  }
+
+  function upsertAccount(account: SavedAccount, settings?: Partial<Settings>) {
+    updateState((current) => ({
+      accounts: mergeAccounts(current.accounts, [account]),
+      activeAccountId: account.id,
+      settings: {
+        rememberSession: settings?.rememberSession ?? current.settings.rememberSession,
+        defaultVolume: settings?.defaultVolume ?? current.settings.defaultVolume,
+      },
     }));
   }
 
   function clearAuthState() {
-    setAuthState((current) => ({
-      serverUrl: '',
-      session: null,
-      settings: current.settings,
+    updateState((current) => ({
+      ...current,
+      activeAccountId: null,
     }));
   }
 
-  useEffect(() => {
-    const readPersistedState = window.embyDesktop?.storage?.read;
-
-    if (!readPersistedState) {
-      setIsHydrated(true);
+  function updateAuthState(next: AuthStateUpdate) {
+    if (!next.session) {
+      updateState((current) => ({
+        ...current,
+        activeAccountId: null,
+        settings: next.settings ?? current.settings,
+      }));
       return;
     }
 
-    let cancelled = false;
-
-    readPersistedState()
-      .then((persistedState) => {
-        if (!cancelled) {
-          setAuthState({
-            serverUrl: persistedState.serverUrl,
-            session: persistedState.session,
-            settings: persistedState.settings,
-          });
-          setIsHydrated(true);
-        }
-      })
-      .catch(() => {
-        // The shell can fall back to the empty auth state if storage is unavailable.
-        if (!cancelled) {
-          setIsHydrated(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    upsertAccount(
+      {
+        id: createAccountId(next.serverUrl, next.session.userId),
+        serverUrl: next.serverUrl,
+        userId: next.session.userId,
+        userName: next.session.userName,
+        accessToken: next.session.accessToken,
+        lastUsedAt: new Date().toISOString(),
+      },
+      next.settings
+    );
+  }
 
   return (
     <AuthContext.Provider
       value={{
-        ...authState,
+        ...resolvedAuthState,
+        activeAccount,
         isHydrated,
+        serverUrl: activeAccount?.serverUrl ?? '',
+        session: toSession(activeAccount),
         clearAuthState,
+        setActiveAccountId,
         setAuthState: updateAuthState,
+        upsertAccount,
       }}
     >
       {children}

@@ -9,7 +9,9 @@ import {
 
 describe('persistence', () => {
   it('creates empty persisted state with multi-account defaults', () => {
-    expect(createEmptyPersistedState()).toEqual({
+    const state = createEmptyPersistedState();
+
+    expect(state).toEqual({
       accounts: [],
       activeAccountId: null,
       settings: {
@@ -18,6 +20,8 @@ describe('persistence', () => {
       },
       progressByItemId: {},
     });
+    expect('serverUrl' in state).toBe(false);
+    expect('session' in state).toBe(false);
   });
 
   it('creates a durable account id from server url and user id', () => {
@@ -27,8 +31,7 @@ describe('persistence', () => {
   });
 
   it('migrates legacy single-session state into one saved account', () => {
-    expect(
-      migrateLegacyPersistedState({
+    const state = migrateLegacyPersistedState({
         serverUrl: 'https://demo.emby.local',
         session: {
           userId: 'user-1',
@@ -40,8 +43,9 @@ describe('persistence', () => {
           defaultVolume: 0.8,
         },
         progressByItemId: {},
-      })
-    ).toEqual({
+      });
+
+    expect(state).toEqual({
       accounts: [
         {
           id: 'https://demo.emby.local::user-1',
@@ -59,6 +63,8 @@ describe('persistence', () => {
       },
       progressByItemId: {},
     });
+    expect('serverUrl' in state).toBe(false);
+    expect('session' in state).toBe(false);
   });
 
   it('merges accounts by id and preserves existing settings and progress', () => {
@@ -85,12 +91,6 @@ describe('persistence', () => {
           durationSeconds: 100,
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
-      },
-      serverUrl: 'https://a.local',
-      session: {
-        userId: 'user-1',
-        userName: 'Alice',
-        accessToken: 'token-1',
       },
     };
 
@@ -172,12 +172,6 @@ describe('persistence', () => {
         defaultVolume: 1,
       },
       progressByItemId: {},
-      serverUrl: 'https://a.local',
-      session: {
-        userId: 'user-1',
-        userName: 'Alice',
-        accessToken: 'token-1',
-      },
     };
 
     expect(
@@ -199,6 +193,36 @@ describe('persistence', () => {
         },
       ],
       activeAccountId: 'https://a.local::user-1',
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
+      progressByItemId: {},
+    });
+  });
+
+  it('converts a legacy session patch into a saved active account', () => {
+    expect(
+      mergePersistedState({
+        serverUrl: 'https://demo.emby.local',
+        session: {
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-123',
+        },
+      })
+    ).toEqual({
+      accounts: [
+        {
+          id: 'https://demo.emby.local::user-1',
+          serverUrl: 'https://demo.emby.local',
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-123',
+          lastUsedAt: expect.any(String),
+        },
+      ],
+      activeAccountId: 'https://demo.emby.local::user-1',
       settings: {
         rememberSession: true,
         defaultVolume: 1,

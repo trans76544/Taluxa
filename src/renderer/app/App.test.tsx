@@ -2,8 +2,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HashRouter } from 'react-router-dom';
 import { App } from './App';
+import { AppProviders } from './providers';
+import { useAuth } from '@renderer/features/auth/AuthContext';
 
 import type { PersistedState } from '@shared/store/persistence';
+import type { SavedAccount } from '@shared/models/session';
 
 const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
@@ -50,6 +53,54 @@ function mockStorageRead(state: PersistedState | Promise<PersistedState>) {
   return { read, write, clearSession };
 }
 
+function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
+  const serverUrl = overrides.serverUrl ?? 'https://demo.emby.local';
+  const userId = overrides.userId ?? 'user-1';
+
+  return {
+    id: overrides.id ?? `${serverUrl}::${userId}`,
+    serverUrl,
+    userId,
+    userName: overrides.userName ?? 'Alice',
+    accessToken: overrides.accessToken ?? 'token-123',
+    lastUsedAt: overrides.lastUsedAt ?? '2026-04-21T00:00:00.000Z',
+  };
+}
+
+function createPersistedState(overrides: Partial<PersistedState> = {}): PersistedState {
+  return {
+    accounts: overrides.accounts ?? [],
+    activeAccountId: overrides.activeAccountId ?? null,
+    settings:
+      overrides.settings ??
+      ({
+        rememberSession: true,
+        defaultVolume: 1,
+      } satisfies PersistedState['settings']),
+    progressByItemId: overrides.progressByItemId ?? {},
+  };
+}
+
+function AuthHarness() {
+  const { accounts, activeAccount, activeAccountId, isHydrated, setActiveAccountId } = useAuth();
+
+  if (!isHydrated) {
+    return <p>Hydrating...</p>;
+  }
+
+  return (
+    <div>
+      <p data-testid="active-account-id">{activeAccountId ?? 'none'}</p>
+      <p data-testid="active-account-name">{activeAccount?.userName ?? 'none'}</p>
+      {accounts.map((account) => (
+        <button key={account.id} type="button" onClick={() => setActiveAccountId(account.id)}>
+          Switch to {account.userName}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -72,12 +123,8 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
 
     deferred.resolve({
-      serverUrl: 'https://demo.emby.local',
-      session: {
-        userId: 'user-1',
-        userName: 'Alice',
-        accessToken: 'token-123',
-      },
+      accounts: [createSavedAccount()],
+      activeAccountId: 'https://demo.emby.local::user-1',
       settings: {
         rememberSession: true,
         defaultVolume: 1,
@@ -88,16 +135,39 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
   });
 
+  it('hydrates the first saved account when activeAccountId is missing', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount(),
+          createSavedAccount({
+            id: 'https://backup.emby.local::user-2',
+            serverUrl: 'https://backup.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+      })
+    );
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(fetchViewsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'token-123'
+    );
+  });
+
   it('redirects direct library visits without a session to the login page', async () => {
-    mockStorageRead({
-      serverUrl: '',
-      session: null,
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-      },
-      progressByItemId: {},
-    });
+    mockStorageRead(createPersistedState());
 
     window.location.hash = '#/libraries';
 
@@ -111,15 +181,7 @@ describe('App', () => {
   });
 
   it('redirects direct player visits without a session to the login page', async () => {
-    mockStorageRead({
-      serverUrl: '',
-      session: null,
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-      },
-      progressByItemId: {},
-    });
+    mockStorageRead(createPersistedState());
 
     window.location.hash = '#/player/item-1';
 
@@ -133,15 +195,7 @@ describe('App', () => {
   });
 
   it('keeps auth state out of memory when session persistence fails', async () => {
-    const storage = mockStorageRead({
-      serverUrl: '',
-      session: null,
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-      },
-      progressByItemId: {},
-    });
+    const storage = mockStorageRead(createPersistedState());
     loginMock.mockResolvedValue({
       userId: 'user-1',
       userName: 'Alice',
@@ -212,19 +266,12 @@ describe('App', () => {
   });
 
   it('passes server resume ticks through to the player route', async () => {
-    mockStorageRead({
-      serverUrl: 'https://demo.emby.local',
-      session: {
-        userId: 'user-1',
-        userName: 'Alice',
-        accessToken: 'token-123',
-      },
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-      },
-      progressByItemId: {},
-    });
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
 
     fetchViewsMock.mockResolvedValue([
       {
@@ -265,22 +312,19 @@ describe('App', () => {
   });
 
   it('clears the persisted session when signing out from settings', async () => {
-    const storage = mockStorageRead({
-      serverUrl: 'https://demo.emby.local',
-      session: {
-        userId: 'user-1',
-        userName: 'Alice',
-        accessToken: 'token-123',
-      },
-      settings: {
-        rememberSession: true,
-        defaultVolume: 0.8,
-      },
-      progressByItemId: {},
-    });
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: {
+          rememberSession: true,
+          defaultVolume: 0.8,
+        },
+      })
+    );
     storage.clearSession.mockResolvedValue({
-      serverUrl: 'https://demo.emby.local',
-      session: null,
+      accounts: [createSavedAccount()],
+      activeAccountId: null,
       settings: {
         rememberSession: true,
         defaultVolume: 0.8,
@@ -306,5 +350,41 @@ describe('App', () => {
       expect(storage.clearSession).toHaveBeenCalledTimes(1);
     });
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('switches the active account through the provider action used by account list UIs', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount(),
+          createSavedAccount({
+            id: 'https://backup.emby.local::user-2',
+            serverUrl: 'https://backup.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    render(
+      <AppProviders>
+        <AuthHarness />
+      </AppProviders>
+    );
+
+    expect(await screen.findByTestId('active-account-name')).toHaveTextContent('Alice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Bob' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-account-id')).toHaveTextContent(
+        'https://backup.emby.local::user-2'
+      );
+    });
+    expect(screen.getByTestId('active-account-name')).toHaveTextContent('Bob');
   });
 });

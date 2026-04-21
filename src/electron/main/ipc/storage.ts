@@ -2,18 +2,20 @@ import { ipcMain } from 'electron';
 import Store from 'electron-store';
 import {
   createEmptyPersistedState,
+  migrateLegacyPersistedState,
   mergePersistedState,
+  type LegacyPersistedState,
   type PersistedStatePatch,
   type PersistedState,
 } from '../../../shared/store/persistence';
 
-const store = new Store<PersistedState>({
+const store = new Store<PersistedState | LegacyPersistedState>({
   name: 'desktop-storage',
   defaults: createEmptyPersistedState(),
 });
 
 function readState(): PersistedState {
-  return mergePersistedState(store.store as Partial<PersistedState>);
+  return migrateLegacyPersistedState(store.store as PersistedState | LegacyPersistedState);
 }
 
 export function registerStorageIpc() {
@@ -28,10 +30,12 @@ export function registerStorageIpc() {
 
   ipcMain.handle('storage:clear-session', () => {
     const currentState = readState();
-    const merged = mergePersistedState({
-      ...currentState,
-      session: null,
-    });
+    const merged = mergePersistedState(
+      {
+        activeAccountId: null,
+      },
+      currentState
+    );
 
     store.store = merged;
     return merged;
