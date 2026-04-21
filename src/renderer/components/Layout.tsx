@@ -30,7 +30,7 @@ export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps
     }
 
     setActiveAccountId(nextAccountId);
-    navigate('/libraries');
+    navigate('/libraries', { replace: true });
   }
 
   const resolvedSidebar =
