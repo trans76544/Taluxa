@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createAccountId,
   createEmptyPersistedState,
   mergePersistedState,
+  migrateLegacyPersistedState,
   type PersistedState,
 } from './persistence';
 
 describe('persistence', () => {
-  it('creates empty persisted state with defaults', () => {
+  it('creates empty persisted state with multi-account defaults', () => {
     expect(createEmptyPersistedState()).toEqual({
-      serverUrl: '',
-      session: null,
+      accounts: [],
+      activeAccountId: null,
       settings: {
         rememberSession: true,
         defaultVolume: 1,
@@ -18,28 +20,64 @@ describe('persistence', () => {
     });
   });
 
-  it('merges persisted state with nested settings defaults', () => {
+  it('creates a durable account id from server url and user id', () => {
+    expect(createAccountId('https://demo.emby.local', 'user-1')).toBe(
+      'https://demo.emby.local::user-1'
+    );
+  });
+
+  it('migrates legacy single-session state into one saved account', () => {
     expect(
-      mergePersistedState({
-        serverUrl: 'http://demo.local',
-        settings: {
-          defaultVolume: 0.4,
+      migrateLegacyPersistedState({
+        serverUrl: 'https://demo.emby.local',
+        session: {
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-123',
         },
+        settings: {
+          rememberSession: true,
+          defaultVolume: 0.8,
+        },
+        progressByItemId: {},
       })
     ).toEqual({
-      serverUrl: 'http://demo.local',
-      session: null,
+      accounts: [
+        {
+          id: 'https://demo.emby.local::user-1',
+          serverUrl: 'https://demo.emby.local',
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-123',
+          lastUsedAt: expect.any(String),
+        },
+      ],
+      activeAccountId: 'https://demo.emby.local::user-1',
       settings: {
         rememberSession: true,
-        defaultVolume: 0.4,
+        defaultVolume: 0.8,
       },
       progressByItemId: {},
     });
   });
 
-  it('preserves existing progress entries when merging a partial patch', () => {
+  it('merges accounts by id and preserves existing settings and progress', () => {
     const currentState: PersistedState = {
-      ...createEmptyPersistedState(),
+      accounts: [
+        {
+          id: 'https://a.local::user-1',
+          serverUrl: 'https://a.local',
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-1',
+          lastUsedAt: '2026-04-21T00:00:00.000Z',
+        },
+      ],
+      activeAccountId: 'https://a.local::user-1',
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
       progressByItemId: {
         'item-a': {
           itemId: 'item-a',
@@ -47,26 +85,60 @@ describe('persistence', () => {
           durationSeconds: 100,
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
+      },
+      serverUrl: 'https://a.local',
+      session: {
+        userId: 'user-1',
+        userName: 'Alice',
+        accessToken: 'token-1',
       },
     };
 
     expect(
       mergePersistedState(
         {
-          progressByItemId: {
-            'item-b': {
-              itemId: 'item-b',
-              positionSeconds: 30,
-              durationSeconds: 200,
-              updatedAt: '2026-04-21T01:00:00.000Z',
+          accounts: [
+            {
+              id: 'https://a.local::user-1',
+              serverUrl: 'https://a.local',
+              userId: 'user-1',
+              userName: 'Alice Updated',
+              accessToken: 'token-2',
+              lastUsedAt: '2026-04-21T02:00:00.000Z',
             },
-          },
+            {
+              id: 'https://b.local::user-2',
+              serverUrl: 'https://b.local',
+              userId: 'user-2',
+              userName: 'Bob',
+              accessToken: 'token-3',
+              lastUsedAt: '2026-04-21T01:00:00.000Z',
+            },
+          ],
+          activeAccountId: 'https://b.local::user-2',
         },
         currentState
       )
     ).toEqual({
-      serverUrl: '',
-      session: null,
+      accounts: [
+        {
+          id: 'https://a.local::user-1',
+          serverUrl: 'https://a.local',
+          userId: 'user-1',
+          userName: 'Alice Updated',
+          accessToken: 'token-2',
+          lastUsedAt: '2026-04-21T02:00:00.000Z',
+        },
+        {
+          id: 'https://b.local::user-2',
+          serverUrl: 'https://b.local',
+          userId: 'user-2',
+          userName: 'Bob',
+          accessToken: 'token-3',
+          lastUsedAt: '2026-04-21T01:00:00.000Z',
+        },
+      ],
+      activeAccountId: 'https://b.local::user-2',
       settings: {
         rememberSession: true,
         defaultVolume: 1,
@@ -78,29 +150,55 @@ describe('persistence', () => {
           durationSeconds: 100,
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
-        'item-b': {
-          itemId: 'item-b',
-          positionSeconds: 30,
-          durationSeconds: 200,
-          updatedAt: '2026-04-21T01:00:00.000Z',
-        },
       },
     });
   });
 
-  it('clears an existing session when the patch sets session to null', () => {
+  it('falls back to the first account when the requested active account is missing', () => {
     const currentState: PersistedState = {
-      ...createEmptyPersistedState(),
+      accounts: [
+        {
+          id: 'https://a.local::user-1',
+          serverUrl: 'https://a.local',
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-1',
+          lastUsedAt: '2026-04-21T00:00:00.000Z',
+        },
+      ],
+      activeAccountId: 'https://a.local::user-1',
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
+      progressByItemId: {},
+      serverUrl: 'https://a.local',
       session: {
         userId: 'user-1',
-        userName: 'Demo User',
-        accessToken: 'token-123',
+        userName: 'Alice',
+        accessToken: 'token-1',
       },
     };
 
-    expect(mergePersistedState({ session: null }, currentState)).toEqual({
-      serverUrl: '',
-      session: null,
+    expect(
+      mergePersistedState(
+        {
+          activeAccountId: 'https://missing.local::user-9',
+        },
+        currentState
+      )
+    ).toEqual({
+      accounts: [
+        {
+          id: 'https://a.local::user-1',
+          serverUrl: 'https://a.local',
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-1',
+          lastUsedAt: '2026-04-21T00:00:00.000Z',
+        },
+      ],
+      activeAccountId: 'https://a.local::user-1',
       settings: {
         rememberSession: true,
         defaultVolume: 1,
