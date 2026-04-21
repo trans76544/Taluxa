@@ -230,4 +230,48 @@ describe('App', () => {
       })
     );
   });
+
+  it('clears the persisted session when signing out from settings', async () => {
+    const storage = mockStorageRead({
+      serverUrl: 'https://demo.emby.local',
+      session: {
+        userId: 'user-1',
+        userName: 'Alice',
+        accessToken: 'token-123',
+      },
+      settings: {
+        rememberSession: true,
+        defaultVolume: 0.8,
+      },
+      progressByItemId: {},
+    });
+    storage.clearSession.mockResolvedValue({
+      serverUrl: 'https://demo.emby.local',
+      session: null,
+      settings: {
+        rememberSession: true,
+        defaultVolume: 0.8,
+      },
+      progressByItemId: {},
+    });
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByText('https://demo.emby.local')).toBeInTheDocument();
+    expect(screen.getByText('80%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    await waitFor(() => {
+      expect(storage.clearSession).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
 });

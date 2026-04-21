@@ -2,6 +2,8 @@
   "name": "emby_player",
   "private": true,
   "version": "0.0.0",
+  "description": "Windows desktop Emby player",
+  "author": "Emby Player contributors",
   "type": "module",
   "main": "dist-electron/main/index.js",
   "scripts": {
@@ -34,10 +36,18 @@
   },
   "build": {
     "appId": "com.emby.player",
+    "productName": "Emby Player",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**",
       "dist-electron/**",
       "package.json"
-    ]
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   }
 }

@@ -19,6 +19,7 @@ import { Layout } from '@renderer/components/Layout';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { LibraryViewsPage } from '@renderer/features/library/LibraryViewsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
+import { SettingsPage } from '@renderer/features/settings/SettingsPage';
 import type { LibraryItem, LibraryView } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 
@@ -65,6 +66,16 @@ function PlayerGate() {
   }
 
   return session ? <PlayerRoute /> : <Navigate to="/login" replace />;
+}
+
+function SettingsGate() {
+  const { isHydrated, session } = useAuth();
+
+  if (!isHydrated) {
+    return null;
+  }
+
+  return session ? <SettingsRoute /> : <Navigate to="/login" replace />;
 }
 
 function PlayerRoute() {
@@ -325,6 +336,25 @@ function LibraryItemsRoute() {
   );
 }
 
+function SettingsRoute() {
+  const navigate = useNavigate();
+  const { clearAuthState, serverUrl, settings } = useAuth();
+
+  async function handleLogout() {
+    await window.embyDesktop.storage.clearSession();
+    clearAuthState();
+    navigate('/login');
+  }
+
+  return (
+    <SettingsPage
+      serverUrl={serverUrl}
+      defaultVolume={settings.defaultVolume}
+      onLogout={handleLogout}
+    />
+  );
+}
+
 export function AppRouter() {
   return (
     <Routes>
@@ -333,6 +363,7 @@ export function AppRouter() {
       <Route path="/libraries" element={<LibrariesGate />} />
       <Route path="/libraries/:viewId" element={<LibraryItemsGate />} />
       <Route path="/player/:itemId" element={<PlayerGate />} />
+      <Route path="/settings" element={<SettingsGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
