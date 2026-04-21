@@ -87,4 +87,25 @@ describe('persistence', () => {
       },
     });
   });
+
+  it('clears an existing session when the patch sets session to null', () => {
+    const currentState: PersistedState = {
+      ...createEmptyPersistedState(),
+      session: {
+        userId: 'user-1',
+        userName: 'Demo User',
+        accessToken: 'token-123',
+      },
+    };
+
+    expect(mergePersistedState({ session: null }, currentState)).toEqual({
+      serverUrl: '',
+      session: null,
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
+      progressByItemId: {},
+    });
+  });
 });

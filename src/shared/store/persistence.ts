@@ -40,7 +40,8 @@ export function mergePersistedState(
 
   return {
     serverUrl: partial.serverUrl ?? currentState.serverUrl,
-    session: partial.session ?? currentState.session,
+    session:
+      partial.session === undefined ? currentState.session : partial.session,
     settings: {
       rememberSession:
         partial.settings?.rememberSession ?? currentState.settings.rememberSession,
