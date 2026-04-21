@@ -1,7 +1,9 @@
 import { app, BrowserWindow } from 'electron';
+import { registerStorageIpc } from './ipc/storage';
 import { createMainWindow } from './window';
 
 app.whenReady().then(() => {
+  registerStorageIpc();
   createMainWindow();
 
   app.on('activate', () => {
