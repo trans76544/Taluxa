@@ -17,7 +17,9 @@ export function LibraryViewsPage({ views }: LibraryViewsPageProps) {
         <ul className="stack">
           {views.map((view) => (
             <li key={view.id}>
-              <Link to={`/libraries/${view.id}`}>{view.name}</Link>
+              <Link to={`/libraries/${view.id}`} state={{ libraryName: view.name }}>
+                {view.name}
+              </Link>
             </li>
           ))}
         </ul>

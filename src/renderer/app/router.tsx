@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchViews } from '@shared/api/emby/library';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
@@ -38,6 +46,26 @@ function LibraryItemsGate() {
   }
 
   return session ? <LibraryItemsRoute /> : <Navigate to="/login" replace />;
+}
+
+function PlayerRoute() {
+  const { itemId = '' } = useParams();
+
+  return (
+    <Layout title="Playback coming soon">
+      <section className="stack">
+        <div>
+          <h2>Preview only</h2>
+          <p>This placeholder keeps the library flow usable until the player lands.</p>
+        </div>
+
+        {itemId ? <p>Selected item: {itemId}</p> : null}
+        <p>
+          <Link to="/libraries">Back to libraries</Link>
+        </p>
+      </section>
+    </Layout>
+  );
 }
 
 function LoginRoute() {
@@ -138,9 +166,12 @@ function LibrariesRoute() {
 function LibraryItemsRoute() {
   const { serverUrl, session } = useAuth();
   const { viewId = '' } = useParams();
+  const location = useLocation();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const libraryName =
+    (location.state as { libraryName?: string } | null | undefined)?.libraryName ?? 'Library';
 
   useEffect(() => {
     if (!session || !viewId) {
@@ -174,12 +205,12 @@ function LibraryItemsRoute() {
   }, [serverUrl, session, viewId]);
 
   return (
-    <Layout title={viewId || 'Library'}>
+    <Layout title={libraryName}>
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
       {isLoading ? (
         <p>Loading items...</p>
       ) : (
-        <LibraryItemsPage libraryName={viewId || 'Library'} items={items} />
+        <LibraryItemsPage libraryName={libraryName} items={items} />
       )}
     </Layout>
   );
@@ -192,6 +223,7 @@ export function AppRouter() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/libraries" element={<LibrariesGate />} />
       <Route path="/libraries/:viewId" element={<LibraryItemsGate />} />
+      <Route path="/player/:itemId" element={<PlayerRoute />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

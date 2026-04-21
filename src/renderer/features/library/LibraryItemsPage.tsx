@@ -19,8 +19,8 @@ export function LibraryItemsPage({ libraryName, items }: LibraryItemsPageProps) 
   return (
     <section className="stack">
       <div>
-        <h2>{libraryName}</h2>
-        <p>Choose something to play next.</p>
+        <h2>Browse items</h2>
+        <p>{libraryName}</p>
       </div>
 
       {items.length > 0 ? (

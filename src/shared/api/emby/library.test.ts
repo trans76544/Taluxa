@@ -21,4 +21,23 @@ describe('mapViewsResponse', () => {
       },
     ]);
   });
+
+  it('keeps views that omit CollectionType and applies a fallback', () => {
+    expect(
+      mapViewsResponse({
+        Items: [
+          {
+            Id: 'shows',
+            Name: 'Shows',
+          },
+        ],
+      })
+    ).toEqual([
+      {
+        id: 'shows',
+        name: 'Shows',
+        collectionType: 'unknown',
+      },
+    ]);
+  });
 });

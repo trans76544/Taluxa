@@ -13,7 +13,7 @@ interface EmbyLibraryViewPayload {
 interface EmbyLibraryViewItem {
   Id: string;
   Name: string;
-  CollectionType: string;
+  CollectionType?: string | null;
 }
 
 interface EmbyLibraryItemPayload {
@@ -35,15 +35,19 @@ function hasText(value: unknown): value is string {
 }
 
 export function mapViewsResponse(payload: EmbyLibraryViewPayload): LibraryView[] {
-  return (payload.Items ?? [])
-    .filter((item): item is EmbyLibraryViewItem =>
-      hasText(item.Id) && hasText(item.Name) && hasText(item.CollectionType)
-    )
-    .map((item) => ({
+  return (payload.Items ?? []).reduce<LibraryView[]>((views, item) => {
+    if (!hasText(item.Id) || !hasText(item.Name)) {
+      return views;
+    }
+
+    views.push({
       id: item.Id.trim(),
       name: item.Name.trim(),
-      collectionType: item.CollectionType.trim(),
-    }));
+      collectionType: hasText(item.CollectionType) ? item.CollectionType.trim() : 'unknown',
+    });
+
+    return views;
+  }, []);
 }
 
 function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: string): LibraryItem[] {

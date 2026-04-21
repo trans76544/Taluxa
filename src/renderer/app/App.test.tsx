@@ -6,9 +6,16 @@ import { App } from './App';
 import type { PersistedState } from '@shared/store/persistence';
 
 const loginMock = vi.hoisted(() => vi.fn());
+const fetchViewsMock = vi.hoisted(() => vi.fn());
+const fetchItemsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@shared/api/emby/auth', () => ({
   login: loginMock,
+}));
+
+vi.mock('@shared/api/emby/library', () => ({
+  fetchViews: fetchViewsMock,
+  fetchItems: fetchItemsMock,
 }));
 
 function createDeferred<T>() {
@@ -41,6 +48,8 @@ function mockStorageRead(state: PersistedState | Promise<PersistedState>) {
 describe('App', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    fetchViewsMock.mockResolvedValue([]);
+    fetchItemsMock.mockResolvedValue([]);
     window.location.hash = '';
   });
 
@@ -70,7 +79,7 @@ describe('App', () => {
       progressByItemId: {},
     });
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
   });
 
   it('redirects direct library visits without a session to the login page', async () => {
@@ -139,5 +148,53 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     });
+  });
+
+  it('shows the selected library name and routes item clicks to a placeholder player page', async () => {
+    mockStorageRead({
+      serverUrl: 'https://demo.emby.local',
+      session: {
+        userId: 'user-1',
+        userName: 'Alice',
+        accessToken: 'token-123',
+      },
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
+      progressByItemId: {},
+    });
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        runtimeTicks: 600000000,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Movies' }));
+
+    expect(await screen.findByRole('heading', { name: 'Movies' })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Movie 1' }));
+
+    expect(await screen.findByRole('heading', { name: 'Playback coming soon' })).toBeInTheDocument();
   });
 });
