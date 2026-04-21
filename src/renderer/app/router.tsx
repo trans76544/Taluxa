@@ -48,6 +48,16 @@ function LibraryItemsGate() {
   return session ? <LibraryItemsRoute /> : <Navigate to="/login" replace />;
 }
 
+function PlayerGate() {
+  const { isHydrated, session } = useAuth();
+
+  if (!isHydrated) {
+    return null;
+  }
+
+  return session ? <PlayerRoute /> : <Navigate to="/login" replace />;
+}
+
 function PlayerRoute() {
   const { itemId = '' } = useParams();
 
@@ -223,7 +233,7 @@ export function AppRouter() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/libraries" element={<LibrariesGate />} />
       <Route path="/libraries/:viewId" element={<LibraryItemsGate />} />
-      <Route path="/player/:itemId" element={<PlayerRoute />} />
+      <Route path="/player/:itemId" element={<PlayerGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

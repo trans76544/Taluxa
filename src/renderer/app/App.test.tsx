@@ -104,6 +104,28 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
+  it('redirects direct player visits without a session to the login page', async () => {
+    mockStorageRead({
+      serverUrl: '',
+      session: null,
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
+      progressByItemId: {},
+    });
+
+    window.location.hash = '#/player/item-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
   it('keeps auth state out of memory when session persistence fails', async () => {
     const storage = mockStorageRead({
       serverUrl: '',
