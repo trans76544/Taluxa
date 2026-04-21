@@ -8,6 +8,7 @@ import type { PersistedState } from '@shared/store/persistence';
 const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
+const playerPageMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@shared/api/emby/auth', () => ({
   login: loginMock,
@@ -16,6 +17,10 @@ vi.mock('@shared/api/emby/auth', () => ({
 vi.mock('@shared/api/emby/library', () => ({
   fetchViews: fetchViewsMock,
   fetchItems: fetchItemsMock,
+}));
+
+vi.mock('@renderer/features/player/PlayerPage', () => ({
+  PlayerPage: (props: unknown) => playerPageMock(props),
 }));
 
 function createDeferred<T>() {
@@ -50,6 +55,7 @@ describe('App', () => {
     vi.resetAllMocks();
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
+    playerPageMock.mockReturnValue(<div data-testid="player-page" />);
     window.location.hash = '';
   });
 
@@ -172,7 +178,7 @@ describe('App', () => {
     });
   });
 
-  it('shows the selected library name and opens the player page for the selected item', async () => {
+  it('passes server resume ticks through to the player route', async () => {
     mockStorageRead({
       serverUrl: 'https://demo.emby.local',
       session: {
@@ -200,6 +206,7 @@ describe('App', () => {
         name: 'Movie 1',
         posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
         runtimeTicks: 600000000,
+        serverPositionTicks: 42000000,
       },
     ]);
 
@@ -212,13 +219,15 @@ describe('App', () => {
     );
 
     fireEvent.click(await screen.findByRole('link', { name: 'Movies' }));
-
-    expect(await screen.findByRole('heading', { name: 'Movies' })).toBeInTheDocument();
-
     fireEvent.click(await screen.findByRole('link', { name: 'Movie 1' }));
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Movie 1' })).toBeInTheDocument();
-    expect(await screen.findByTestId('video-player')).toBeInTheDocument();
+    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
+    expect(playerPageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'item-1',
+        title: 'Movie 1',
+        initialPositionSeconds: 4,
+      })
+    );
   });
 });
-

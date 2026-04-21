@@ -1,4 +1,4 @@
-import { createEmbyRequest } from './client';
+﻿import { createEmbyRequest } from './client';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import type { LibraryItem, LibraryView } from '@shared/models/library';
 
@@ -21,6 +21,9 @@ interface EmbyLibraryItemPayload {
     Id?: string;
     Name?: string;
     RunTimeTicks?: number | null;
+    UserData?: {
+      PlaybackPositionTicks?: number | null;
+    };
   }>;
 }
 
@@ -28,6 +31,9 @@ interface EmbyLibraryItem {
   Id: string;
   Name: string;
   RunTimeTicks?: number | null;
+  UserData?: {
+    PlaybackPositionTicks?: number | null;
+  };
 }
 
 function hasText(value: unknown): value is string {
@@ -50,17 +56,20 @@ export function mapViewsResponse(payload: EmbyLibraryViewPayload): LibraryView[]
   }, []);
 }
 
-function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: string): LibraryItem[] {
+export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: string): LibraryItem[] {
   const normalizedServerUrl = normalizeServerUrl(serverUrl);
 
   return (payload.Items ?? [])
-    .filter((item): item is EmbyLibraryItem => hasText(item.Id) && hasText(item.Name)
-    )
+    .filter((item): item is EmbyLibraryItem => hasText(item.Id) && hasText(item.Name))
     .map((item) => ({
       id: item.Id.trim(),
       name: item.Name.trim(),
       posterUrl: `${normalizedServerUrl}/Items/${item.Id.trim()}/Images/Primary`,
       runtimeTicks: typeof item.RunTimeTicks === 'number' ? item.RunTimeTicks : null,
+      serverPositionTicks:
+        typeof item.UserData?.PlaybackPositionTicks === 'number'
+          ? item.UserData.PlaybackPositionTicks
+          : null,
     }));
 }
 

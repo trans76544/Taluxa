@@ -27,7 +27,10 @@ export function LibraryItemsPage({ libraryName, items }: LibraryItemsPageProps) 
         <ul className="stack">
           {items.map((item) => (
             <li key={item.id}>
-              <Link to={`/player/${item.id}`} state={{ title: item.name }}>
+              <Link
+                to={`/player/${item.id}`}
+                state={{ title: item.name, serverPositionTicks: item.serverPositionTicks }}
+              >
                 {item.name}
               </Link>
               <p>{formatRuntime(item.runtimeTicks)}</p>

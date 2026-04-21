@@ -1,4 +1,4 @@
-export interface LibraryView {
+﻿export interface LibraryView {
   id: string;
   name: string;
   collectionType: string;
@@ -9,4 +9,5 @@ export interface LibraryItem {
   name: string;
   posterUrl: string;
   runtimeTicks: number | null;
+  serverPositionTicks: number | null;
 }

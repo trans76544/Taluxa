@@ -24,6 +24,7 @@ import type { PlaybackProgress } from '@shared/models/progress';
 
 interface PlayerLocationState {
   title?: string;
+  serverPositionTicks?: number | null;
 }
 
 function HomeGate() {
@@ -93,11 +94,15 @@ function PlayerRoute() {
 
         const savedPositionSeconds =
           persistedState.progressByItemId[itemId]?.positionSeconds ?? null;
+        const serverPositionTicks =
+          typeof playerState?.serverPositionTicks === 'number'
+            ? playerState.serverPositionTicks
+            : null;
 
         setInitialPositionSeconds(
           getResumePositionSeconds({
             savedPositionSeconds,
-            serverPositionTicks: null,
+            serverPositionTicks,
           })
         );
       })
@@ -110,7 +115,7 @@ function PlayerRoute() {
     return () => {
       cancelled = true;
     };
-  }, [itemId]);
+  }, [itemId, playerState?.serverPositionTicks]);
 
   async function handleProgress({
     itemId: progressItemId,
