@@ -6,9 +6,23 @@ import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
 
 function HomeGate() {
-  const { session } = useAuth();
+  const { isHydrated, session } = useAuth();
+
+  if (!isHydrated) {
+    return null;
+  }
 
   return <Navigate to={session ? '/libraries' : '/login'} replace />;
+}
+
+function LibrariesGate() {
+  const { isHydrated, session } = useAuth();
+
+  if (!isHydrated) {
+    return null;
+  }
+
+  return session ? <LibrariesRoute /> : <Navigate to="/login" replace />;
 }
 
 function LoginRoute() {
@@ -38,10 +52,15 @@ function LoginRoute() {
         session,
       };
 
+      try {
+        await window.embyDesktop.storage.write(nextState);
+      } catch {
+        setErrorMessage('Could not save your session. Try again.');
+        return;
+      }
+
       setAuthState(nextState);
       setErrorMessage('');
-
-      await window.embyDesktop.storage.write(nextState);
       navigate('/libraries');
     } catch {
       setErrorMessage('Sign in failed. Check your server URL and credentials.');
@@ -73,7 +92,7 @@ export function AppRouter() {
     <Routes>
       <Route path="/" element={<HomeGate />} />
       <Route path="/login" element={<LoginRoute />} />
-      <Route path="/libraries" element={<LibrariesRoute />} />
+      <Route path="/libraries" element={<LibrariesGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

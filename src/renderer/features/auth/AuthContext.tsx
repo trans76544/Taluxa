@@ -7,6 +7,7 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
+  isHydrated: boolean;
   setAuthState: (next: AuthState) => void;
 }
 
@@ -17,11 +18,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     serverUrl: '',
     session: null,
   });
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     const readPersistedState = window.embyDesktop?.storage?.read;
 
     if (!readPersistedState) {
+      setIsHydrated(true);
       return;
     }
 
@@ -34,10 +37,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             serverUrl: persistedState.serverUrl,
             session: persistedState.session,
           });
+          setIsHydrated(true);
         }
       })
       .catch(() => {
         // The shell can fall back to the empty auth state if storage is unavailable.
+        if (!cancelled) {
+          setIsHydrated(true);
+        }
       });
 
     return () => {
@@ -49,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         ...authState,
+        isHydrated,
         setAuthState,
       }}
     >

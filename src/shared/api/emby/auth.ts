@@ -20,6 +20,10 @@ interface EmbyLoginResponse {
   AccessToken?: string;
 }
 
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 export async function login(input: EmbyLoginInput): Promise<EmbyLoginSession> {
   const response = await createEmbyRequest(input.serverUrl, '/Users/AuthenticateByName', {
     method: 'POST',
@@ -37,10 +41,17 @@ export async function login(input: EmbyLoginInput): Promise<EmbyLoginSession> {
   }
 
   const result = (await response.json()) as EmbyLoginResponse;
+  const userId = result.User?.Id;
+  const userName = result.User?.Name;
+  const accessToken = result.AccessToken;
+
+  if (!hasText(userId) || !hasText(userName) || !hasText(accessToken)) {
+    throw new Error('Invalid Emby login response');
+  }
 
   return {
-    userId: result.User?.Id ?? '',
-    userName: result.User?.Name ?? input.userName,
-    accessToken: result.AccessToken ?? '',
+    userId: userId.trim(),
+    userName: userName.trim(),
+    accessToken: accessToken.trim(),
   };
 }
