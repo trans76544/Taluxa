@@ -1,4 +1,4 @@
-﻿import { createEmbyRequest } from './client';
+import { createEmbyRequest } from './client';
 
 export interface BuildStreamUrlInput {
   serverUrl: string;
@@ -14,7 +14,7 @@ export interface ReportPlaybackProgressInput {
 }
 
 export function buildStreamUrl(serverUrl: string, itemId: string, accessToken: string): string {
-  return `${serverUrl}/Videos/${itemId}/stream.mp4?static=true&api_key=${accessToken}`;
+  return `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream.mp4?static=true&api_key=${encodeURIComponent(accessToken)}`;
 }
 
 export async function reportPlaybackProgress({

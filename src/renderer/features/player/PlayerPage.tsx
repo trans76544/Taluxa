@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { seekVideo } from './playerAdapter';
 
 export interface PlayerPageProps {
@@ -21,6 +21,8 @@ function getPositionSeconds(video: HTMLVideoElement): number {
   return Math.floor(video.currentTime);
 }
 
+const PROGRESS_REPORT_INTERVAL_MS = 5000;
+
 export function PlayerPage({
   itemId,
   title,
@@ -29,8 +31,20 @@ export function PlayerPage({
   onProgress,
 }: PlayerPageProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const progressStateRef = useRef<{
+    lastReportedAtMs: number | null;
+    lastReportedPositionSeconds: number | null;
+  }>({
+    lastReportedAtMs: null,
+    lastReportedPositionSeconds: null,
+  });
 
   useEffect(() => {
+    progressStateRef.current = {
+      lastReportedAtMs: null,
+      lastReportedPositionSeconds: null,
+    };
+
     if (!videoRef.current) {
       return;
     }
@@ -51,9 +65,25 @@ export function PlayerPage({
       return;
     }
 
-    onProgress({
+    const positionSeconds = getPositionSeconds(videoRef.current);
+    const nowMs = Date.now();
+    const { lastReportedAtMs, lastReportedPositionSeconds } = progressStateRef.current;
+
+    if (
+      lastReportedPositionSeconds === positionSeconds ||
+      (lastReportedAtMs !== null && nowMs - lastReportedAtMs < PROGRESS_REPORT_INTERVAL_MS)
+    ) {
+      return;
+    }
+
+    progressStateRef.current = {
+      lastReportedAtMs: nowMs,
+      lastReportedPositionSeconds: positionSeconds,
+    };
+
+    void onProgress({
       itemId,
-      positionSeconds: getPositionSeconds(videoRef.current),
+      positionSeconds,
       durationSeconds: getDurationSeconds(videoRef.current),
     });
   }
@@ -67,6 +97,7 @@ export function PlayerPage({
 
       <video
         controls
+        key={streamUrl}
         data-testid="video-player"
         ref={videoRef}
         src={streamUrl}
