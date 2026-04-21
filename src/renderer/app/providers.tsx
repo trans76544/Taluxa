@@ -13,10 +13,18 @@ function createInitialState(): Pick<PersistedState, 'accounts' | 'activeAccountI
   };
 }
 
+function resolveStartupActiveAccountId(persistedState: PersistedState): string | null {
+  if (persistedState.activeAccountId === undefined) {
+    return persistedState.accounts[0]?.id ?? null;
+  }
+
+  return persistedState.activeAccountId;
+}
+
 function toStartupState(persistedState: PersistedState) {
   return {
     accounts: persistedState.accounts,
-    activeAccountId: persistedState.activeAccountId ?? persistedState.accounts[0]?.id ?? null,
+    activeAccountId: resolveStartupActiveAccountId(persistedState),
     settings: persistedState.settings,
   };
 }

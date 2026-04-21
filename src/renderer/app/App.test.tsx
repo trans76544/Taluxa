@@ -13,6 +13,10 @@ const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const playerPageMock = vi.hoisted(() => vi.fn());
 
+type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
+  activeAccountId?: string | null | undefined;
+};
+
 vi.mock('@shared/api/emby/auth', () => ({
   login: loginMock,
 }));
@@ -37,7 +41,7 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-function mockStorageRead(state: PersistedState | Promise<PersistedState>) {
+function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
   const read = vi.fn().mockResolvedValue(state);
   const write = vi.fn();
   const clearSession = vi.fn();
@@ -53,6 +57,13 @@ function mockStorageRead(state: PersistedState | Promise<PersistedState>) {
   return { read, write, clearSession };
 }
 
+type PersistedStateOverrides = {
+  accounts?: SavedAccount[];
+  activeAccountId?: string | null | undefined;
+  settings?: PersistedState['settings'];
+  progressByItemId?: PersistedState['progressByItemId'];
+};
+
 function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
   const serverUrl = overrides.serverUrl ?? 'https://demo.emby.local';
   const userId = overrides.userId ?? 'user-1';
@@ -67,10 +78,9 @@ function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount
   };
 }
 
-function createPersistedState(overrides: Partial<PersistedState> = {}): PersistedState {
-  return {
+function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPersistedState {
+  const state: StoredPersistedState = {
     accounts: overrides.accounts ?? [],
-    activeAccountId: overrides.activeAccountId ?? null,
     settings:
       overrides.settings ??
       ({
@@ -79,6 +89,12 @@ function createPersistedState(overrides: Partial<PersistedState> = {}): Persiste
       } satisfies PersistedState['settings']),
     progressByItemId: overrides.progressByItemId ?? {},
   };
+
+  if (Object.prototype.hasOwnProperty.call(overrides, 'activeAccountId')) {
+    state.activeAccountId = overrides.activeAccountId;
+  }
+
+  return state;
 }
 
 function AuthHarness() {
@@ -164,6 +180,66 @@ describe('App', () => {
       'user-1',
       'token-123'
     );
+  });
+
+  it('hydrates the first saved account when activeAccountId is undefined', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount(),
+          createSavedAccount({
+            id: 'https://backup.emby.local::user-2',
+            serverUrl: 'https://backup.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+        activeAccountId: undefined,
+      })
+    );
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(fetchViewsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'token-123'
+    );
+  });
+
+  it('stays signed out when activeAccountId is null', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount(),
+          createSavedAccount({
+            id: 'https://backup.emby.local::user-2',
+            serverUrl: 'https://backup.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+        activeAccountId: null,
+      })
+    );
+
+    render(
+      <AppProviders>
+        <AuthHarness />
+      </AppProviders>
+    );
+
+    expect(await screen.findByTestId('active-account-id')).toHaveTextContent('none');
+    expect(screen.getByTestId('active-account-name')).toHaveTextContent('none');
   });
 
   it('redirects direct library visits without a session to the login page', async () => {
