@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 import type { LibraryItem } from '@shared/models/library';
 
 interface LibraryItemsPageProps {
@@ -27,7 +27,9 @@ export function LibraryItemsPage({ libraryName, items }: LibraryItemsPageProps) 
         <ul className="stack">
           {items.map((item) => (
             <li key={item.id}>
-              <Link to={`/player/${item.id}`}>{item.name}</Link>
+              <Link to={`/player/${item.id}`} state={{ title: item.name }}>
+                {item.name}
+              </Link>
               <p>{formatRuntime(item.runtimeTicks)}</p>
             </li>
           ))}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
   Link,
   Navigate,
@@ -10,13 +10,21 @@ import {
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchViews } from '@shared/api/emby/library';
+import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playback';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
+import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { Layout } from '@renderer/components/Layout';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { LibraryViewsPage } from '@renderer/features/library/LibraryViewsPage';
+import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import type { LibraryItem, LibraryView } from '@shared/models/library';
+import type { PlaybackProgress } from '@shared/models/progress';
+
+interface PlayerLocationState {
+  title?: string;
+}
 
 function HomeGate() {
   const { isHydrated, session } = useAuth();
@@ -59,21 +67,107 @@ function PlayerGate() {
 }
 
 function PlayerRoute() {
+  const { serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
+  const location = useLocation();
+  const [initialPositionSeconds, setInitialPositionSeconds] = useState(0);
+  const playerState = location.state as PlayerLocationState | null | undefined;
+  const title = playerState?.title?.trim() || itemId || 'Playback';
+
+  useEffect(() => {
+    if (!itemId) {
+      setInitialPositionSeconds(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    setInitialPositionSeconds(0);
+
+    window.embyDesktop.storage
+      .read()
+      .then((persistedState) => {
+        if (cancelled) {
+          return;
+        }
+
+        const savedPositionSeconds =
+          persistedState.progressByItemId[itemId]?.positionSeconds ?? null;
+
+        setInitialPositionSeconds(
+          getResumePositionSeconds({
+            savedPositionSeconds,
+            serverPositionTicks: null,
+          })
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInitialPositionSeconds(0);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+
+  async function handleProgress({
+    itemId: progressItemId,
+    positionSeconds,
+    durationSeconds,
+  }: {
+    itemId: string;
+    positionSeconds: number;
+    durationSeconds: number;
+  }) {
+    if (!session) {
+      return;
+    }
+
+    const nextProgress: PlaybackProgress = {
+      itemId: progressItemId,
+      positionSeconds,
+      durationSeconds,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await window.embyDesktop.storage.write({
+        progressByItemId: {
+          [progressItemId]: nextProgress,
+        },
+      });
+    } catch {
+      // Persisting progress is best-effort.
+    }
+
+    try {
+      await reportPlaybackProgress({
+        serverUrl,
+        accessToken: session.accessToken,
+        itemId: progressItemId,
+        positionSeconds,
+      });
+    } catch {
+      // Reporting progress is best-effort.
+    }
+  }
 
   return (
-    <Layout title="Playback coming soon">
-      <section className="stack">
-        <div>
-          <h2>Preview only</h2>
-          <p>This placeholder keeps the library flow usable until the player lands.</p>
-        </div>
-
-        {itemId ? <p>Selected item: {itemId}</p> : null}
-        <p>
-          <Link to="/libraries">Back to libraries</Link>
-        </p>
-      </section>
+    <Layout title={title}>
+      {session ? (
+        <PlayerPage
+          itemId={itemId}
+          title={title}
+          streamUrl={buildStreamUrl(serverUrl, itemId, session.accessToken)}
+          initialPositionSeconds={initialPositionSeconds}
+          onProgress={handleProgress}
+        />
+      ) : null}
+      <p>
+        <Link to="/libraries">Back to libraries</Link>
+      </p>
     </Layout>
   );
 }

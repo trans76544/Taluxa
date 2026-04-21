@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HashRouter } from 'react-router-dom';
 import { App } from './App';
@@ -172,7 +172,7 @@ describe('App', () => {
     });
   });
 
-  it('shows the selected library name and routes item clicks to a placeholder player page', async () => {
+  it('shows the selected library name and opens the player page for the selected item', async () => {
     mockStorageRead({
       serverUrl: 'https://demo.emby.local',
       session: {
@@ -217,6 +217,8 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: 'Movie 1' }));
 
-    expect(await screen.findByRole('heading', { name: 'Playback coming soon' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Movie 1' })).toBeInTheDocument();
+    expect(await screen.findByTestId('video-player')).toBeInTheDocument();
   });
 });
+
