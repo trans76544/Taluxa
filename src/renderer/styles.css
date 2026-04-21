@@ -60,3 +60,68 @@ body {
   font-size: 1.05rem;
   line-height: 1.6;
 }
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.login-form {
+  margin-top: 28px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.98rem;
+  color: rgba(244, 247, 251, 0.92);
+}
+
+.field-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(164, 182, 255, 0.28);
+  border-radius: 14px;
+  background: rgba(4, 9, 22, 0.9);
+  color: #f4f7fb;
+  font: inherit;
+  outline: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.field-input:focus {
+  border-color: #8ea2ff;
+  box-shadow: 0 0 0 4px rgba(142, 162, 255, 0.16);
+}
+
+.field-input::placeholder {
+  color: rgba(244, 247, 251, 0.38);
+}
+
+.primary-button {
+  min-height: 48px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 14px;
+  align-self: flex-start;
+  background: linear-gradient(135deg, #8ea2ff 0%, #6f85f6 100%);
+  color: #07101f;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button:hover {
+  filter: brightness(1.05);
+}
+
+.primary-button:focus-visible {
+  outline: 3px solid rgba(142, 162, 255, 0.24);
+  outline-offset: 2px;
+}

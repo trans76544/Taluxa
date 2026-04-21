@@ -203,6 +203,13 @@ function LoginRoute() {
     password: string;
   }) {
     try {
+      const storageBridge = window.embyDesktop?.storage;
+
+      if (!storageBridge?.write) {
+        setErrorMessage('Desktop integration is unavailable. Restart the app and try again.');
+        return;
+      }
+
       const normalizedServerUrl = normalizeServerUrl(serverUrl);
       const session = await login({
         serverUrl: normalizedServerUrl,
@@ -216,7 +223,7 @@ function LoginRoute() {
       };
 
       try {
-        await window.embyDesktop.storage.write(nextState);
+        await storageBridge.write(nextState);
       } catch {
         setErrorMessage('Could not save your session. Try again.');
         return;

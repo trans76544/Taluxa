@@ -3,6 +3,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { LoginPage } from './LoginPage';
 
 describe('LoginPage', () => {
+  it('renders a stacked form layout for sign-in fields', () => {
+    render(<LoginPage onSubmit={vi.fn()} />);
+
+    const form = screen.getByRole('button', { name: 'Sign in' }).closest('form');
+    const serverUrlInput = screen.getByLabelText('Server URL');
+    const usernameInput = screen.getByLabelText('Username');
+    const passwordInput = screen.getByLabelText('Password');
+
+    expect(form).toHaveClass('login-form');
+    expect(serverUrlInput).toHaveClass('field-input');
+    expect(usernameInput).toHaveClass('field-input');
+    expect(passwordInput).toHaveClass('field-input');
+  });
+
   it('submits the entered server url, username, and password', () => {
     const onSubmit = vi.fn();
 

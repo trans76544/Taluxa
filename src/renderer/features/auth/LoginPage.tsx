@@ -32,10 +32,11 @@ export function LoginPage({ onSubmit }: LoginPageProps) {
         <h1>Sign in</h1>
         <p>Connect to your server and unlock your library.</p>
 
-        <form className="stack" onSubmit={handleSubmit}>
+        <form className="stack login-form" onSubmit={handleSubmit}>
           <label className="field">
             <span>Server URL</span>
             <input
+              className="field-input"
               value={serverUrl}
               onChange={(event) => setServerUrl(event.target.value)}
               type="text"
@@ -47,6 +48,7 @@ export function LoginPage({ onSubmit }: LoginPageProps) {
           <label className="field">
             <span>Username</span>
             <input
+              className="field-input"
               value={userName}
               onChange={(event) => setUserName(event.target.value)}
               type="text"
@@ -58,6 +60,7 @@ export function LoginPage({ onSubmit }: LoginPageProps) {
           <label className="field">
             <span>Password</span>
             <input
+              className="field-input"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               type="password"
@@ -66,7 +69,9 @@ export function LoginPage({ onSubmit }: LoginPageProps) {
             />
           </label>
 
-          <button type="submit">Sign in</button>
+          <button className="primary-button" type="submit">
+            Sign in
+          </button>
         </form>
       </section>
     </main>

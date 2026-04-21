@@ -178,6 +178,39 @@ describe('App', () => {
     });
   });
 
+  it('shows a bridge-specific error when desktop storage is unavailable', async () => {
+    loginMock.mockResolvedValue({
+      userId: 'user-1',
+      userName: 'Alice',
+      accessToken: 'token-123',
+    });
+
+    // Simulate a renderer where the preload bridge failed to load.
+    delete (window as Partial<Window>).embyDesktop;
+    window.location.hash = '#/login';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'demo.emby.local' },
+    });
+    fireEvent.change(screen.getByLabelText('Username'), {
+      target: { value: 'alice' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Desktop integration is unavailable. Restart the app and try again.'
+    );
+  });
+
   it('passes server resume ticks through to the player route', async () => {
     mockStorageRead({
       serverUrl: 'https://demo.emby.local',
