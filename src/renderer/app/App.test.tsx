@@ -341,6 +341,63 @@ describe('App', () => {
     );
   });
 
+  it('adds a second saved account on the same server and activates it after login', async () => {
+    const existingAccount = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [existingAccount],
+        activeAccountId: existingAccount.id,
+      })
+    );
+    loginMock.mockResolvedValue({
+      userId: 'user-2',
+      userName: 'Bob',
+      accessToken: 'token-456',
+    });
+
+    window.location.hash = '#/login';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.change(await screen.findByLabelText('Server URL'), {
+      target: { value: 'demo.emby.local' },
+    });
+    fireEvent.change(screen.getByLabelText('Username'), {
+      target: { value: 'bob' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        accounts: [
+          expect.objectContaining({
+            id: 'https://demo.emby.local::user-2',
+            serverUrl: 'https://demo.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: expect.any(String),
+          }),
+        ],
+        activeAccountId: 'https://demo.emby.local::user-2',
+      });
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(fetchViewsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-2',
+      'token-456'
+    );
+  });
+
   it('passes server resume ticks through to the player route', async () => {
     mockStorageRead(
       createPersistedState({

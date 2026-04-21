@@ -8,9 +8,10 @@ export interface LoginFormValues {
 
 export interface LoginPageProps {
   onSubmit: (values: LoginFormValues) => void | Promise<void>;
+  hasRememberedAccounts?: boolean;
 }
 
-export function LoginPage({ onSubmit }: LoginPageProps) {
+export function LoginPage({ onSubmit, hasRememberedAccounts = false }: LoginPageProps) {
   const [serverUrl, setServerUrl] = useState('');
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +31,11 @@ export function LoginPage({ onSubmit }: LoginPageProps) {
       <section className="panel" aria-label="Emby sign in">
         <p className="eyebrow">Emby Player</p>
         <h1>Sign in</h1>
-        <p>Connect to your server and unlock your library.</p>
+        <p>
+          {hasRememberedAccounts
+            ? 'Add another account from this or another server.'
+            : 'Connect to your server and unlock your library.'}
+        </p>
 
         <form className="stack login-form" onSubmit={handleSubmit}>
           <label className="field">

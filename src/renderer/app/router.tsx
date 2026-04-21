@@ -11,6 +11,7 @@ import {
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchViews } from '@shared/api/emby/library';
 import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playback';
+import { createAccountId } from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
 import { useAuth } from '@renderer/features/auth/AuthContext';
@@ -22,6 +23,7 @@ import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
 import type { LibraryItem, LibraryView } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
+import type { SavedAccount } from '@shared/models/session';
 
 interface PlayerLocationState {
   title?: string;
@@ -190,7 +192,7 @@ function PlayerRoute() {
 
 function LoginRoute() {
   const navigate = useNavigate();
-  const { setAuthState } = useAuth();
+  const { accounts, upsertAccount } = useAuth();
   const [errorMessage, setErrorMessage] = useState('');
 
   async function handleSubmit({
@@ -216,10 +218,19 @@ function LoginRoute() {
         userName,
         password,
       });
+      const accountId = createAccountId(normalizedServerUrl, session.userId);
+      const savedAccount: SavedAccount = {
+        id: accountId,
+        serverUrl: normalizedServerUrl,
+        userId: session.userId,
+        userName: session.userName,
+        accessToken: session.accessToken,
+        lastUsedAt: new Date().toISOString(),
+      };
 
       const nextState = {
-        serverUrl: normalizedServerUrl,
-        session,
+        accounts: [savedAccount],
+        activeAccountId: accountId,
       };
 
       try {
@@ -229,7 +240,7 @@ function LoginRoute() {
         return;
       }
 
-      setAuthState(nextState);
+      upsertAccount(savedAccount);
       setErrorMessage('');
       navigate('/libraries');
     } catch {
@@ -239,7 +250,7 @@ function LoginRoute() {
 
   return (
     <>
-      <LoginPage onSubmit={handleSubmit} />
+      <LoginPage onSubmit={handleSubmit} hasRememberedAccounts={accounts.length > 0} />
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
     </>
   );

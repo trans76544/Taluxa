@@ -17,6 +17,14 @@ describe('LoginPage', () => {
     expect(passwordInput).toHaveClass('field-input');
   });
 
+  it('switches the supporting copy when adding another remembered account', () => {
+    render(<LoginPage onSubmit={vi.fn()} hasRememberedAccounts />);
+
+    expect(
+      screen.getByText('Add another account from this or another server.')
+    ).toBeInTheDocument();
+  });
+
   it('submits the entered server url, username, and password', () => {
     const onSubmit = vi.fn();
 
