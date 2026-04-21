@@ -3,6 +3,7 @@ import Store from 'electron-store';
 import {
   createEmptyPersistedState,
   mergePersistedState,
+  type PersistedStatePatch,
   type PersistedState,
 } from '../../../shared/store/persistence';
 
@@ -18,16 +19,8 @@ function readState(): PersistedState {
 export function registerStorageIpc() {
   ipcMain.handle('storage:read', () => readState());
 
-  ipcMain.handle('storage:write', (_event, nextState: Partial<PersistedState>) => {
-    const currentState = readState();
-    const merged = mergePersistedState({
-      ...currentState,
-      ...nextState,
-      settings: {
-        ...currentState.settings,
-        ...nextState.settings,
-      },
-    });
+  ipcMain.handle('storage:write', (_event, nextState: PersistedStatePatch) => {
+    const merged = mergePersistedState(nextState, readState());
 
     store.store = merged;
     return merged;

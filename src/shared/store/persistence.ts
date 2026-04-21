@@ -9,8 +9,9 @@ export interface PersistedState {
   progressByItemId: Record<string, PlaybackProgress>;
 }
 
-type PersistedStatePatch = Partial<Omit<PersistedState, 'settings'>> & {
+export type PersistedStatePatch = Partial<Omit<PersistedState, 'settings' | 'progressByItemId'>> & {
   settings?: Partial<Settings>;
+  progressByItemId?: Partial<Record<string, PlaybackProgress>>;
 };
 
 export function createEmptyPersistedState(): PersistedState {
@@ -26,20 +27,26 @@ export function createEmptyPersistedState(): PersistedState {
 }
 
 export function mergePersistedState(
-  partial: PersistedStatePatch = {}
+  partial: PersistedStatePatch = {},
+  currentState: PersistedState = createEmptyPersistedState()
 ): PersistedState {
-  const defaults = createEmptyPersistedState();
+  const progressByItemId = { ...currentState.progressByItemId };
+
+  for (const [itemId, progress] of Object.entries(partial.progressByItemId ?? {})) {
+    if (progress) {
+      progressByItemId[itemId] = progress;
+    }
+  }
 
   return {
-    serverUrl: partial.serverUrl ?? defaults.serverUrl,
-    session: partial.session ?? defaults.session,
+    serverUrl: partial.serverUrl ?? currentState.serverUrl,
+    session: partial.session ?? currentState.session,
     settings: {
       rememberSession:
-        partial.settings?.rememberSession ?? defaults.settings.rememberSession,
+        partial.settings?.rememberSession ?? currentState.settings.rememberSession,
       defaultVolume:
-        partial.settings?.defaultVolume ?? defaults.settings.defaultVolume,
+        partial.settings?.defaultVolume ?? currentState.settings.defaultVolume,
     },
-    progressByItemId:
-      partial.progressByItemId ?? defaults.progressByItemId,
+    progressByItemId,
   };
 }

@@ -1,4 +1,7 @@
-import type { PersistedState } from '@shared/store/persistence';
+import type {
+  PersistedState,
+  PersistedStatePatch,
+} from '@shared/store/persistence';
 
 export {};
 
@@ -7,7 +10,7 @@ declare global {
     embyDesktop: {
       storage: {
         read: () => Promise<PersistedState>;
-        write: (nextState: Partial<PersistedState>) => Promise<PersistedState>;
+        write: (nextState: PersistedStatePatch) => Promise<PersistedState>;
         clearSession: () => Promise<PersistedState>;
       };
     };
