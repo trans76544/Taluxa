@@ -10,7 +10,7 @@ export interface PlayerPageProps {
     itemId: string;
     positionSeconds: number;
     durationSeconds: number;
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 function getDurationSeconds(video: HTMLVideoElement): number {
@@ -38,6 +38,7 @@ export function PlayerPage({
     lastReportedAtMs: null,
     lastReportedPositionSeconds: null,
   });
+  const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     progressStateRef.current = {
@@ -81,11 +82,16 @@ export function PlayerPage({
       lastReportedPositionSeconds: positionSeconds,
     };
 
-    void onProgress({
+    const progressInput = {
       itemId,
       positionSeconds,
       durationSeconds: getDurationSeconds(videoRef.current),
-    });
+    };
+
+    progressSyncQueueRef.current = progressSyncQueueRef.current
+      .catch(() => undefined)
+      .then(() => onProgress(progressInput))
+      .catch(() => undefined);
   }
 
   return (
