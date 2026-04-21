@@ -63,6 +63,7 @@ describe('AccountSidebar', () => {
     const activeButton = screen.getByRole('button', { name: 'Charlie' });
     expect(activeButton).toHaveClass('account-sidebar__account', 'is-active');
 
+    expect(screen.getByRole('link', { name: 'Libraries' })).toHaveAttribute('href', '/libraries');
     expect(screen.getByRole('link', { name: 'Add account' })).toHaveAttribute('href', '/login');
     expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
   });

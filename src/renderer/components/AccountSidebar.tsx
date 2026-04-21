@@ -4,7 +4,7 @@ import type { SavedAccount } from '@shared/models/session';
 interface AccountSidebarProps {
   accounts: SavedAccount[];
   activeAccountId: string | null;
-  onSelectAccount: (accountId: string) => void;
+  onSelectAccount: (accountId: string) => void | Promise<void>;
 }
 
 function groupAccountsByServer(accounts: SavedAccount[]) {
@@ -66,6 +66,7 @@ export function AccountSidebar({
       </nav>
 
       <div className="account-sidebar__footer">
+        <Link to="/libraries">Libraries</Link>
         <Link to="/login">Add account</Link>
         <Link to="/settings">Settings</Link>
       </div>

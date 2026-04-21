@@ -570,4 +570,51 @@ describe('App', () => {
     });
     expect(screen.getByRole('button', { name: 'Bob' })).toHaveClass('is-active');
   });
+
+  it('persists the selected account and returns to libraries when switching from settings', async () => {
+    const bobAccount = createSavedAccount({
+      id: 'https://backup.emby.local::user-2',
+      serverUrl: 'https://backup.emby.local',
+      userId: 'user-2',
+      userName: 'Bob',
+      accessToken: 'token-456',
+      lastUsedAt: '2026-04-21T01:00:00.000Z',
+    });
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount(), bobAccount],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: {
+          rememberSession: true,
+          defaultVolume: 0.8,
+        },
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Libraries' })).toHaveAttribute('href', '#/libraries');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        activeAccountId: bobAccount.id,
+      });
+    });
+    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/libraries');
+    expect(fetchViewsMock).toHaveBeenLastCalledWith(
+      'https://backup.emby.local',
+      'user-2',
+      'token-456'
+    );
+  });
 });

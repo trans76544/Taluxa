@@ -17,7 +17,6 @@ import type { SavedAccount } from '@shared/models/session';
 import { createAccountId } from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
-import { AccountSidebar } from '@renderer/components/AccountSidebar';
 import { Layout } from '@renderer/components/Layout';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
@@ -50,17 +49,8 @@ function AuthenticatedLayout({
   children: ReactNode;
   title?: string;
 }) {
-  const { accounts, activeAccountId, session, setActiveAccountId } = useAuth();
-  const sidebar = session ? (
-    <AccountSidebar
-      accounts={accounts}
-      activeAccountId={activeAccountId}
-      onSelectAccount={setActiveAccountId}
-    />
-  ) : null;
-
   return (
-    <Layout sidebar={sidebar} title={title}>
+    <Layout title={title}>
       {children}
     </Layout>
   );
