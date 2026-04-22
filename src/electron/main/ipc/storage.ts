@@ -30,22 +30,37 @@ interface PersistedStateStoreLike {
   store: PersistedState | LegacyPersistedState;
 }
 
+const writeQueueByStore = new WeakMap<PersistedStateStoreLike, Promise<void>>();
+
 export async function writePersistedStatePatch(
   storeLike: PersistedStateStoreLike,
   nextState: PersistedStatePatch,
   options: RegisterStorageIpcOptions = {}
 ): Promise<PersistedState> {
-  const merged = mergePersistedState(
-    nextState,
-    migrateLegacyPersistedState(storeLike.store as PersistedState | LegacyPersistedState)
+  const previousWrite = writeQueueByStore.get(storeLike) ?? Promise.resolve();
+  const queuedWrite = previousWrite.catch(() => undefined).then(async () => {
+    const merged = mergePersistedState(
+      nextState,
+      migrateLegacyPersistedState(storeLike.store as PersistedState | LegacyPersistedState)
+    );
+
+    if (nextState.settings) {
+      await options.onSettingsChanged?.(merged.settings, merged);
+    }
+
+    storeLike.store = merged;
+    return merged;
+  });
+
+  writeQueueByStore.set(
+    storeLike,
+    queuedWrite.then(
+      () => undefined,
+      () => undefined
+    )
   );
 
-  if (nextState.settings) {
-    await options.onSettingsChanged?.(merged.settings, merged);
-  }
-
-  storeLike.store = merged;
-  return merged;
+  return queuedWrite;
 }
 
 export function registerStorageIpc(options: RegisterStorageIpcOptions = {}) {

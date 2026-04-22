@@ -77,6 +77,28 @@ describe('applyProxySettings', () => {
       mode: 'system',
     });
   });
+
+  it('resolves when both the persisted and fallback startup proxy application fail', async () => {
+    const persistedProxy: ProxySettings = {
+      mode: 'custom',
+      customProxyUrl: 'http://127.0.0.1:7890',
+    };
+    const sessionLike = {
+      setProxy: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('persisted proxy failed'))
+        .mockRejectedValueOnce(new Error('system proxy failed')),
+    };
+
+    await expect(applyProxySettingsWithFallback(sessionLike, persistedProxy)).resolves.toBeUndefined();
+
+    expect(sessionLike.setProxy).toHaveBeenNthCalledWith(1, {
+      proxyRules: 'http://127.0.0.1:7890',
+    });
+    expect(sessionLike.setProxy).toHaveBeenNthCalledWith(2, {
+      mode: 'system',
+    });
+  });
 });
 
 describe('writePersistedStatePatch', () => {
@@ -142,5 +164,103 @@ describe('writePersistedStatePatch', () => {
     ).rejects.toThrow('proxy failed');
 
     expect(storeLike.store).toEqual(initialState);
+  });
+
+  it('serializes overlapping writes so older settings do not overwrite newer state', async () => {
+    vi.resetModules();
+    vi.doMock('electron', () => ({
+      ipcMain: {
+        handle: vi.fn(),
+      },
+    }));
+    vi.doMock('electron-store', () => {
+      class FakeStore<T> {
+        store: T;
+
+        constructor(options: { defaults: T }) {
+          this.store = options.defaults;
+        }
+      }
+
+      return {
+        default: FakeStore,
+      };
+    });
+
+    const { writePersistedStatePatch } = await import('../ipc/storage');
+
+    const storeLike = {
+      store: {
+        accounts: [],
+        activeAccountId: null,
+        settings: {
+          rememberSession: true,
+          defaultVolume: 1,
+          librarySortMode: 'latest_added' as const,
+          proxy: {
+            mode: 'system' as const,
+            customProxyUrl: '',
+          },
+          serverPreferencesByUrl: {},
+        },
+        progressByItemId: {},
+      },
+    };
+
+    let releaseFirstWrite: (() => void) | null = null;
+    const firstWriteReady = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const onSettingsChanged = vi
+      .fn()
+      .mockImplementationOnce(() => firstWriteReady)
+      .mockResolvedValue(undefined);
+
+    const firstWrite = writePersistedStatePatch(
+      storeLike,
+      {
+        settings: {
+          proxy: {
+            mode: 'custom',
+            customProxyUrl: 'http://127.0.0.1:7890',
+          },
+        },
+      },
+      { onSettingsChanged }
+    );
+    const secondWrite = writePersistedStatePatch(
+      storeLike,
+      {
+        settings: {
+          rememberSession: false,
+        },
+      },
+      { onSettingsChanged }
+    );
+
+    await vi.waitFor(() => {
+      expect(onSettingsChanged).toHaveBeenCalledTimes(1);
+    });
+
+    releaseFirstWrite?.();
+
+    await Promise.all([firstWrite, secondWrite]);
+
+    expect(onSettingsChanged).toHaveBeenCalledTimes(2);
+    expect(storeLike.store).toEqual({
+      accounts: [],
+      activeAccountId: null,
+      settings: {
+        rememberSession: false,
+        defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'custom',
+          customProxyUrl: 'http://127.0.0.1:7890',
+        },
+        serverPreferencesByUrl: {},
+      },
+      progressByItemId: {},
+    });
   });
 });
