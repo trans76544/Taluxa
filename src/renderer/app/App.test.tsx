@@ -1149,6 +1149,40 @@ describe('App', () => {
     );
   });
 
+  it('shows the fetched server name and featured sort controls in the authenticated shell', async () => {
+    fetchServerInfoMock.mockResolvedValue({ serverName: 'Living Room Server' });
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Featured sort controls' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Recently Added' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Release Date' })).toBeInTheDocument();
+  });
+
   it('fetches friendly server names for saved sidebar servers during hydration, not only the active account', async () => {
     fetchServerInfoMock.mockImplementation(async (serverUrl: string) => ({
       serverName:

@@ -33,7 +33,7 @@ export function HomePage({
         <p className="home-screen__account">{accountLabel}</p>
       </div>
 
-      <div className="home-section__header" role="group" aria-label="Featured sort mode">
+      <div className="home-section__header" role="group" aria-label="Featured sort controls">
         <h2>Featured Sort</h2>
         <div>
           {SORT_OPTIONS.map((option) => (
