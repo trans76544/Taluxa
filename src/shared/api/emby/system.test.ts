@@ -34,4 +34,16 @@ describe('fetchServerInfo', () => {
       serverName: null,
     });
   });
+
+  it('rejects malformed system info payloads', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => null,
+    });
+
+    await expect(fetchServerInfo('https://demo.emby.local', 'token-1')).rejects.toThrow(
+      'Invalid Emby server info response'
+    );
+  });
 });

@@ -13,7 +13,7 @@ export interface LibraryItem {
   id: string;
   name: string;
   posterUrl: string;
-  imageCandidates?: LibraryImageCandidate[];
+  imageCandidates: LibraryImageCandidate[];
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
 }
