@@ -4,6 +4,7 @@ import { createConnection } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ProxySettings } from '@shared/models/settings';
+import { isCustomProxyConfigured } from '@shared/network/proxy';
 
 export interface LaunchMpvInput {
   itemId: string;
@@ -123,8 +124,8 @@ function getProxyArgs(proxy: ProxySettings): string[] {
     return ['--no-http-proxy'];
   }
 
-  if (proxy.mode === 'custom') {
-    return [`--http-proxy=${proxy.customProxyUrl}`];
+  if (isCustomProxyConfigured(proxy)) {
+    return [`--http-proxy=${proxy.customProxyUrl.trim()}`];
   }
 
   return [];

@@ -258,6 +258,93 @@ describe('MpvController', () => {
     );
   });
 
+  it('does not add a custom proxy argument for an invalid legacy custom proxy value', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings({
+        mode: 'custom',
+        customProxyUrl: '127.0.0.1:7890',
+      })
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        'https://example.com/stream.m3u8',
+      ],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+      }
+    );
+  });
+
+  it('trims whitespace from a valid custom proxy before passing it to mpv', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings({
+        mode: 'custom',
+        customProxyUrl: '  http://127.0.0.1:7890  ',
+      })
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        '--http-proxy=http://127.0.0.1:7890',
+        'https://example.com/stream.m3u8',
+      ],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+      }
+    );
+  });
+
   it('rejects when the bundled runtime is missing', async () => {
     existingPaths.add(path.join(repoRoot, 'package.json'));
 
