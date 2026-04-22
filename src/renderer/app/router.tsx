@@ -546,7 +546,8 @@ function LibraryItemsRoute() {
 
 function SettingsRoute() {
   const navigate = useNavigate();
-  const { clearAuthState, serverUrl, session, settings } = useAuth();
+  const { clearAuthState, getServerDisplayName, serverUrl, session, settings, updateSettings } =
+    useAuth();
 
   async function handleLogout() {
     await window.embyDesktop.storage.clearSession();
@@ -554,11 +555,32 @@ function SettingsRoute() {
     navigate('/login');
   }
 
+  async function handleServerDisplayNameSave(nextName: string) {
+    if (!serverUrl) {
+      return;
+    }
+
+    const settingsPatch = {
+      serverPreferencesByUrl: {
+        [serverUrl]: {
+          displayNameOverride: nextName,
+        },
+      },
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   return (
     <SettingsPage
       userName={session?.userName ?? 'Unknown user'}
       serverUrl={serverUrl}
+      serverDisplayName={getServerDisplayName(serverUrl)}
       defaultVolume={settings.defaultVolume}
+      onServerDisplayNameSave={handleServerDisplayNameSave}
       onLogout={handleLogout}
     />
   );

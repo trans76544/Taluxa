@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { fetchServerInfo } from '@shared/api/emby/system';
 import { createAccountId } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
 import { createDefaultSettings, type Settings } from '@shared/models/settings';
@@ -27,8 +28,10 @@ interface AuthContextValue extends AuthState {
   serverUrl: string;
   session: Session | null;
   clearAuthState: () => void;
+  getServerDisplayName: (serverUrl: string) => string;
   setActiveAccountId: (accountId: string) => void;
   setAuthState: (next: AuthStateUpdate) => void;
+  updateSettings: (nextSettings: Partial<Settings>) => void;
   upsertAccount: (account: SavedAccount, settings?: Partial<Settings>) => void;
 }
 
@@ -68,6 +71,16 @@ function mergeSettings(currentSettings: Settings, nextSettings?: Partial<Setting
       ...nextSettings?.serverPreferencesByUrl,
     },
   };
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function getServerDisplayNameOverride(settings: Settings, serverUrl: string): string | null {
+  const displayNameOverride = settings.serverPreferencesByUrl[serverUrl]?.displayNameOverride;
+
+  return hasText(displayNameOverride) ? displayNameOverride.trim() : null;
 }
 
 function normalizeActiveAccountId(
@@ -115,10 +128,16 @@ export function AuthProvider({
   isHydrated = true,
 }: AuthProviderProps) {
   const [authState, setAuthState] = useState<AuthState | null>(null);
+  const [fetchedServerDisplayNamesByUrl, setFetchedServerDisplayNamesByUrl] = useState<
+    Record<string, string>
+  >({});
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
     null;
+  const activeServerDisplayNameOverride = activeAccount
+    ? getServerDisplayNameOverride(resolvedAuthState.settings, activeAccount.serverUrl)
+    : null;
 
   function updateState(updater: (current: AuthState) => AuthState) {
     setAuthState((current) => updater(current ?? normalizeAuthState(initialState)));
@@ -133,6 +152,13 @@ export function AuthProvider({
           }
         : current
     );
+  }
+
+  function updateSettings(nextSettings: Partial<Settings>) {
+    updateState((current) => ({
+      ...current,
+      settings: mergeSettings(current.settings, nextSettings),
+    }));
   }
 
   function upsertAccount(account: SavedAccount, settings?: Partial<Settings>) {
@@ -155,7 +181,7 @@ export function AuthProvider({
       updateState((current) => ({
         ...current,
         activeAccountId: null,
-        settings: next.settings ?? current.settings,
+        settings: mergeSettings(current.settings, next.settings),
       }));
       return;
     }
@@ -173,6 +199,51 @@ export function AuthProvider({
     );
   }
 
+  function getServerDisplayName(serverUrl: string) {
+    return (
+      getServerDisplayNameOverride(resolvedAuthState.settings, serverUrl) ??
+      fetchedServerDisplayNamesByUrl[serverUrl]?.trim() ??
+      serverUrl
+    );
+  }
+
+  useEffect(() => {
+    if (!isHydrated || !activeAccount) {
+      return;
+    }
+
+    if (
+      activeServerDisplayNameOverride ||
+      hasText(fetchedServerDisplayNamesByUrl[activeAccount.serverUrl])
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    fetchServerInfo(activeAccount.serverUrl, activeAccount.accessToken)
+      .then(({ serverName }) => {
+        if (!cancelled && hasText(serverName)) {
+          setFetchedServerDisplayNamesByUrl((current) => ({
+            ...current,
+            [activeAccount.serverUrl]: serverName,
+          }));
+        }
+      })
+      .catch(() => {
+        // Friendly server names are best-effort.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeAccount,
+    activeServerDisplayNameOverride,
+    fetchedServerDisplayNamesByUrl,
+    isHydrated,
+  ]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -182,8 +253,10 @@ export function AuthProvider({
         serverUrl: activeAccount?.serverUrl ?? '',
         session: toSession(activeAccount),
         clearAuthState,
+        getServerDisplayName,
         setActiveAccountId,
         setAuthState: updateAuthState,
+        updateSettings,
         upsertAccount,
       }}
     >

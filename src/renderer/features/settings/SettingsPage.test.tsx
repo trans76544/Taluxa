@@ -5,8 +5,9 @@ import { AuthProvider } from '@renderer/features/auth/AuthContext';
 import { SettingsPage } from './SettingsPage';
 
 describe('SettingsPage', () => {
-  it('shows the saved server url and logout action', () => {
+  it('shows the saved server url, lets you rename the active server, and keeps the logout action', async () => {
     const onLogout = vi.fn();
+    const onServerDisplayNameSave = vi.fn().mockResolvedValue(undefined);
 
     render(
       <MemoryRouter>
@@ -14,7 +15,9 @@ describe('SettingsPage', () => {
           <SettingsPage
             userName="Alice"
             serverUrl="https://demo.emby.local"
+            serverDisplayName="Living Room Server"
             defaultVolume={0.8}
+            onServerDisplayNameSave={onServerDisplayNameSave}
             onLogout={onLogout}
           />
         </AuthProvider>
@@ -24,6 +27,13 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Active account').nextElementSibling).toHaveTextContent('Alice');
     expect(screen.getByText('https://demo.emby.local')).toBeInTheDocument();
     expect(screen.getByText('80%')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Server display name'), {
+      target: { value: 'Projector Server' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save server name' }));
+
+    expect(onServerDisplayNameSave).toHaveBeenCalledWith('Projector Server');
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 

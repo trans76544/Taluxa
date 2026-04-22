@@ -15,6 +15,7 @@ const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
 const reportPlaybackProgressMock = vi.hoisted(() => vi.fn());
+const fetchServerInfoMock = vi.hoisted(() => vi.fn());
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
   activeAccountId?: string | null | undefined;
@@ -40,6 +41,10 @@ vi.mock('@shared/api/emby/playback', async () => {
     reportPlaybackProgress: reportPlaybackProgressMock,
   };
 });
+
+vi.mock('@shared/api/emby/system', () => ({
+  fetchServerInfo: fetchServerInfoMock,
+}));
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -174,6 +179,7 @@ describe('App', () => {
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
     reportPlaybackProgressMock.mockResolvedValue(undefined);
+    fetchServerInfoMock.mockResolvedValue({ serverName: null });
     window.location.hash = '';
   });
 
@@ -926,6 +932,35 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
+  it('shows the fetched server display name before the raw url in the authenticated shell', async () => {
+    fetchServerInfoMock.mockResolvedValue({ serverName: 'Living Room Server' });
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+
+    const displayName = await screen.findByRole('heading', { name: 'Living Room Server' });
+    const rawUrl = screen.getByText('https://demo.emby.local');
+
+    expect(fetchServerInfoMock).toHaveBeenCalledWith('https://demo.emby.local', 'token-123');
+    expect(displayName.compareDocumentPosition(rawUrl) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+
   it('switches the active account through the provider action used by account list UIs', async () => {
     mockStorageRead(
       createPersistedState({
@@ -1046,5 +1081,46 @@ describe('App', () => {
       'user-2',
       'token-456'
     );
+  });
+
+  it('persists a manual server display name override from settings', async () => {
+    fetchServerInfoMock.mockResolvedValue({ serverName: 'Living Room Server' });
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ defaultVolume: 0.8 }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('Living Room Server')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Server display name'), {
+      target: { value: 'Projector Server' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save server name' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        settings: {
+          serverPreferencesByUrl: {
+            'https://demo.emby.local': {
+              displayNameOverride: 'Projector Server',
+            },
+          },
+        },
+      });
+    });
+    expect(await screen.findByRole('heading', { name: 'Projector Server' })).toBeInTheDocument();
+    expect(screen.getAllByText('https://demo.emby.local').length).toBeGreaterThan(0);
   });
 });
