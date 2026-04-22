@@ -26,20 +26,34 @@ export interface RegisterStorageIpcOptions {
   ) => void | Promise<void>;
 }
 
+interface PersistedStateStoreLike {
+  store: PersistedState | LegacyPersistedState;
+}
+
+export async function writePersistedStatePatch(
+  storeLike: PersistedStateStoreLike,
+  nextState: PersistedStatePatch,
+  options: RegisterStorageIpcOptions = {}
+): Promise<PersistedState> {
+  const merged = mergePersistedState(
+    nextState,
+    migrateLegacyPersistedState(storeLike.store as PersistedState | LegacyPersistedState)
+  );
+
+  if (nextState.settings) {
+    await options.onSettingsChanged?.(merged.settings, merged);
+  }
+
+  storeLike.store = merged;
+  return merged;
+}
+
 export function registerStorageIpc(options: RegisterStorageIpcOptions = {}) {
   ipcMain.handle('storage:read', () => readPersistedState());
 
-  ipcMain.handle('storage:write', async (_event, nextState: PersistedStatePatch) => {
-    const merged = mergePersistedState(nextState, readPersistedState());
-
-    store.store = merged;
-
-    if (nextState.settings) {
-      await options.onSettingsChanged?.(merged.settings, merged);
-    }
-
-    return merged;
-  });
+  ipcMain.handle('storage:write', (_event, nextState: PersistedStatePatch) =>
+    writePersistedStatePatch(store, nextState, options)
+  );
 
   ipcMain.handle('storage:clear-session', () => {
     const currentState = readPersistedState();

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { readPersistedState, registerStorageIpc } from './ipc/storage';
-import { applyProxySettings } from './network/proxy';
+import { applyProxySettings, applyProxySettingsWithFallback } from './network/proxy';
 import {
   MpvController,
   type LaunchMpvInput,
@@ -22,22 +22,24 @@ const mpvController = new MpvController({
 app.whenReady().then(() => {
   const persistedState = readPersistedState();
 
-  return applyProxySettings(session.defaultSession, persistedState.settings.proxy).then(() => {
-    registerStorageIpc({
-      onSettingsChanged: (settings) =>
-        applyProxySettings(session.defaultSession, settings.proxy),
-    });
-    ipcMain.handle('player:launch', (_event, input: LaunchMpvInput) =>
-      mpvController.launch(input)
-    );
-    createMainWindow();
+  return applyProxySettingsWithFallback(session.defaultSession, persistedState.settings.proxy).then(
+    () => {
+      registerStorageIpc({
+        onSettingsChanged: (settings) =>
+          applyProxySettings(session.defaultSession, settings.proxy),
+      });
+      ipcMain.handle('player:launch', (_event, input: LaunchMpvInput) =>
+        mpvController.launch(input)
+      );
+      createMainWindow();
 
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
-      }
-    });
-  });
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          createMainWindow();
+        }
+      });
+    }
+  );
 });
 
 app.on('window-all-closed', () => {
