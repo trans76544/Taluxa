@@ -20,11 +20,13 @@ export function PlayerPage({
   onProgress,
 }: PlayerPageProps) {
   const [launchError, setLaunchError] = useState('');
+  const [hasLaunched, setHasLaunched] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     setLaunchError('');
+    setHasLaunched(false);
 
     window.embyDesktop.player
       .launch({
@@ -32,6 +34,11 @@ export function PlayerPage({
         title,
         streamUrl,
         startSeconds: initialPositionSeconds,
+      })
+      .then(() => {
+        if (!cancelled) {
+          setHasLaunched(true);
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -60,7 +67,13 @@ export function PlayerPage({
         <h2>{title}</h2>
         <p>Desktop playback</p>
       </div>
-      {launchError ? <p role="alert">{launchError}</p> : <p>Launching mpv...</p>}
+      {launchError ? (
+        <p role="alert">{launchError}</p>
+      ) : hasLaunched ? (
+        <p>mpv window opened. Keep this page open to sync progress.</p>
+      ) : (
+        <p>Launching mpv...</p>
+      )}
     </section>
   );
 }

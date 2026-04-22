@@ -19,8 +19,16 @@ export interface MpvProgressSnapshot {
 
 export interface SpawnedMpvProcess {
   once(event: 'error', listener: (error: Error) => void): this;
+  once(
+    event: 'exit',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): this;
   once(event: 'spawn', listener: () => void): this;
   removeListener(event: 'error', listener: (error: Error) => void): this;
+  removeListener(
+    event: 'exit',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): this;
   removeListener(event: 'spawn', listener: () => void): this;
   unref(): void;
 }
@@ -47,9 +55,13 @@ interface ActiveSession {
   buffer: string;
   client: MpvIpcClient | null;
   connectAttempt: number;
+  connectTimeout: NodeJS.Timeout | null;
   durationSeconds: number;
   ipcServerPath: string;
+  isReady: boolean;
   itemId: string;
+  onFailure: (error: Error) => void;
+  onReady: () => void;
   positionSeconds: number | null;
   retryTimeout: NodeJS.Timeout | null;
   sessionId: number;
@@ -58,6 +70,7 @@ interface ActiveSession {
 export interface MpvControllerOptions {
   connectIpc?: ConnectIpc;
   connectRetryDelayMs?: number;
+  connectTimeoutMs?: number;
   createIpcEndpoint?: () => string;
   fileExists?: (targetPath: string) => boolean;
   isPackaged?: boolean;
@@ -111,6 +124,8 @@ export class MpvController {
 
   private readonly connectRetryDelayMs: number;
 
+  private readonly connectTimeoutMs: number;
+
   private readonly createIpcEndpoint: () => string;
 
   private readonly fileExists: (targetPath: string) => boolean;
@@ -134,6 +149,7 @@ export class MpvController {
   constructor(options: MpvControllerOptions = {}) {
     this.connectIpc = options.connectIpc ?? ((ipcServerPath) => createConnection(ipcServerPath));
     this.connectRetryDelayMs = options.connectRetryDelayMs ?? 100;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 5000;
     this.createIpcEndpoint =
       options.createIpcEndpoint ?? (() => this.createDefaultIpcEndpoint());
     this.fileExists = options.fileExists ?? existsSync;
@@ -174,6 +190,16 @@ export class MpvController {
 
     await new Promise<void>((resolve, reject) => {
       let child: SpawnedMpvProcess;
+      let launchSettled = false;
+
+      const settleLaunch = (settler: () => void) => {
+        if (launchSettled) {
+          return;
+        }
+
+        launchSettled = true;
+        settler();
+      };
 
       try {
         child = this.spawnProcess(executablePath, args, {
@@ -187,17 +213,33 @@ export class MpvController {
 
       const handleSpawn = () => {
         child.removeListener('error', handleError);
+        child.once('exit', handleExit);
         this.startSession({
           sessionId,
           itemId: input.itemId,
           ipcServerPath,
+          onFailure: (error) => {
+            settleLaunch(() => reject(error));
+          },
+          onReady: () => {
+            settleLaunch(resolve);
+          },
         });
         child.unref();
-        resolve();
       };
       const handleError = (error: Error) => {
         child.removeListener('spawn', handleSpawn);
-        reject(error);
+        settleLaunch(() => reject(error));
+      };
+      const handleExit = () => {
+        const activeSession = this.activeSession;
+
+        if (!this.isActiveSession(sessionId) || activeSession?.isReady || !activeSession) {
+          return;
+        }
+
+        activeSession.onFailure(new Error('mpv exited before playback became ready.'));
+        this.clearActiveSession();
       };
 
       child.once('spawn', handleSpawn);
@@ -212,6 +254,10 @@ export class MpvController {
 
     if (this.activeSession.retryTimeout) {
       clearTimeout(this.activeSession.retryTimeout);
+    }
+
+    if (this.activeSession.connectTimeout) {
+      clearTimeout(this.activeSession.connectTimeout);
     }
 
     this.activeSession.client?.destroy();
@@ -233,6 +279,12 @@ export class MpvController {
       }
 
       session.connectAttempt = 0;
+      session.isReady = true;
+      if (session.connectTimeout) {
+        clearTimeout(session.connectTimeout);
+        session.connectTimeout = null;
+      }
+      session.onReady();
       this.observeProperty(client, 1, 'time-pos');
       this.observeProperty(client, 2, 'duration');
     });
@@ -241,6 +293,9 @@ export class MpvController {
     });
     client.on('close', () => {
       if (this.isActiveSession(session.sessionId) && session.client === client) {
+        if (!session.isReady) {
+          session.onFailure(new Error('mpv closed before playback became ready.'));
+        }
         this.clearActiveSession();
       }
     });
@@ -261,6 +316,9 @@ export class MpvController {
         return;
       }
 
+      if (!session.isReady) {
+        session.onFailure(new Error('Could not connect to mpv playback bridge.'));
+      }
       this.clearActiveSession();
     });
   }
@@ -352,25 +410,41 @@ export class MpvController {
   private startSession({
     ipcServerPath,
     itemId,
+    onFailure,
+    onReady,
     sessionId,
   }: {
     ipcServerPath: string;
     itemId: string;
+    onFailure: (error: Error) => void;
+    onReady: () => void;
     sessionId: number;
   }): void {
     const session: ActiveSession = {
       buffer: '',
       client: null,
       connectAttempt: 0,
+      connectTimeout: null,
       durationSeconds: 0,
       ipcServerPath,
+      isReady: false,
       itemId,
+      onFailure,
+      onReady,
       positionSeconds: null,
       retryTimeout: null,
       sessionId,
     };
 
     this.activeSession = session;
+    session.connectTimeout = setTimeout(() => {
+      if (!this.isActiveSession(session.sessionId) || session.isReady) {
+        return;
+      }
+
+      session.onFailure(new Error('Timed out waiting for mpv to become ready.'));
+      this.clearActiveSession();
+    }, this.connectTimeoutMs);
     this.connectSession(session);
   }
 }

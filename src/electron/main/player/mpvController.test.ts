@@ -89,11 +89,14 @@ describe('MpvController', () => {
   it('launches mpv with the expected window and playback arguments', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
     const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
 
     const controller = createController({
+      connectIpc,
       moduleDir: devModuleDir,
       spawnProcess,
       createIpcEndpoint: () => ipcServerPath,
@@ -101,6 +104,7 @@ describe('MpvController', () => {
 
     const launchPromise = controller.launch(createLaunchInput({ startSeconds: -5 }));
     child.emit('spawn');
+    ipcClient.emit('connect');
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -170,11 +174,10 @@ describe('MpvController', () => {
 
     const launchPromise = controller.launch(createLaunchInput({ itemId: 'episode-1' }));
     child.emit('spawn');
+    ipcClient.emit('connect');
     await expect(launchPromise).resolves.toBeUndefined();
 
     expect(connectIpc).toHaveBeenCalledWith(ipcServerPath);
-
-    ipcClient.emit('connect');
 
     expect(ipcClient.write).toHaveBeenNthCalledWith(
       1,
@@ -230,7 +233,6 @@ describe('MpvController', () => {
 
     const launchPromise = controller.launch(createLaunchInput({ itemId: 'episode-2' }));
     child.emit('spawn');
-    await expect(launchPromise).resolves.toBeUndefined();
 
     const retryableError = Object.assign(new Error('pipe not ready'), { code: 'ENOENT' });
 
@@ -241,6 +243,7 @@ describe('MpvController', () => {
 
     expect(connectIpc).toHaveBeenCalledTimes(2);
     secondIpcClient.emit('connect');
+    await expect(launchPromise).resolves.toBeUndefined();
     secondIpcClient.emit(
       'data',
       Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 240 })}\n`)
@@ -263,5 +266,55 @@ describe('MpvController', () => {
       positionSeconds: 18,
       durationSeconds: 240,
     });
+  });
+
+  it('rejects when mpv exits before the IPC bridge becomes ready', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput());
+    child.emit('spawn');
+    child.emit('exit', 1, null);
+
+    await expect(launchPromise).rejects.toThrow(/before playback became ready/i);
+  });
+
+  it('rejects when mpv readiness times out before IPC connects', async () => {
+    vi.useFakeTimers();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      connectRetryDelayMs: 50,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      connectTimeoutMs: 200,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput());
+    child.emit('spawn');
+    const timeoutAssertion = expect(launchPromise).rejects.toThrow(/timed out/i);
+
+    await vi.advanceTimersByTimeAsync(200);
+    await timeoutAssertion;
   });
 });

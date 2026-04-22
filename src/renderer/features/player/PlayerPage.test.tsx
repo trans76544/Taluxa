@@ -10,7 +10,7 @@ interface PlayerProgressEvent {
 
 function mockPlayerBridge() {
   const listeners = new Set<(event: PlayerProgressEvent) => void>();
-  const launch = vi.fn().mockResolvedValue(undefined);
+  const launch = vi.fn(() => new Promise<void>(() => undefined));
   const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
     listeners.add(listener);
 
@@ -35,6 +35,17 @@ function mockPlayerBridge() {
       }
     },
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return { promise, resolve, reject };
 }
 
 afterEach(() => {
@@ -81,6 +92,29 @@ describe('PlayerPage', () => {
         startSeconds: 42,
       });
     });
+  });
+
+  it('shows a ready state after mpv launch resolves', async () => {
+    const deferred = createDeferred<void>();
+    const { launch } = mockPlayerBridge();
+    launch.mockReturnValueOnce(deferred.promise);
+
+    render(
+      <PlayerPage
+        itemId="item-1"
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
+        initialPositionSeconds={42}
+        onProgress={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Launching mpv...')).toBeInTheDocument();
+
+    deferred.resolve();
+
+    expect(await screen.findByText('mpv window opened. Keep this page open to sync progress.')).toBeInTheDocument();
+    expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
   });
 
   it('shows a visible error when the mpv bridge launch rejects', async () => {
