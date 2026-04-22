@@ -240,7 +240,7 @@ export class MpvController {
       this.handleIpcData(session.sessionId, chunk);
     });
     client.on('close', () => {
-      if (this.isActiveSession(session.sessionId)) {
+      if (this.isActiveSession(session.sessionId) && session.client === client) {
         this.clearActiveSession();
       }
     });

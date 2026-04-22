@@ -2,7 +2,7 @@
 
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MpvController,
   type LaunchMpvInput,
@@ -32,6 +32,10 @@ describe('MpvController', () => {
 
   beforeEach(() => {
     existingPaths = new Set<string>();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   function createController(overrides: Partial<ConstructorParameters<typeof MpvController>[0]> = {}) {
@@ -197,6 +201,67 @@ describe('MpvController', () => {
       itemId: 'episode-1',
       positionSeconds: 12,
       durationSeconds: 180,
+    });
+  });
+
+  it('retries retryable ipc connection failures after the first socket closes', async () => {
+    vi.useFakeTimers();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const firstIpcClient = new FakeIpcClient();
+    const secondIpcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi
+      .fn<() => FakeIpcClient>()
+      .mockReturnValueOnce(firstIpcClient)
+      .mockReturnValueOnce(secondIpcClient);
+    const onProgress = vi.fn<(snapshot: MpvProgressSnapshot) => void>();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      moduleDir: devModuleDir,
+      spawnProcess,
+      connectIpc,
+      connectRetryDelayMs: 50,
+      createIpcEndpoint: () => ipcServerPath,
+      onProgress,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput({ itemId: 'episode-2' }));
+    child.emit('spawn');
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const retryableError = Object.assign(new Error('pipe not ready'), { code: 'ENOENT' });
+
+    firstIpcClient.emit('error', retryableError);
+    firstIpcClient.emit('close');
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(connectIpc).toHaveBeenCalledTimes(2);
+    secondIpcClient.emit('connect');
+    secondIpcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 240 })}\n`)
+    );
+    secondIpcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'time-pos', data: 18.4 })}\n`)
+    );
+
+    expect(secondIpcClient.write).toHaveBeenNthCalledWith(
+      1,
+      `${JSON.stringify({ command: ['observe_property', 1, 'time-pos'] })}\n`
+    );
+    expect(secondIpcClient.write).toHaveBeenNthCalledWith(
+      2,
+      `${JSON.stringify({ command: ['observe_property', 2, 'duration'] })}\n`
+    );
+    expect(onProgress).toHaveBeenCalledWith({
+      itemId: 'episode-2',
+      positionSeconds: 18,
+      durationSeconds: 240,
     });
   });
 });
