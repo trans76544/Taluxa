@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchServerInfo } from '@shared/api/emby/system';
 import { createAccountId } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
@@ -131,13 +131,11 @@ export function AuthProvider({
   const [fetchedServerDisplayNamesByUrl, setFetchedServerDisplayNamesByUrl] = useState<
     Record<string, string>
   >({});
+  const requestedServerDisplayNamesRef = useRef(new Set<string>());
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
     null;
-  const activeServerDisplayNameOverride = activeAccount
-    ? getServerDisplayNameOverride(resolvedAuthState.settings, activeAccount.serverUrl)
-    : null;
 
   function updateState(updater: (current: AuthState) => AuthState) {
     setAuthState((current) => updater(current ?? normalizeAuthState(initialState)));
@@ -208,41 +206,49 @@ export function AuthProvider({
   }
 
   useEffect(() => {
-    if (!isHydrated || !activeAccount) {
-      return;
-    }
-
-    if (
-      activeServerDisplayNameOverride ||
-      hasText(fetchedServerDisplayNamesByUrl[activeAccount.serverUrl])
-    ) {
+    if (!isHydrated) {
       return;
     }
 
     let cancelled = false;
 
-    fetchServerInfo(activeAccount.serverUrl, activeAccount.accessToken)
-      .then(({ serverName }) => {
-        if (!cancelled && hasText(serverName)) {
-          setFetchedServerDisplayNamesByUrl((current) => ({
-            ...current,
-            [activeAccount.serverUrl]: serverName,
-          }));
-        }
-      })
-      .catch(() => {
-        // Friendly server names are best-effort.
-      });
+    const firstAccountByServerUrl = new Map<string, SavedAccount>();
+
+    for (const account of resolvedAuthState.accounts) {
+      if (!firstAccountByServerUrl.has(account.serverUrl)) {
+        firstAccountByServerUrl.set(account.serverUrl, account);
+      }
+    }
+
+    for (const account of firstAccountByServerUrl.values()) {
+      if (
+        getServerDisplayNameOverride(resolvedAuthState.settings, account.serverUrl) ||
+        hasText(fetchedServerDisplayNamesByUrl[account.serverUrl]) ||
+        requestedServerDisplayNamesRef.current.has(account.serverUrl)
+      ) {
+        continue;
+      }
+
+      requestedServerDisplayNamesRef.current.add(account.serverUrl);
+
+      fetchServerInfo(account.serverUrl, account.accessToken)
+        .then(({ serverName }) => {
+          if (!cancelled && hasText(serverName)) {
+            setFetchedServerDisplayNamesByUrl((current) => ({
+              ...current,
+              [account.serverUrl]: serverName,
+            }));
+          }
+        })
+        .catch(() => {
+          // Friendly server names are best-effort.
+        });
+    }
 
     return () => {
       cancelled = true;
     };
-  }, [
-    activeAccount,
-    activeServerDisplayNameOverride,
-    fetchedServerDisplayNamesByUrl,
-    isHydrated,
-  ]);
+  }, [fetchedServerDisplayNamesByUrl, isHydrated, resolvedAuthState.accounts, resolvedAuthState.settings]);
 
   return (
     <AuthContext.Provider

@@ -39,4 +39,44 @@ describe('SettingsPage', () => {
 
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps a dirty server rename draft when async display name props change', () => {
+    const onLogout = vi.fn();
+    const onServerDisplayNameSave = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <MemoryRouter>
+        <AuthProvider initialState={{ accounts: [], activeAccountId: null }}>
+          <SettingsPage
+            userName="Alice"
+            serverUrl="https://demo.emby.local"
+            serverDisplayName="https://demo.emby.local"
+            defaultVolume={0.8}
+            onServerDisplayNameSave={onServerDisplayNameSave}
+            onLogout={onLogout}
+          />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('Server display name'), {
+      target: { value: 'Projector Server' },
+    });
+
+    rerender(
+      <MemoryRouter>
+        <AuthProvider initialState={{ accounts: [], activeAccountId: null }}>
+          <SettingsPage
+            userName="Alice"
+            serverUrl="https://demo.emby.local"
+            serverDisplayName="Living Room Server"
+            defaultVolume={0.8}
+            onServerDisplayNameSave={onServerDisplayNameSave}
+            onLogout={onLogout}
+          />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByLabelText('Server display name')).toHaveValue('Projector Server');
+  });
 });

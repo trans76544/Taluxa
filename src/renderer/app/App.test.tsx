@@ -961,6 +961,48 @@ describe('App', () => {
     );
   });
 
+  it('fetches friendly server names for saved sidebar servers during hydration, not only the active account', async () => {
+    fetchServerInfoMock.mockImplementation(async (serverUrl: string) => ({
+      serverName:
+        serverUrl === 'https://demo.emby.local' ? 'Living Room Server' : 'Bedroom Server',
+    }));
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount(),
+          createSavedAccount({
+            id: 'https://backup.emby.local::user-2',
+            serverUrl: 'https://backup.emby.local',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-456',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Bedroom Server' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchServerInfoMock).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchServerInfoMock).toHaveBeenCalledWith('https://demo.emby.local', 'token-123');
+    expect(fetchServerInfoMock).toHaveBeenCalledWith('https://backup.emby.local', 'token-456');
+  });
+
   it('switches the active account through the provider action used by account list UIs', async () => {
     mockStorageRead(
       createPersistedState({

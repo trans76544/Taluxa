@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Layout } from '@renderer/components/Layout';
 
 interface SettingsPageProps {
@@ -19,10 +19,18 @@ export function SettingsPage({
   onLogout,
 }: SettingsPageProps) {
   const [draftServerDisplayName, setDraftServerDisplayName] = useState(serverDisplayName);
+  const [isDraftDirty, setIsDraftDirty] = useState(false);
+  const lastServerUrlRef = useRef(serverUrl);
 
   useEffect(() => {
-    setDraftServerDisplayName(serverDisplayName);
-  }, [serverDisplayName]);
+    const serverChanged = lastServerUrlRef.current !== serverUrl;
+    lastServerUrlRef.current = serverUrl;
+
+    if (serverChanged || !isDraftDirty || draftServerDisplayName === serverDisplayName) {
+      setDraftServerDisplayName(serverDisplayName);
+      setIsDraftDirty(false);
+    }
+  }, [draftServerDisplayName, isDraftDirty, serverDisplayName, serverUrl]);
 
   async function handleServerDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,7 +55,10 @@ export function SettingsPage({
           name="server-display-name"
           type="text"
           value={draftServerDisplayName}
-          onChange={(event) => setDraftServerDisplayName(event.target.value)}
+          onChange={(event) => {
+            setDraftServerDisplayName(event.target.value);
+            setIsDraftDirty(true);
+          }}
         />
 
         <button type="submit">Save server name</button>
