@@ -20,12 +20,70 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
     });
     expect('serverUrl' in state).toBe(false);
     expect('session' in state).toBe(false);
+  });
+
+  it('merges proxy settings without losing existing settings or server preferences', () => {
+    const currentState: PersistedState = {
+      accounts: [],
+      activeAccountId: null,
+      settings: {
+        rememberSession: false,
+        defaultVolume: 0.5,
+        librarySortMode: 'release_date',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
+        serverPreferencesByUrl: {
+          'https://a.local': {
+            displayNameOverride: 'Main Server',
+          },
+        },
+      },
+      progressByItemId: {},
+    };
+
+    expect(
+      mergePersistedState(
+        {
+          settings: {
+            proxy: {
+              mode: 'custom',
+              customProxyUrl: 'http://127.0.0.1:8080',
+            },
+          },
+        },
+        currentState
+      )
+    ).toEqual({
+      accounts: [],
+      activeAccountId: null,
+      settings: {
+        rememberSession: false,
+        defaultVolume: 0.5,
+        librarySortMode: 'release_date',
+        proxy: {
+          mode: 'custom',
+          customProxyUrl: 'http://127.0.0.1:8080',
+        },
+        serverPreferencesByUrl: {
+          'https://a.local': {
+            displayNameOverride: 'Main Server',
+          },
+        },
+      },
+      progressByItemId: {},
+    });
   });
 
   it('creates a durable account id from server url and user id', () => {
@@ -72,6 +130,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 0.8,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {},
       },
       progressByItemId: {
@@ -104,6 +166,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -180,6 +246,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'release_date',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -220,6 +290,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -248,6 +322,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -280,6 +358,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -317,6 +399,10 @@ describe('persistence', () => {
             rememberSession: true,
             defaultVolume: 1,
             librarySortMode: 'latest_added',
+            proxy: {
+              mode: 'system',
+              customProxyUrl: '',
+            },
             serverPreferencesByUrl: {},
           },
           progressByItemId: {
@@ -345,6 +431,10 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 1,
         librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
         serverPreferencesByUrl: {},
       },
       progressByItemId: {

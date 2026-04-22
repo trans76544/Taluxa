@@ -159,6 +159,10 @@ function mergeSettings(
     rememberSession: nextSettings?.rememberSession ?? currentSettings.rememberSession,
     defaultVolume: nextSettings?.defaultVolume ?? currentSettings.defaultVolume,
     librarySortMode: nextSettings?.librarySortMode ?? currentSettings.librarySortMode,
+    proxy: {
+      ...currentSettings.proxy,
+      ...nextSettings?.proxy,
+    },
     serverPreferencesByUrl: {
       ...currentSettings.serverPreferencesByUrl,
       ...nextSettings?.serverPreferencesByUrl,
