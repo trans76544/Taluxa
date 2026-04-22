@@ -28,6 +28,7 @@ import {
 } from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
+import { isValidCustomProxyUrl } from '@shared/network/proxy';
 import { Layout } from '@renderer/components/Layout';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
@@ -35,6 +36,7 @@ import { HomePage } from '@renderer/features/home/HomePage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
+import type { ProxyMode } from '@shared/models/settings';
 
 interface PlayerLocationState {
   title?: string;
@@ -625,12 +627,36 @@ function SettingsRoute() {
     updateSettings(settingsPatch);
   }
 
+  async function handleProxySettingsSave(next: {
+    mode: ProxyMode;
+    customProxyUrl: string;
+  }) {
+    if (next.mode === 'custom' && !isValidCustomProxyUrl(next.customProxyUrl)) {
+      throw new Error('invalid proxy');
+    }
+
+    const settingsPatch = {
+      proxy: {
+        mode: next.mode,
+        customProxyUrl: next.customProxyUrl,
+      },
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   return (
     <SettingsPage
       userName={session?.userName ?? 'Unknown user'}
       serverUrl={serverUrl}
       serverDisplayName={getServerDisplayName(serverUrl)}
       defaultVolume={settings.defaultVolume}
+      proxyMode={settings.proxy.mode}
+      customProxyUrl={settings.proxy.customProxyUrl}
+      onProxySettingsSave={handleProxySettingsSave}
       onServerDisplayNameSave={handleServerDisplayNameSave}
       onLogout={handleLogout}
     />

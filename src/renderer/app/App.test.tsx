@@ -1466,6 +1466,43 @@ describe('App', () => {
     expect(screen.getAllByText('https://demo.emby.local').length).toBeGreaterThan(0);
   });
 
+  it('persists custom proxy settings from the settings page', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ defaultVolume: 0.8 }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Custom proxy'));
+    fireEvent.change(screen.getByLabelText('Custom proxy URL'), {
+      target: { value: 'http://127.0.0.1:7890' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save proxy settings' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        settings: {
+          proxy: {
+            mode: 'custom',
+            customProxyUrl: 'http://127.0.0.1:7890',
+          },
+        },
+      });
+    });
+  });
+
   it('shows an inline error when persisting a manual server display name override fails', async () => {
     const storage = mockStorageRead(
       createPersistedState({

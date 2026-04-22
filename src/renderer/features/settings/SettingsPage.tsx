@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { ProxyMode, ProxySettings } from '@shared/models/settings';
 import { Layout } from '@renderer/components/Layout';
 
 interface SettingsPageProps {
@@ -6,6 +7,9 @@ interface SettingsPageProps {
   serverUrl: string;
   serverDisplayName: string;
   defaultVolume: number;
+  proxyMode: ProxyMode;
+  customProxyUrl: string;
+  onProxySettingsSave: (next: ProxySettings) => void | Promise<void>;
   onServerDisplayNameSave: (nextName: string) => void | Promise<void>;
   onLogout: () => void;
 }
@@ -15,12 +19,18 @@ export function SettingsPage({
   serverUrl,
   serverDisplayName,
   defaultVolume,
+  proxyMode,
+  customProxyUrl,
+  onProxySettingsSave,
   onServerDisplayNameSave,
   onLogout,
 }: SettingsPageProps) {
   const [draftServerDisplayName, setDraftServerDisplayName] = useState(serverDisplayName);
   const [isDraftDirty, setIsDraftDirty] = useState(false);
-  const [saveError, setSaveError] = useState('');
+  const [draftProxyMode, setDraftProxyMode] = useState(proxyMode);
+  const [draftCustomProxyUrl, setDraftCustomProxyUrl] = useState(customProxyUrl);
+  const [serverSaveError, setServerSaveError] = useState('');
+  const [proxySaveError, setProxySaveError] = useState('');
   const lastServerUrlRef = useRef(serverUrl);
 
   useEffect(() => {
@@ -30,17 +40,36 @@ export function SettingsPage({
     if (serverChanged || !isDraftDirty || draftServerDisplayName === serverDisplayName) {
       setDraftServerDisplayName(serverDisplayName);
       setIsDraftDirty(false);
-      setSaveError('');
+      setServerSaveError('');
     }
   }, [draftServerDisplayName, isDraftDirty, serverDisplayName, serverUrl]);
+
+  useEffect(() => {
+    setDraftProxyMode(proxyMode);
+    setDraftCustomProxyUrl(customProxyUrl);
+    setProxySaveError('');
+  }, [customProxyUrl, proxyMode]);
 
   async function handleServerDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
       await onServerDisplayNameSave(draftServerDisplayName.trim());
-      setSaveError('');
+      setServerSaveError('');
     } catch {
-      setSaveError('Could not save the server name. Try again.');
+      setServerSaveError('Could not save the server name. Try again.');
+    }
+  }
+
+  async function handleProxySettingsSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      await onProxySettingsSave({
+        mode: draftProxyMode,
+        customProxyUrl: draftCustomProxyUrl.trim(),
+      });
+      setProxySaveError('');
+    } catch {
+      setProxySaveError('Could not save proxy settings. Check the proxy URL and try again.');
     }
   }
 
@@ -65,14 +94,82 @@ export function SettingsPage({
           onChange={(event) => {
             setDraftServerDisplayName(event.target.value);
             setIsDraftDirty(true);
-            setSaveError('');
+            setServerSaveError('');
           }}
         />
 
         <button type="submit">Save server name</button>
       </form>
 
-      {saveError ? <p role="alert">{saveError}</p> : null}
+      {serverSaveError ? <p role="alert">{serverSaveError}</p> : null}
+
+      <form noValidate onSubmit={(event) => void handleProxySettingsSubmit(event)}>
+        <fieldset>
+          <legend>Proxy</legend>
+
+          <label htmlFor="proxy-mode-system">
+            <input
+              id="proxy-mode-system"
+              name="proxy-mode"
+              type="radio"
+              checked={draftProxyMode === 'system'}
+              onChange={() => {
+                setDraftProxyMode('system');
+                setProxySaveError('');
+              }}
+            />
+            Use Windows system proxy
+          </label>
+
+          <label htmlFor="proxy-mode-direct">
+            <input
+              id="proxy-mode-direct"
+              name="proxy-mode"
+              type="radio"
+              checked={draftProxyMode === 'direct'}
+              onChange={() => {
+                setDraftProxyMode('direct');
+                setProxySaveError('');
+              }}
+            />
+            Direct connection
+          </label>
+
+          <label htmlFor="proxy-mode-custom">
+            <input
+              id="proxy-mode-custom"
+              name="proxy-mode"
+              type="radio"
+              checked={draftProxyMode === 'custom'}
+              onChange={() => {
+                setDraftProxyMode('custom');
+                setProxySaveError('');
+              }}
+            />
+            Custom proxy
+          </label>
+        </fieldset>
+
+        {draftProxyMode === 'custom' ? (
+          <>
+            <label htmlFor="custom-proxy-url">Custom proxy URL</label>
+            <input
+              id="custom-proxy-url"
+              name="custom-proxy-url"
+              type="url"
+              value={draftCustomProxyUrl}
+              onChange={(event) => {
+                setDraftCustomProxyUrl(event.target.value);
+                setProxySaveError('');
+              }}
+            />
+          </>
+        ) : null}
+
+        <button type="submit">Save proxy settings</button>
+      </form>
+
+      {proxySaveError ? <p role="alert">{proxySaveError}</p> : null}
 
       <button type="button" onClick={onLogout}>
         Sign out
