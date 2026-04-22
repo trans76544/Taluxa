@@ -635,6 +635,62 @@ describe('App', () => {
     });
   });
 
+  it('waits for the resume lookup before mounting the player page', async () => {
+    const resumeLookup = createDeferred<PersistedState>();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    storage.read.mockImplementationOnce(async () =>
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    storage.read.mockImplementationOnce(() => resumeLookup.promise);
+
+    window.location.hash = '#/player/item-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(playerPageMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('player-page')).not.toBeInTheDocument();
+
+    resumeLookup.resolve(
+      {
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: {
+          rememberSession: true,
+          defaultVolume: 1,
+        },
+        progressByItemId: {
+          [createAccountScopedProgressKey('https://demo.emby.local::user-1', 'item-1')]: {
+            itemId: 'item-1',
+            positionSeconds: 120,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+        },
+      } satisfies PersistedState
+    );
+
+    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
+    expect(playerPageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        itemId: 'item-1',
+        initialPositionSeconds: 120,
+      })
+    );
+  });
+
   it('preserves library name when opening a library from the home screen', async () => {
     mockStorageRead(
       createPersistedState({

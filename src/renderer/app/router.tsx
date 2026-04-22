@@ -120,6 +120,7 @@ function PlayerRoute() {
   const { itemId = '' } = useParams();
   const location = useLocation();
   const [initialPositionSeconds, setInitialPositionSeconds] = useState(0);
+  const [isResumeLookupComplete, setIsResumeLookupComplete] = useState(false);
   const playerState = location.state as PlayerLocationState | null | undefined;
   const title = playerState?.title?.trim() || itemId || 'Playback';
   const resolvedActiveAccountId =
@@ -128,41 +129,43 @@ function PlayerRoute() {
   useEffect(() => {
     if (!itemId) {
       setInitialPositionSeconds(0);
+      setIsResumeLookupComplete(true);
       return;
     }
 
     let cancelled = false;
 
+    setIsResumeLookupComplete(false);
     setInitialPositionSeconds(0);
 
     window.embyDesktop.storage
       .read()
       .then((persistedState) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          const progressByItemId = getPersistedProgressByItemIdForAccount(
+            persistedState.progressByItemId,
+            resolvedActiveAccountId
+          );
+          const savedPositionSeconds =
+            progressByItemId[itemId]?.positionSeconds ?? null;
+          const serverPositionTicks =
+            typeof playerState?.serverPositionTicks === 'number'
+              ? playerState.serverPositionTicks
+              : null;
+
+          setInitialPositionSeconds(
+            getResumePositionSeconds({
+              savedPositionSeconds,
+              serverPositionTicks,
+            })
+          );
+          setIsResumeLookupComplete(true);
         }
-
-        const progressByItemId = getPersistedProgressByItemIdForAccount(
-          persistedState.progressByItemId,
-          resolvedActiveAccountId
-        );
-        const savedPositionSeconds =
-          progressByItemId[itemId]?.positionSeconds ?? null;
-        const serverPositionTicks =
-          typeof playerState?.serverPositionTicks === 'number'
-            ? playerState.serverPositionTicks
-            : null;
-
-        setInitialPositionSeconds(
-          getResumePositionSeconds({
-            savedPositionSeconds,
-            serverPositionTicks,
-          })
-        );
       })
       .catch(() => {
         if (!cancelled) {
           setInitialPositionSeconds(0);
+          setIsResumeLookupComplete(true);
         }
       });
 
@@ -173,13 +176,15 @@ function PlayerRoute() {
 
   return (
     <AuthenticatedLayout title={title}>
-      {session ? (
+      {session && isResumeLookupComplete ? (
         <PlayerPage
           itemId={itemId}
           title={title}
           streamUrl={buildStreamUrl(serverUrl, itemId, session.accessToken)}
           initialPositionSeconds={initialPositionSeconds}
         />
+      ) : session ? (
+        <p>Preparing player...</p>
       ) : null}
       <p>
         <Link to="/libraries">Back to libraries</Link>
