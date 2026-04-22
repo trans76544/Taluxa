@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -14,6 +14,7 @@ import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playbac
 import type { LibraryItem } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
+import type { LibrarySortMode } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
   pickFeaturedViews,
@@ -39,6 +40,8 @@ interface PlayerLocationState {
   title?: string;
   serverPositionTicks?: number | null;
 }
+
+const PROGRESS_REPORT_INTERVAL_MS = 5000;
 
 function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedAccount) {
   const accountsById = new Map<string, SavedAccount>();
@@ -120,53 +123,66 @@ function PlayerRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const location = useLocation();
-  const [initialPositionSeconds, setInitialPositionSeconds] = useState(0);
-  const [isResumeLookupComplete, setIsResumeLookupComplete] = useState(false);
+  const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const playerState = location.state as PlayerLocationState | null | undefined;
   const title = playerState?.title?.trim() || itemId || 'Playback';
   const resolvedActiveAccountId =
     activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
+  const progressStateRef = useRef<{
+    lastReportedAtMs: number | null;
+    lastReportedPositionSeconds: number | null;
+  }>({
+    lastReportedAtMs: null,
+    lastReportedPositionSeconds: null,
+  });
+  const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  useEffect(() => {
+    progressStateRef.current = {
+      lastReportedAtMs: null,
+      lastReportedPositionSeconds: null,
+    };
+    progressSyncQueueRef.current = Promise.resolve();
+  }, [itemId, resolvedActiveAccountId]);
 
   useEffect(() => {
     if (!itemId) {
       setInitialPositionSeconds(0);
-      setIsResumeLookupComplete(true);
       return;
     }
 
     let cancelled = false;
 
-    setIsResumeLookupComplete(false);
-    setInitialPositionSeconds(0);
+    setInitialPositionSeconds(null);
 
     window.embyDesktop.storage
       .read()
       .then((persistedState) => {
-        if (!cancelled) {
-          const progressByItemId = getPersistedProgressByItemIdForAccount(
-            persistedState.progressByItemId,
-            resolvedActiveAccountId
-          );
-          const savedPositionSeconds =
-            progressByItemId[itemId]?.positionSeconds ?? null;
-          const serverPositionTicks =
-            typeof playerState?.serverPositionTicks === 'number'
-              ? playerState.serverPositionTicks
-              : null;
-
-          setInitialPositionSeconds(
-            getResumePositionSeconds({
-              savedPositionSeconds,
-              serverPositionTicks,
-            })
-          );
-          setIsResumeLookupComplete(true);
+        if (cancelled) {
+          return;
         }
+
+        const progressByItemId = getPersistedProgressByItemIdForAccount(
+          persistedState.progressByItemId,
+          resolvedActiveAccountId
+        );
+        const savedPositionSeconds =
+          progressByItemId[itemId]?.positionSeconds ?? null;
+        const serverPositionTicks =
+          typeof playerState?.serverPositionTicks === 'number'
+            ? playerState.serverPositionTicks
+            : null;
+
+        setInitialPositionSeconds(
+          getResumePositionSeconds({
+            savedPositionSeconds,
+            serverPositionTicks,
+          })
+        );
       })
       .catch(() => {
         if (!cancelled) {
           setInitialPositionSeconds(0);
-          setIsResumeLookupComplete(true);
         }
       });
 
@@ -184,44 +200,67 @@ function PlayerRoute() {
     positionSeconds: number;
     durationSeconds: number;
   }) {
-    if (!session) {
+    if (!session || progressItemId !== itemId) {
       return;
     }
 
+    const normalizedPositionSeconds = Math.max(0, Math.floor(positionSeconds));
+    const normalizedDurationSeconds = Math.max(0, Math.floor(durationSeconds));
+    const nowMs = Date.now();
+    const { lastReportedAtMs, lastReportedPositionSeconds } = progressStateRef.current;
+
+    if (
+      lastReportedPositionSeconds === normalizedPositionSeconds ||
+      (lastReportedAtMs !== null && nowMs - lastReportedAtMs < PROGRESS_REPORT_INTERVAL_MS)
+    ) {
+      return;
+    }
+
+    progressStateRef.current = {
+      lastReportedAtMs: nowMs,
+      lastReportedPositionSeconds: normalizedPositionSeconds,
+    };
+
     const nextProgress: PlaybackProgress = {
       itemId: progressItemId,
-      positionSeconds,
-      durationSeconds,
+      positionSeconds: normalizedPositionSeconds,
+      durationSeconds: normalizedDurationSeconds,
       updatedAt: new Date().toISOString(),
     };
 
-    try {
-      await window.embyDesktop.storage.write({
-        progressByItemId: {
-          [resolvedActiveAccountId
-            ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
-            : progressItemId]: nextProgress,
-        },
-      });
-    } catch {
-      // Persisting progress is best-effort.
-    }
+    progressSyncQueueRef.current = progressSyncQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await window.embyDesktop.storage.write({
+            progressByItemId: {
+              [resolvedActiveAccountId
+                ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
+                : progressItemId]: nextProgress,
+            },
+          });
+        } catch {
+          // Persisting progress is best-effort.
+        }
 
-    try {
-      await reportPlaybackProgress({
-        serverUrl,
-        accessToken: session.accessToken,
-        itemId: progressItemId,
-        positionSeconds,
+        try {
+          await reportPlaybackProgress({
+            serverUrl,
+            accessToken: session.accessToken,
+            itemId: progressItemId,
+            positionSeconds: normalizedPositionSeconds,
+          });
+        } catch {
+          // Reporting progress is best-effort.
+        }
       });
-    } catch {
-      // Reporting progress is best-effort.
-    }
+
+    await progressSyncQueueRef.current;
   }
 
   return (
     <AuthenticatedLayout title={title}>
-      {session && isResumeLookupComplete ? (
+      {session && initialPositionSeconds !== null ? (
         <PlayerPage
           itemId={itemId}
           title={title}
@@ -229,8 +268,6 @@ function PlayerRoute() {
           initialPositionSeconds={initialPositionSeconds}
           onProgress={handleProgress}
         />
-      ) : session ? (
-        <p>Preparing player...</p>
       ) : null}
       <p>
         <Link to="/libraries">Back to libraries</Link>
@@ -306,7 +343,7 @@ function LoginRoute() {
 }
 
 function LibrariesRoute() {
-  const { activeAccountId, serverUrl, session } = useAuth();
+  const { activeAccountId, serverUrl, session, settings, updateSettings } = useAuth();
   const [continueWatching, setContinueWatching] = useState<
     ReturnType<typeof buildContinueWatchingItems>
   >([]);
@@ -316,6 +353,25 @@ function LibrariesRoute() {
   const [errorMessage, setErrorMessage] = useState('');
   const resolvedActiveAccountId =
     activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
+
+  async function handleSortModeChange(nextSortMode: LibrarySortMode) {
+    if (nextSortMode === settings.librarySortMode) {
+      return;
+    }
+
+    try {
+      await window.embyDesktop.storage.write({
+        settings: {
+          librarySortMode: nextSortMode,
+        },
+      });
+      updateSettings({
+        librarySortMode: nextSortMode,
+      });
+    } catch {
+      // Keeping the current sort mode is safer than diverging UI and persisted state.
+    }
+  }
 
   useEffect(() => {
     if (!session) {
@@ -354,6 +410,7 @@ function LibrariesRoute() {
                   view.id,
                   await fetchItems(serverUrl, session.userId, view.id, session.accessToken, {
                     limit: 8,
+                    sortMode: settings.librarySortMode,
                   }),
                 ]
               )
@@ -390,6 +447,7 @@ function LibrariesRoute() {
               id: view.id,
               title: view.name,
               posterUrl: previewItemsByViewId.get(view.id)?.[0]?.posterUrl ?? '',
+              imageCandidates: previewItemsByViewId.get(view.id)?.[0]?.imageCandidates ?? [],
               href: `/libraries/${view.id}`,
               state: {
                 libraryName: view.name,
@@ -412,6 +470,7 @@ function LibrariesRoute() {
                     ? `${Math.round(item.runtimeTicks / 600000000)} min`
                     : 'Ready to play',
                 posterUrl: item.posterUrl,
+                imageCandidates: item.imageCandidates,
                 href: `/player/${item.id}`,
                 state: {
                   title: item.name,
@@ -436,7 +495,7 @@ function LibrariesRoute() {
     return () => {
       cancelled = true;
     };
-  }, [resolvedActiveAccountId, serverUrl, session]);
+  }, [resolvedActiveAccountId, serverUrl, session, settings.librarySortMode]);
 
   return (
     <AuthenticatedLayout>
@@ -449,6 +508,8 @@ function LibrariesRoute() {
           continueWatching={continueWatching}
           libraries={libraries}
           featuredRows={featuredRows}
+          sortMode={settings.librarySortMode}
+          onSortModeChange={handleSortModeChange}
         />
       ) : null}
     </AuthenticatedLayout>
@@ -456,7 +517,7 @@ function LibrariesRoute() {
 }
 
 function LibraryItemsRoute() {
-  const { serverUrl, session } = useAuth();
+  const { serverUrl, session, settings, updateSettings } = useAuth();
   const { viewId = '' } = useParams();
   const location = useLocation();
   const [items, setItems] = useState<LibraryItem[]>([]);
@@ -464,6 +525,25 @@ function LibraryItemsRoute() {
   const [errorMessage, setErrorMessage] = useState('');
   const libraryName =
     (location.state as { libraryName?: string } | null | undefined)?.libraryName ?? 'Library';
+
+  async function handleSortModeChange(nextSortMode: LibrarySortMode) {
+    if (nextSortMode === settings.librarySortMode) {
+      return;
+    }
+
+    try {
+      await window.embyDesktop.storage.write({
+        settings: {
+          librarySortMode: nextSortMode,
+        },
+      });
+      updateSettings({
+        librarySortMode: nextSortMode,
+      });
+    } catch {
+      // Keeping the current sort mode is safer than diverging UI and persisted state.
+    }
+  }
 
   useEffect(() => {
     if (!session || !viewId) {
@@ -477,7 +557,9 @@ function LibraryItemsRoute() {
     setIsLoading(true);
     setErrorMessage('');
 
-    fetchItems(serverUrl, session.userId, viewId, session.accessToken)
+    fetchItems(serverUrl, session.userId, viewId, session.accessToken, {
+      sortMode: settings.librarySortMode,
+    })
       .then((nextItems) => {
         if (!cancelled) {
           setItems(nextItems);
@@ -494,7 +576,7 @@ function LibraryItemsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, session, viewId]);
+  }, [serverUrl, session, settings.librarySortMode, viewId]);
 
   return (
     <AuthenticatedLayout title={libraryName}>
@@ -502,7 +584,12 @@ function LibraryItemsRoute() {
       {isLoading ? (
         <p>Loading items...</p>
       ) : (
-        <LibraryItemsPage libraryName={libraryName} items={items} />
+        <LibraryItemsPage
+          libraryName={libraryName}
+          sortMode={settings.librarySortMode}
+          onSortModeChange={handleSortModeChange}
+          items={items}
+        />
       )}
     </AuthenticatedLayout>
   );
@@ -510,7 +597,8 @@ function LibraryItemsRoute() {
 
 function SettingsRoute() {
   const navigate = useNavigate();
-  const { clearAuthState, serverUrl, session, settings } = useAuth();
+  const { clearAuthState, getServerDisplayName, serverUrl, session, settings, updateSettings } =
+    useAuth();
 
   async function handleLogout() {
     await window.embyDesktop.storage.clearSession();
@@ -518,11 +606,32 @@ function SettingsRoute() {
     navigate('/login');
   }
 
+  async function handleServerDisplayNameSave(nextName: string) {
+    if (!serverUrl) {
+      return;
+    }
+
+    const settingsPatch = {
+      serverPreferencesByUrl: {
+        [serverUrl]: {
+          displayNameOverride: nextName,
+        },
+      },
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   return (
     <SettingsPage
       userName={session?.userName ?? 'Unknown user'}
       serverUrl={serverUrl}
+      serverDisplayName={getServerDisplayName(serverUrl)}
       defaultVolume={settings.defaultVolume}
+      onServerDisplayNameSave={handleServerDisplayNameSave}
       onLogout={handleLogout}
     />
   );

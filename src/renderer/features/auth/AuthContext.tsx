@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { fetchServerInfo } from '@shared/api/emby/system';
 import { createAccountId } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
-import type { Settings } from '@shared/models/settings';
+import { createDefaultSettings, type Settings } from '@shared/models/settings';
 
 interface AuthState {
   accounts: SavedAccount[];
@@ -27,23 +28,20 @@ interface AuthContextValue extends AuthState {
   serverUrl: string;
   session: Session | null;
   clearAuthState: () => void;
+  getServerDisplayName: (serverUrl: string) => string;
   setActiveAccountId: (accountId: string) => void;
   setAuthState: (next: AuthStateUpdate) => void;
+  updateSettings: (nextSettings: Partial<Settings>) => void;
   upsertAccount: (account: SavedAccount, settings?: Partial<Settings>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const defaultSettings: Settings = {
-  rememberSession: true,
-  defaultVolume: 1,
-};
-
 function createDefaultAuthState(): AuthState {
   return {
     accounts: [],
     activeAccountId: null,
-    settings: defaultSettings,
+    settings: createDefaultSettings(),
   };
 }
 
@@ -62,6 +60,50 @@ function mergeAccounts(
   }
 
   return Array.from(accountsById.values());
+}
+
+function mergeSettings(currentSettings: Settings, nextSettings?: Partial<Settings>): Settings {
+  return {
+    ...currentSettings,
+    ...nextSettings,
+    serverPreferencesByUrl: {
+      ...currentSettings.serverPreferencesByUrl,
+      ...nextSettings?.serverPreferencesByUrl,
+    },
+  };
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function getServerDisplayNameOverride(settings: Settings, serverUrl: string): string | null {
+  const displayNameOverride = settings.serverPreferencesByUrl[serverUrl]?.displayNameOverride;
+
+  return hasText(displayNameOverride) ? displayNameOverride.trim() : null;
+}
+
+function pickBetterServerInfoAccount(
+  currentBest: SavedAccount | undefined,
+  candidate: SavedAccount,
+  activeAccountId: string | null
+): SavedAccount {
+  if (!currentBest) {
+    return candidate;
+  }
+
+  const currentIsActive = currentBest.id === activeAccountId;
+  const candidateIsActive = candidate.id === activeAccountId;
+
+  if (candidateIsActive && !currentIsActive) {
+    return candidate;
+  }
+
+  if (currentIsActive && !candidateIsActive) {
+    return currentBest;
+  }
+
+  return candidate.lastUsedAt.localeCompare(currentBest.lastUsedAt) > 0 ? candidate : currentBest;
 }
 
 function normalizeActiveAccountId(
@@ -87,7 +129,7 @@ function normalizeAuthState(initialState?: Partial<AuthState>): AuthState {
   return {
     accounts,
     activeAccountId: normalizeActiveAccountId(accounts, initialState?.activeAccountId),
-    settings: initialState?.settings ?? defaultSettings,
+    settings: initialState?.settings ?? createDefaultSettings(),
   };
 }
 
@@ -109,6 +151,10 @@ export function AuthProvider({
   isHydrated = true,
 }: AuthProviderProps) {
   const [authState, setAuthState] = useState<AuthState | null>(null);
+  const [fetchedServerDisplayNamesByUrl, setFetchedServerDisplayNamesByUrl] = useState<
+    Record<string, string>
+  >({});
+  const inFlightServerDisplayNameRequestsRef = useRef(new Map<string, string>());
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
@@ -129,14 +175,18 @@ export function AuthProvider({
     );
   }
 
+  function updateSettings(nextSettings: Partial<Settings>) {
+    updateState((current) => ({
+      ...current,
+      settings: mergeSettings(current.settings, nextSettings),
+    }));
+  }
+
   function upsertAccount(account: SavedAccount, settings?: Partial<Settings>) {
     updateState((current) => ({
       accounts: mergeAccounts(current.accounts, [account]),
       activeAccountId: account.id,
-      settings: {
-        rememberSession: settings?.rememberSession ?? current.settings.rememberSession,
-        defaultVolume: settings?.defaultVolume ?? current.settings.defaultVolume,
-      },
+      settings: mergeSettings(current.settings, settings),
     }));
   }
 
@@ -152,7 +202,7 @@ export function AuthProvider({
       updateState((current) => ({
         ...current,
         activeAccountId: null,
-        settings: next.settings ?? current.settings,
+        settings: mergeSettings(current.settings, next.settings),
       }));
       return;
     }
@@ -170,6 +220,74 @@ export function AuthProvider({
     );
   }
 
+  function getServerDisplayName(serverUrl: string) {
+    return (
+      getServerDisplayNameOverride(resolvedAuthState.settings, serverUrl) ??
+      fetchedServerDisplayNamesByUrl[serverUrl]?.trim() ??
+      serverUrl
+    );
+  }
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const bestAccountByServerUrl = new Map<string, SavedAccount>();
+
+    for (const account of resolvedAuthState.accounts) {
+      bestAccountByServerUrl.set(
+        account.serverUrl,
+        pickBetterServerInfoAccount(
+          bestAccountByServerUrl.get(account.serverUrl),
+          account,
+          resolvedAuthState.activeAccountId
+        )
+      );
+    }
+
+    for (const account of bestAccountByServerUrl.values()) {
+      const inFlightAccessToken = inFlightServerDisplayNameRequestsRef.current.get(account.serverUrl);
+
+      if (
+        getServerDisplayNameOverride(resolvedAuthState.settings, account.serverUrl) ||
+        hasText(fetchedServerDisplayNamesByUrl[account.serverUrl]) ||
+        inFlightAccessToken === account.accessToken
+      ) {
+        continue;
+      }
+
+      inFlightServerDisplayNameRequestsRef.current.set(account.serverUrl, account.accessToken);
+
+      fetchServerInfo(account.serverUrl, account.accessToken)
+        .then(({ serverName }) => {
+          if (!cancelled && hasText(serverName)) {
+            setFetchedServerDisplayNamesByUrl((current) => ({
+              ...current,
+              [account.serverUrl]: serverName,
+            }));
+          }
+        })
+        .catch(() => {
+          // Friendly server names are best-effort.
+        })
+        .finally(() => {
+          if (
+            inFlightServerDisplayNameRequestsRef.current.get(account.serverUrl) ===
+            account.accessToken
+          ) {
+            inFlightServerDisplayNameRequestsRef.current.delete(account.serverUrl);
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchedServerDisplayNamesByUrl, isHydrated, resolvedAuthState.accounts, resolvedAuthState.settings]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -179,8 +297,10 @@ export function AuthProvider({
         serverUrl: activeAccount?.serverUrl ?? '',
         session: toSession(activeAccount),
         clearAuthState,
+        getServerDisplayName,
         setActiveAccountId,
         setAuthState: updateAuthState,
+        updateSettings,
         upsertAccount,
       }}
     >

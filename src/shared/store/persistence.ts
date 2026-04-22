@@ -1,6 +1,6 @@
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount, Session } from '@shared/models/session';
-import type { Settings } from '@shared/models/settings';
+import { createDefaultSettings, type Settings } from '../models/settings';
 
 export interface PersistedState {
   accounts: SavedAccount[];
@@ -91,10 +91,7 @@ export function createEmptyPersistedState(): PersistedState {
   return {
     accounts: [],
     activeAccountId: null,
-    settings: {
-      rememberSession: true,
-      defaultVolume: 1,
-    },
+    settings: createDefaultSettings(),
     progressByItemId: {},
   };
 }
@@ -154,6 +151,21 @@ function createSavedAccountFromLegacyPatch(
   };
 }
 
+function mergeSettings(
+  currentSettings: Settings,
+  nextSettings: Partial<Settings> | undefined
+): Settings {
+  return {
+    rememberSession: nextSettings?.rememberSession ?? currentSettings.rememberSession,
+    defaultVolume: nextSettings?.defaultVolume ?? currentSettings.defaultVolume,
+    librarySortMode: nextSettings?.librarySortMode ?? currentSettings.librarySortMode,
+    serverPreferencesByUrl: {
+      ...currentSettings.serverPreferencesByUrl,
+      ...nextSettings?.serverPreferencesByUrl,
+    },
+  };
+}
+
 export function mergePersistedState(
   partial: PersistedStatePatch = {},
   currentState: PersistedState = createEmptyPersistedState()
@@ -191,11 +203,7 @@ export function mergePersistedState(
   return {
     accounts,
     activeAccountId,
-    settings: {
-      rememberSession:
-        partial.settings?.rememberSession ?? currentState.settings.rememberSession,
-      defaultVolume: partial.settings?.defaultVolume ?? currentState.settings.defaultVolume,
-    },
+    settings: mergeSettings(currentState.settings, partial.settings),
     progressByItemId,
   };
 }

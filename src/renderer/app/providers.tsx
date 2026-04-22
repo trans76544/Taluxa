@@ -1,15 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AuthProvider } from '@renderer/features/auth/AuthContext';
+import { createDefaultSettings } from '@shared/models/settings';
 import type { PersistedState } from '@shared/store/persistence';
 
 function createInitialState(): Pick<PersistedState, 'accounts' | 'activeAccountId' | 'settings'> {
   return {
     accounts: [],
     activeAccountId: null,
-    settings: {
-      rememberSession: true,
-      defaultVolume: 1,
-    },
+    settings: createDefaultSettings(),
   };
 }
 

@@ -19,6 +19,8 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {},
       },
       progressByItemId: {},
     });
@@ -34,25 +36,25 @@ describe('persistence', () => {
 
   it('migrates legacy single-session state into one saved account', () => {
     const state = migrateLegacyPersistedState({
-        serverUrl: 'https://demo.emby.local',
-        session: {
-          userId: 'user-1',
-          userName: 'Alice',
-          accessToken: 'token-123',
+      serverUrl: 'https://demo.emby.local',
+      session: {
+        userId: 'user-1',
+        userName: 'Alice',
+        accessToken: 'token-123',
+      },
+      settings: {
+        rememberSession: true,
+        defaultVolume: 0.8,
+      },
+      progressByItemId: {
+        'item-1': {
+          itemId: 'item-1',
+          positionSeconds: 120,
+          durationSeconds: 3600,
+          updatedAt: '2026-04-21T03:00:00.000Z',
         },
-        settings: {
-          rememberSession: true,
-          defaultVolume: 0.8,
-        },
-        progressByItemId: {
-          'item-1': {
-            itemId: 'item-1',
-            positionSeconds: 120,
-            durationSeconds: 3600,
-            updatedAt: '2026-04-21T03:00:00.000Z',
-          },
-        },
-      });
+      },
+    });
 
     expect(state).toEqual({
       accounts: [
@@ -69,6 +71,8 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 0.8,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {},
       },
       progressByItemId: {
         [createAccountScopedProgressKey('https://demo.emby.local::user-1', 'item-1')]: {
@@ -99,6 +103,12 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {
+          'https://a.local': {
+            displayNameOverride: 'Main Server',
+          },
+        },
       },
       progressByItemId: {
         'item-a': {
@@ -132,6 +142,17 @@ describe('persistence', () => {
             },
           ],
           activeAccountId: 'https://b.local::user-2',
+          settings: {
+            librarySortMode: 'release_date',
+            serverPreferencesByUrl: {
+              'https://b.local': {
+                displayNameOverride: 'Backup Server Updated',
+              },
+              'https://c.local': {
+                displayNameOverride: 'Archive Server',
+              },
+            },
+          },
         },
         currentState
       )
@@ -158,6 +179,18 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'release_date',
+        serverPreferencesByUrl: {
+          'https://a.local': {
+            displayNameOverride: 'Main Server',
+          },
+          'https://b.local': {
+            displayNameOverride: 'Backup Server Updated',
+          },
+          'https://c.local': {
+            displayNameOverride: 'Archive Server',
+          },
+        },
       },
       progressByItemId: {
         'item-a': {
@@ -186,6 +219,8 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {},
       },
       progressByItemId: {},
     };
@@ -212,6 +247,8 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {},
       },
       progressByItemId: {},
     });
@@ -242,6 +279,8 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {},
       },
       progressByItemId: {},
     });
@@ -277,6 +316,8 @@ describe('persistence', () => {
           settings: {
             rememberSession: true,
             defaultVolume: 1,
+            librarySortMode: 'latest_added',
+            serverPreferencesByUrl: {},
           },
           progressByItemId: {
             'legacy-item': {
@@ -303,6 +344,8 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        serverPreferencesByUrl: {},
       },
       progressByItemId: {
         'legacy-item': {

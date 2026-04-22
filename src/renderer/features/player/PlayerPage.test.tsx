@@ -1,30 +1,48 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayerPage } from './PlayerPage';
 
-const launchMock = vi.hoisted(() => vi.fn());
+interface PlayerProgressEvent {
+  itemId: string;
+  positionSeconds: number;
+  durationSeconds: number;
+}
 
 function mockPlayerBridge() {
-  (window as Window & {
-    embyDesktop?: {
-      player?: {
-        launch: typeof launchMock;
-      };
+  const listeners = new Set<(event: PlayerProgressEvent) => void>();
+  const launch = vi.fn().mockResolvedValue(undefined);
+  const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
+    listeners.add(listener);
+
+    return () => {
+      listeners.delete(listener);
     };
-  }).embyDesktop = {
+  });
+
+  window.embyDesktop = {
     player: {
-      launch: launchMock,
+      launch,
+      onProgress,
     },
-  } as unknown as typeof window.embyDesktop;
+  } as unknown as Window['embyDesktop'];
+
+  return {
+    launch,
+    onProgress,
+    emitProgress(event: PlayerProgressEvent) {
+      for (const listener of listeners) {
+        listener(event);
+      }
+    },
+  };
 }
 
 afterEach(() => {
-  vi.resetAllMocks();
-  delete (window as Partial<Window>).embyDesktop;
+  vi.restoreAllMocks();
 });
 
 describe('PlayerPage', () => {
-  it('renders the launch shell and launches mpv playback', () => {
+  it('renders the selected playback title', () => {
     mockPlayerBridge();
 
     render(
@@ -33,53 +51,106 @@ describe('PlayerPage', () => {
         title="Movie 1"
         streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
         initialPositionSeconds={42}
+        onProgress={vi.fn()}
       />
     );
 
     expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    expect(screen.getByText('Opening mpv player...')).toBeInTheDocument();
-    expect(screen.queryByTestId('video-player')).not.toBeInTheDocument();
-    expect(launchMock).toHaveBeenCalledTimes(1);
-    expect(launchMock).toHaveBeenCalledWith({
-      title: 'Movie 1',
-      streamUrl: 'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
-      startSeconds: 42,
-    });
+    expect(screen.getByText('Desktop playback')).toBeInTheDocument();
   });
 
-  it('relaunches mpv when the media changes', () => {
-    mockPlayerBridge();
+  it('launches mpv with the resolved resume position', async () => {
+    const { launch } = mockPlayerBridge();
 
-    const { rerender } = render(
+    render(
       <PlayerPage
         itemId="item-1"
         title="Movie 1"
         streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
         initialPositionSeconds={42}
+        onProgress={vi.fn()}
       />
     );
 
-    expect(launchMock).toHaveBeenCalledWith({
-      title: 'Movie 1',
-      streamUrl: 'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
-      startSeconds: 42,
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledWith({
+        itemId: 'item-1',
+        title: 'Movie 1',
+        streamUrl:
+          'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
+        startSeconds: 42,
+      });
     });
+  });
 
-    rerender(
+  it('shows a visible error when the mpv bridge launch rejects', async () => {
+    const { launch } = mockPlayerBridge();
+    launch.mockRejectedValueOnce(new Error('spawn failed'));
+
+    render(
       <PlayerPage
-        itemId="item-2"
-        title="Movie 2"
-        streamUrl="https://demo.emby.local/Videos/item-2/stream.mp4?static=true&api_key=token-123"
-        initialPositionSeconds={0}
+        itemId="item-1"
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
+        initialPositionSeconds={42}
+        onProgress={vi.fn()}
       />
     );
 
-    expect(screen.getByRole('heading', { name: 'Movie 2' })).toBeInTheDocument();
-    expect(launchMock).toHaveBeenLastCalledWith({
-      title: 'Movie 2',
-      streamUrl: 'https://demo.emby.local/Videos/item-2/stream.mp4?static=true&api_key=token-123',
-      startSeconds: 0,
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not start desktop playback. Restart the app and try again.'
+    );
+    expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
+  });
+
+  it('forwards matching bridge progress events to onProgress', async () => {
+    const { emitProgress, onProgress: subscribe } = mockPlayerBridge();
+    const onProgress = vi.fn();
+
+    const { unmount } = render(
+      <PlayerPage
+        itemId="item-1"
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
+        initialPositionSeconds={42}
+        onProgress={onProgress}
+      />
+    );
+
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      emitProgress({
+        itemId: 'item-2',
+        positionSeconds: 12,
+        durationSeconds: 180,
+      });
+      emitProgress({
+        itemId: 'item-1',
+        positionSeconds: 24,
+        durationSeconds: 180,
+      });
     });
-    expect(launchMock).toHaveBeenCalledTimes(2);
+
+    await waitFor(() => {
+      expect(onProgress).toHaveBeenCalledTimes(1);
+    });
+    expect(onProgress).toHaveBeenCalledWith({
+      itemId: 'item-1',
+      positionSeconds: 24,
+      durationSeconds: 180,
+    });
+
+    unmount();
+
+    act(() => {
+      emitProgress({
+        itemId: 'item-1',
+        positionSeconds: 30,
+        durationSeconds: 180,
+      });
+    });
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
   });
 });

@@ -30,6 +30,7 @@ export function PosterRow({ title, href, state, items }: PosterRowProps) {
               title={item.title}
               subtitle={item.subtitle}
               posterUrl={item.posterUrl}
+              imageCandidates={item.imageCandidates}
               href={item.href}
               state={item.state}
             />

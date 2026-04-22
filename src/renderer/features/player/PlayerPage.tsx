@@ -1,11 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export interface PlayerPageProps {
   itemId: string;
   title: string;
   streamUrl: string;
   initialPositionSeconds: number;
-  onProgress?: (input: {
+  onProgress: (input: {
     itemId: string;
     positionSeconds: number;
     durationSeconds: number;
@@ -13,36 +13,54 @@ export interface PlayerPageProps {
 }
 
 export function PlayerPage({
+  itemId,
   title,
   streamUrl,
   initialPositionSeconds,
+  onProgress,
 }: PlayerPageProps) {
-  useEffect(() => {
-    const playerBridge = (window as Window & {
-      embyDesktop?: {
-        player?: {
-          launch: (input: {
-            title: string;
-            streamUrl: string;
-            startSeconds: number;
-          }) => void | Promise<void>;
-        };
-      };
-    }).embyDesktop?.player;
+  const [launchError, setLaunchError] = useState('');
 
-    playerBridge?.launch({
-      title,
-      streamUrl,
-      startSeconds: initialPositionSeconds,
+  useEffect(() => {
+    let cancelled = false;
+
+    setLaunchError('');
+
+    window.embyDesktop.player
+      .launch({
+        itemId,
+        title,
+        streamUrl,
+        startSeconds: initialPositionSeconds,
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLaunchError('Could not start desktop playback. Restart the app and try again.');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialPositionSeconds, itemId, streamUrl, title]);
+
+  useEffect(() => {
+    return window.embyDesktop.player.onProgress((event) => {
+      if (event.itemId !== itemId) {
+        return;
+      }
+
+      void onProgress(event);
     });
-  }, [initialPositionSeconds, streamUrl, title]);
+  }, [itemId, onProgress]);
 
   return (
-    <section className="stack">
+    <section className="stack" data-testid="player-page">
       <div>
         <h2>{title}</h2>
-        <p>Opening mpv player...</p>
+        <p>Desktop playback</p>
       </div>
+      {launchError ? <p role="alert">{launchError}</p> : <p>Launching mpv...</p>}
     </section>
   );
 }

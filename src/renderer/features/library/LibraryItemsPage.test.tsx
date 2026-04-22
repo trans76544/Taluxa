@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LibraryItemsPage } from './LibraryItemsPage';
 
 function PlayerLocationState() {
@@ -15,11 +15,14 @@ describe('LibraryItemsPage', () => {
       <MemoryRouter>
         <LibraryItemsPage
           libraryName="Movies"
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
           items={[
             {
               id: 'item-1',
               name: 'Spirited Away',
               posterUrl: 'https://demo.local/spirited-away.jpg',
+              imageCandidates: [],
               runtimeTicks: 75000000000,
               serverPositionTicks: 42000000,
             },
@@ -27,6 +30,7 @@ describe('LibraryItemsPage', () => {
               id: 'item-2',
               name: 'Kiki',
               posterUrl: '',
+              imageCandidates: [],
               runtimeTicks: null,
               serverPositionTicks: null,
             },
@@ -34,6 +38,7 @@ describe('LibraryItemsPage', () => {
               id: 'item-3',
               name: 'Ponyo',
               posterUrl: '',
+              imageCandidates: [],
               runtimeTicks: 0,
               serverPositionTicks: null,
             },
@@ -63,11 +68,14 @@ describe('LibraryItemsPage', () => {
             element={
               <LibraryItemsPage
                 libraryName="Movies"
+                sortMode="latest_added"
+                onSortModeChange={() => undefined}
                 items={[
                   {
                     id: 'item-1',
                     name: 'Spirited Away',
                     posterUrl: 'https://demo.local/spirited-away.jpg',
+                    imageCandidates: [],
                     runtimeTicks: 75000000000,
                     serverPositionTicks: 42000000,
                   },
@@ -88,10 +96,34 @@ describe('LibraryItemsPage', () => {
   it('renders an empty state when no items are available', () => {
     render(
       <MemoryRouter>
-        <LibraryItemsPage libraryName="Movies" items={[]} />
+        <LibraryItemsPage
+          libraryName="Movies"
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
+          items={[]}
+        />
       </MemoryRouter>
     );
 
     expect(screen.getByText('No items found.')).toBeInTheDocument();
+  });
+
+  it('lets the user switch the library sort mode to release date', () => {
+    const onSortModeChange = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <LibraryItemsPage
+          libraryName="Movies"
+          sortMode="latest_added"
+          onSortModeChange={onSortModeChange}
+          items={[]}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
+
+    expect(onSortModeChange).toHaveBeenCalledWith('release_date');
   });
 });

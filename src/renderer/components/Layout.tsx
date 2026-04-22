@@ -11,7 +11,8 @@ interface LayoutProps {
 
 export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps) {
   const navigate = useNavigate();
-  const { accounts, activeAccountId, session, setActiveAccountId } = useAuth();
+  const { accounts, activeAccountId, getServerDisplayName, session, setActiveAccountId } =
+    useAuth();
 
   async function handleSelectAccount(nextAccountId: string) {
     if (
@@ -33,12 +34,19 @@ export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps
     navigate('/libraries', { replace: true });
   }
 
+  const serverDisplayNamesByUrl: Record<string, string> = {};
+
+  for (const account of accounts) {
+    serverDisplayNamesByUrl[account.serverUrl] = getServerDisplayName(account.serverUrl);
+  }
+
   const resolvedSidebar =
     sidebar ??
     (session && accounts.length > 0 ? (
       <AccountSidebar
         accounts={accounts}
         activeAccountId={activeAccountId}
+        serverDisplayNamesByUrl={serverDisplayNamesByUrl}
         onSelectAccount={handleSelectAccount}
       />
     ) : null);
