@@ -7,10 +7,12 @@ import { useAuth } from '@renderer/features/auth/AuthContext';
 
 import type { PersistedState } from '@shared/store/persistence';
 import type { SavedAccount } from '@shared/models/session';
+import { createAccountScopedProgressKey } from '@shared/store/persistence';
 
 const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
+const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
 const playerPageMock = vi.hoisted(() => vi.fn());
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
@@ -24,6 +26,7 @@ vi.mock('@shared/api/emby/auth', () => ({
 vi.mock('@shared/api/emby/library', () => ({
   fetchViews: fetchViewsMock,
   fetchItems: fetchItemsMock,
+  fetchItemsByIds: fetchItemsByIdsMock,
 }));
 
 vi.mock('@renderer/features/player/PlayerPage', () => ({
@@ -122,6 +125,7 @@ describe('App', () => {
     vi.resetAllMocks();
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
+    fetchItemsByIdsMock.mockResolvedValue([]);
     playerPageMock.mockReturnValue(<div data-testid="player-page" />);
     window.location.hash = '';
   });
@@ -148,7 +152,7 @@ describe('App', () => {
       progressByItemId: {},
     });
 
-    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
   });
 
   it('hydrates the first saved account when activeAccountId is missing', async () => {
@@ -174,7 +178,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(fetchViewsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
@@ -206,7 +210,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(fetchViewsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
@@ -398,7 +402,7 @@ describe('App', () => {
       });
     });
 
-    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(fetchViewsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-2',
@@ -439,8 +443,271 @@ describe('App', () => {
       </HashRouter>
     );
 
-    fireEvent.click(await screen.findByRole('link', { name: 'Movies' }));
-    fireEvent.click(await screen.findByRole('link', { name: 'Movie 1' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
+    fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+
+    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
+    expect(playerPageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'item-1',
+        title: 'Movie 1',
+        initialPositionSeconds: 4,
+      })
+    );
+  });
+
+  it('loads continue watching items from non-featured libraries when local progress exists', async () => {
+    const aliceAccount = createSavedAccount();
+    const bobAccount = createSavedAccount({
+      id: 'https://backup.emby.local::user-2',
+      serverUrl: 'https://backup.emby.local',
+      userId: 'user-2',
+      userName: 'Bob',
+      accessToken: 'token-456',
+      lastUsedAt: '2026-04-21T01:00:00.000Z',
+    });
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [aliceAccount, bobAccount],
+        activeAccountId: aliceAccount.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(aliceAccount.id, 'doc-item')]: {
+            itemId: 'doc-item',
+            positionSeconds: 300,
+            durationSeconds: 1800,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+          [createAccountScopedProgressKey(bobAccount.id, 'bob-item')]: {
+            itemId: 'bob-item',
+            positionSeconds: 420,
+            durationSeconds: 2400,
+            updatedAt: '2026-04-22T09:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+      {
+        id: 'shows',
+        name: 'Shows',
+        collectionType: 'tvshows',
+      },
+      {
+        id: 'anime',
+        name: 'Anime',
+        collectionType: 'movies',
+      },
+      {
+        id: 'docs',
+        name: 'Documentaries',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsByIdsMock.mockResolvedValue([
+      {
+        id: 'doc-item',
+        name: 'Planet Earth',
+        posterUrl: 'https://demo.emby.local/Items/doc-item/Images/Primary',
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 3000000000,
+      },
+      {
+        id: 'bob-item',
+        name: 'Bob Resume',
+        posterUrl: 'https://demo.emby.local/Items/bob-item/Images/Primary',
+        runtimeTicks: 12000000000,
+        serverPositionTicks: 4200000000,
+      },
+    ]);
+    fetchItemsMock.mockImplementation(async (_serverUrl: string, _userId: string, parentId: string) => {
+      return [
+        {
+          id: `${parentId}-item`,
+          name: `${parentId} item`,
+          posterUrl: `https://demo.emby.local/Items/${parentId}-item/Images/Primary`,
+          runtimeTicks: 600000000,
+          serverPositionTicks: null,
+        },
+      ];
+    });
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Continue Watching' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Planet Earth/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Bob Resume/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchItemsMock).toHaveBeenCalledTimes(3));
+    expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      ['doc-item'],
+      'token-123'
+    );
+  });
+
+  it('keeps saved accounts visible when the active account home request fails', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    fetchViewsMock.mockRejectedValue(new Error('offline'));
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not load this account. Check the server and try again.'
+    );
+    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByText('Nothing to resume yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No libraries found.')).not.toBeInTheDocument();
+  });
+
+  it('uses playback progress from the active account when resuming a player route', async () => {
+    const aliceAccount = createSavedAccount();
+    const bobAccount = createSavedAccount({
+      id: 'https://backup.emby.local::user-2',
+      serverUrl: 'https://backup.emby.local',
+      userId: 'user-2',
+      userName: 'Bob',
+      accessToken: 'token-456',
+      lastUsedAt: '2026-04-21T01:00:00.000Z',
+    });
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [aliceAccount, bobAccount],
+        activeAccountId: aliceAccount.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(aliceAccount.id, 'item-1')]: {
+            itemId: 'item-1',
+            positionSeconds: 120,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+          [createAccountScopedProgressKey(bobAccount.id, 'item-1')]: {
+            itemId: 'item-1',
+            positionSeconds: 480,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T09:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    window.location.hash = '#/player/item-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(playerPageMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          itemId: 'item-1',
+          initialPositionSeconds: 120,
+        })
+      );
+    });
+  });
+
+  it('preserves library name when opening a library from the home screen', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        runtimeTicks: 600000000,
+        serverPositionTicks: 42000000,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
+
+    expect(await screen.findByText('Movies')).toBeInTheDocument();
+    expect(screen.queryByText('Library')).not.toBeInTheDocument();
+  });
+
+  it('passes title and resume metadata when opening playback from the home screen', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        runtimeTicks: 600000000,
+        serverPositionTicks: 42000000,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
 
     expect(await screen.findByTestId('player-page')).toBeInTheDocument();
     expect(playerPageMock).toHaveBeenCalledWith(
@@ -482,6 +749,10 @@ describe('App', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByText('Active account').nextElementSibling).toHaveTextContent('Alice');
+    expect(screen.getByText('Server URL').nextElementSibling).toHaveTextContent(
+      'https://demo.emby.local'
+    );
     expect(screen.getAllByText('https://demo.emby.local')).toHaveLength(2);
     expect(screen.getByText('80%')).toBeInTheDocument();
 
@@ -555,7 +826,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Alice' })).toHaveClass('is-active');
     expect(screen.getByRole('link', { name: 'Add account' })).toHaveAttribute('href', '#/login');
 
@@ -609,7 +880,7 @@ describe('App', () => {
         activeAccountId: bobAccount.id,
       });
     });
-    expect(await screen.findByRole('heading', { name: 'Your libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/libraries');
     expect(fetchViewsMock).toHaveBeenLastCalledWith(
       'https://backup.emby.local',

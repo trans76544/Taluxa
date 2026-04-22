@@ -93,11 +93,24 @@ export async function fetchItems(
   serverUrl: string,
   userId: string,
   parentId: string,
-  accessToken: string
+  accessToken: string,
+  options: {
+    limit?: number;
+  } = {}
 ): Promise<LibraryItem[]> {
+  const query = new URLSearchParams({
+    ParentId: parentId,
+    Recursive: 'true',
+    IncludeItemTypes: 'Movie,Episode',
+  });
+
+  if (typeof options.limit === 'number') {
+    query.set('Limit', String(options.limit));
+  }
+
   const response = await createEmbyRequest(
     serverUrl,
-    `/Users/${encodeURIComponent(userId)}/Items?ParentId=${encodeURIComponent(parentId)}&Recursive=true&IncludeItemTypes=Movie,Episode`,
+    `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
     {
       accessToken,
     }
@@ -105,6 +118,32 @@ export async function fetchItems(
 
   if (!response.ok) {
     throw new Error(`Failed to load Emby library items (${response.status})`);
+  }
+
+  return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);
+}
+
+export async function fetchItemsByIds(
+  serverUrl: string,
+  userId: string,
+  itemIds: string[],
+  accessToken: string
+): Promise<LibraryItem[]> {
+  if (itemIds.length === 0) {
+    return [];
+  }
+
+  const ids = itemIds.map((itemId) => itemId.trim()).filter(Boolean).join(',');
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items?Ids=${encodeURIComponent(ids)}&EnableUserData=true&EnableImages=true&ImageTypeLimit=1`,
+    {
+      accessToken,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to load Emby items (${response.status})`);
   }
 
   return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);

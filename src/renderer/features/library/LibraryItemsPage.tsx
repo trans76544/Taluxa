@@ -1,4 +1,4 @@
-﻿import { Link } from 'react-router-dom';
+import { PosterCard } from '@renderer/components/PosterCard';
 import type { LibraryItem } from '@shared/models/library';
 
 interface LibraryItemsPageProps {
@@ -7,7 +7,7 @@ interface LibraryItemsPageProps {
 }
 
 function formatRuntime(runtimeTicks: number | null) {
-  if (runtimeTicks === null) {
+  if (typeof runtimeTicks !== 'number' || runtimeTicks <= 0) {
     return 'Unknown runtime';
   }
 
@@ -17,28 +17,28 @@ function formatRuntime(runtimeTicks: number | null) {
 
 export function LibraryItemsPage({ libraryName, items }: LibraryItemsPageProps) {
   return (
-    <section className="stack">
-      <div>
+    <section className="home-section library-items-page">
+      <div className="library-items-page__header">
         <h2>Browse items</h2>
         <p>{libraryName}</p>
       </div>
 
       {items.length > 0 ? (
-        <ul className="stack">
+        <ul className="library-items-grid">
           {items.map((item) => (
             <li key={item.id}>
-              <Link
-                to={`/player/${item.id}`}
+              <PosterCard
+                title={item.name}
+                subtitle={formatRuntime(item.runtimeTicks)}
+                posterUrl={item.posterUrl}
+                href={`/player/${item.id}`}
                 state={{ title: item.name, serverPositionTicks: item.serverPositionTicks }}
-              >
-                {item.name}
-              </Link>
-              <p>{formatRuntime(item.runtimeTicks)}</p>
+              />
             </li>
           ))}
         </ul>
       ) : (
-        <p>No items found.</p>
+        <p className="home-section__empty">No items found.</p>
       )}
     </section>
   );

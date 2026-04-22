@@ -1,7 +1,7 @@
 {
   "name": "emby_player",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Windows desktop Emby player",
   "author": "Emby Player contributors",
   "type": "module",

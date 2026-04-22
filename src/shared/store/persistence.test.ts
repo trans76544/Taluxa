@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createAccountId,
+  createAccountScopedProgressKey,
   createEmptyPersistedState,
+  getPersistedProgressByItemIdForAccount,
   mergePersistedState,
   migrateLegacyPersistedState,
   type PersistedState,
@@ -42,7 +44,14 @@ describe('persistence', () => {
           rememberSession: true,
           defaultVolume: 0.8,
         },
-        progressByItemId: {},
+        progressByItemId: {
+          'item-1': {
+            itemId: 'item-1',
+            positionSeconds: 120,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-21T03:00:00.000Z',
+          },
+        },
       });
 
     expect(state).toEqual({
@@ -61,7 +70,14 @@ describe('persistence', () => {
         rememberSession: true,
         defaultVolume: 0.8,
       },
-      progressByItemId: {},
+      progressByItemId: {
+        [createAccountScopedProgressKey('https://demo.emby.local::user-1', 'item-1')]: {
+          itemId: 'item-1',
+          positionSeconds: 120,
+          durationSeconds: 3600,
+          updatedAt: '2026-04-21T03:00:00.000Z',
+        },
+      },
     });
     expect('serverUrl' in state).toBe(false);
     expect('session' in state).toBe(false);
@@ -228,6 +244,123 @@ describe('persistence', () => {
         defaultVolume: 1,
       },
       progressByItemId: {},
+    });
+  });
+
+  it('scopes new progress updates to the active account while preserving existing data', () => {
+    const activeAccountId = 'https://demo.emby.local::user-1';
+
+    expect(
+      mergePersistedState(
+        {
+          progressByItemId: {
+            'item-1': {
+              itemId: 'item-1',
+              positionSeconds: 240,
+              durationSeconds: 3600,
+              updatedAt: '2026-04-22T08:00:00.000Z',
+            },
+          },
+        },
+        {
+          accounts: [
+            {
+              id: activeAccountId,
+              serverUrl: 'https://demo.emby.local',
+              userId: 'user-1',
+              userName: 'Alice',
+              accessToken: 'token-123',
+              lastUsedAt: '2026-04-21T00:00:00.000Z',
+            },
+          ],
+          activeAccountId,
+          settings: {
+            rememberSession: true,
+            defaultVolume: 1,
+          },
+          progressByItemId: {
+            'legacy-item': {
+              itemId: 'legacy-item',
+              positionSeconds: 60,
+              durationSeconds: 1000,
+              updatedAt: '2026-04-20T00:00:00.000Z',
+            },
+          },
+        }
+      )
+    ).toEqual({
+      accounts: [
+        {
+          id: activeAccountId,
+          serverUrl: 'https://demo.emby.local',
+          userId: 'user-1',
+          userName: 'Alice',
+          accessToken: 'token-123',
+          lastUsedAt: '2026-04-21T00:00:00.000Z',
+        },
+      ],
+      activeAccountId,
+      settings: {
+        rememberSession: true,
+        defaultVolume: 1,
+      },
+      progressByItemId: {
+        'legacy-item': {
+          itemId: 'legacy-item',
+          positionSeconds: 60,
+          durationSeconds: 1000,
+          updatedAt: '2026-04-20T00:00:00.000Z',
+        },
+        [createAccountScopedProgressKey(activeAccountId, 'item-1')]: {
+          itemId: 'item-1',
+          positionSeconds: 240,
+          durationSeconds: 3600,
+          updatedAt: '2026-04-22T08:00:00.000Z',
+        },
+      },
+    });
+  });
+
+  it('reads scoped progress for the active account and falls back to legacy unscoped entries', () => {
+    const activeAccountId = 'https://demo.emby.local::user-1';
+
+    expect(
+      getPersistedProgressByItemIdForAccount(
+        {
+          'legacy-item': {
+            itemId: 'legacy-item',
+            positionSeconds: 60,
+            durationSeconds: 1000,
+            updatedAt: '2026-04-20T00:00:00.000Z',
+          },
+          [createAccountScopedProgressKey(activeAccountId, 'item-1')]: {
+            itemId: 'item-1',
+            positionSeconds: 240,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+          [createAccountScopedProgressKey('https://backup.emby.local::user-2', 'item-2')]: {
+            itemId: 'item-2',
+            positionSeconds: 180,
+            durationSeconds: 2400,
+            updatedAt: '2026-04-22T07:00:00.000Z',
+          },
+        },
+        activeAccountId
+      )
+    ).toEqual({
+      'legacy-item': {
+        itemId: 'legacy-item',
+        positionSeconds: 60,
+        durationSeconds: 1000,
+        updatedAt: '2026-04-20T00:00:00.000Z',
+      },
+      'item-1': {
+        itemId: 'item-1',
+        positionSeconds: 240,
+        durationSeconds: 3600,
+        updatedAt: '2026-04-22T08:00:00.000Z',
+      },
     });
   });
 });

@@ -9,19 +9,29 @@ import {
   useParams,
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
-import { fetchItems, fetchViews } from '@shared/api/emby/library';
+import { fetchItems, fetchItemsByIds, fetchViews } from '@shared/api/emby/library';
 import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playback';
-import type { LibraryItem, LibraryView } from '@shared/models/library';
+import type { LibraryItem } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
-import { createAccountId } from '@shared/store/persistence';
+import {
+  buildContinueWatchingItems,
+  pickFeaturedViews,
+  type HomeLibraryCard,
+  type HomePosterRow,
+} from '@shared/api/emby/home';
+import {
+  createAccountId,
+  createAccountScopedProgressKey,
+  getPersistedProgressByItemIdForAccount,
+} from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
 import { Layout } from '@renderer/components/Layout';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
+import { HomePage } from '@renderer/features/home/HomePage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
-import { LibraryViewsPage } from '@renderer/features/library/LibraryViewsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
 
@@ -107,12 +117,14 @@ function SettingsGate() {
 }
 
 function PlayerRoute() {
-  const { serverUrl, session } = useAuth();
+  const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const location = useLocation();
   const [initialPositionSeconds, setInitialPositionSeconds] = useState(0);
   const playerState = location.state as PlayerLocationState | null | undefined;
   const title = playerState?.title?.trim() || itemId || 'Playback';
+  const resolvedActiveAccountId =
+    activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
 
   useEffect(() => {
     if (!itemId) {
@@ -131,8 +143,12 @@ function PlayerRoute() {
           return;
         }
 
+        const progressByItemId = getPersistedProgressByItemIdForAccount(
+          persistedState.progressByItemId,
+          resolvedActiveAccountId
+        );
         const savedPositionSeconds =
-          persistedState.progressByItemId[itemId]?.positionSeconds ?? null;
+          progressByItemId[itemId]?.positionSeconds ?? null;
         const serverPositionTicks =
           typeof playerState?.serverPositionTicks === 'number'
             ? playerState.serverPositionTicks
@@ -154,7 +170,7 @@ function PlayerRoute() {
     return () => {
       cancelled = true;
     };
-  }, [itemId, playerState?.serverPositionTicks]);
+  }, [itemId, playerState?.serverPositionTicks, resolvedActiveAccountId]);
 
   async function handleProgress({
     itemId: progressItemId,
@@ -179,7 +195,9 @@ function PlayerRoute() {
     try {
       await window.embyDesktop.storage.write({
         progressByItemId: {
-          [progressItemId]: nextProgress,
+          [resolvedActiveAccountId
+            ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
+            : progressItemId]: nextProgress,
         },
       });
     } catch {
@@ -283,14 +301,22 @@ function LoginRoute() {
 }
 
 function LibrariesRoute() {
-  const { serverUrl, session } = useAuth();
-  const [views, setViews] = useState<LibraryView[]>([]);
+  const { activeAccountId, serverUrl, session } = useAuth();
+  const [continueWatching, setContinueWatching] = useState<
+    ReturnType<typeof buildContinueWatchingItems>
+  >([]);
+  const [libraries, setLibraries] = useState<HomeLibraryCard[]>([]);
+  const [featuredRows, setFeaturedRows] = useState<HomePosterRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const resolvedActiveAccountId =
+    activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
 
   useEffect(() => {
     if (!session) {
-      setViews([]);
+      setContinueWatching([]);
+      setLibraries([]);
+      setFeaturedRows([]);
       setIsLoading(false);
       return;
     }
@@ -300,16 +326,104 @@ function LibrariesRoute() {
     setIsLoading(true);
     setErrorMessage('');
 
-    fetchViews(serverUrl, session.userId, session.accessToken)
-      .then((nextViews) => {
+    Promise.all([
+      window.embyDesktop.storage.read(),
+      fetchViews(serverUrl, session.userId, session.accessToken),
+    ])
+      .then(async ([persistedState, nextViews]) => {
         if (!cancelled) {
-          setViews(nextViews);
+          const progressByItemId = getPersistedProgressByItemIdForAccount(
+            persistedState.progressByItemId,
+            resolvedActiveAccountId
+          );
+          const featuredViews = pickFeaturedViews(nextViews);
+          const continueWatchingIds = Object.values(progressByItemId)
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+            .slice(0, 8)
+            .map((progress) => progress.itemId);
+          const [continueWatchingItems, previewEntries] = await Promise.all([
+            fetchItemsByIds(serverUrl, session.userId, continueWatchingIds, session.accessToken),
+            Promise.all(
+              featuredViews.map(
+                async (view): Promise<[string, LibraryItem[]]> => [
+                  view.id,
+                  await fetchItems(serverUrl, session.userId, view.id, session.accessToken, {
+                    limit: 8,
+                  }),
+                ]
+              )
+            ),
+          ]);
+
+          if (cancelled) {
+            return;
+          }
+
+          const previewItemsByViewId = new Map(
+            previewEntries.map(([viewId, items]) => [viewId, items.slice(0, 8)])
+          );
+          const itemsById: Record<string, LibraryItem> = {};
+
+          for (const items of previewItemsByViewId.values()) {
+            for (const item of items) {
+              itemsById[item.id] = item;
+            }
+          }
+
+          for (const item of continueWatchingItems) {
+            itemsById[item.id] = item;
+          }
+
+          setContinueWatching(
+            buildContinueWatchingItems({
+              progressByItemId,
+              itemsById,
+            })
+          );
+          setLibraries(
+            nextViews.map((view) => ({
+              id: view.id,
+              title: view.name,
+              posterUrl: previewItemsByViewId.get(view.id)?.[0]?.posterUrl ?? '',
+              href: `/libraries/${view.id}`,
+              state: {
+                libraryName: view.name,
+              },
+            }))
+          );
+          setFeaturedRows(
+            featuredViews.map((view) => ({
+              id: view.id,
+              title: view.name,
+              href: `/libraries/${view.id}`,
+              state: {
+                libraryName: view.name,
+              },
+              items: (previewItemsByViewId.get(view.id) ?? []).map((item: LibraryItem) => ({
+                id: item.id,
+                title: item.name,
+                subtitle:
+                  typeof item.runtimeTicks === 'number' && item.runtimeTicks > 0
+                    ? `${Math.round(item.runtimeTicks / 600000000)} min`
+                    : 'Ready to play',
+                posterUrl: item.posterUrl,
+                href: `/player/${item.id}`,
+                state: {
+                  title: item.name,
+                  serverPositionTicks: item.serverPositionTicks,
+                },
+              })),
+            }))
+          );
           setIsLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setErrorMessage('Could not load your libraries.');
+          setContinueWatching([]);
+          setLibraries([]);
+          setFeaturedRows([]);
+          setErrorMessage('Could not load this account. Check the server and try again.');
           setIsLoading(false);
         }
       });
@@ -317,12 +431,21 @@ function LibrariesRoute() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, session]);
+  }, [resolvedActiveAccountId, serverUrl, session]);
 
   return (
     <AuthenticatedLayout>
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
-      {isLoading ? <p>Loading libraries...</p> : <LibraryViewsPage views={views} />}
+      {isLoading ? (
+        <p>Loading home screen...</p>
+      ) : !errorMessage ? (
+        <HomePage
+          accountLabel={`${serverUrl} / ${session?.userName ?? 'Unknown user'}`}
+          continueWatching={continueWatching}
+          libraries={libraries}
+          featuredRows={featuredRows}
+        />
+      ) : null}
     </AuthenticatedLayout>
   );
 }
@@ -382,7 +505,7 @@ function LibraryItemsRoute() {
 
 function SettingsRoute() {
   const navigate = useNavigate();
-  const { clearAuthState, serverUrl, settings } = useAuth();
+  const { clearAuthState, serverUrl, session, settings } = useAuth();
 
   async function handleLogout() {
     await window.embyDesktop.storage.clearSession();
@@ -392,6 +515,7 @@ function SettingsRoute() {
 
   return (
     <SettingsPage
+      userName={session?.userName ?? 'Unknown user'}
       serverUrl={serverUrl}
       defaultVolume={settings.defaultVolume}
       onLogout={handleLogout}

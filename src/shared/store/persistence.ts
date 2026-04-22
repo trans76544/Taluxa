@@ -9,6 +9,8 @@ export interface PersistedState {
   progressByItemId: Record<string, PlaybackProgress>;
 }
 
+const ACCOUNT_SCOPED_PROGRESS_PREFIX = 'account-progress::';
+
 export interface LegacyPersistedState {
   serverUrl?: string;
   session?: Session | null;
@@ -27,6 +29,62 @@ export type PersistedStatePatch = Partial<Omit<PersistedState, 'settings' | 'pro
 
 export function createAccountId(serverUrl: string, userId: string): string {
   return `${serverUrl}::${userId}`;
+}
+
+export function createAccountScopedProgressKey(accountId: string, itemId: string): string {
+  return `${ACCOUNT_SCOPED_PROGRESS_PREFIX}${accountId}::${itemId}`;
+}
+
+function isAccountScopedProgressKey(key: string): boolean {
+  return key.startsWith(ACCOUNT_SCOPED_PROGRESS_PREFIX);
+}
+
+function createScopedProgressPatch(
+  progressByItemId: Partial<Record<string, PlaybackProgress>>,
+  activeAccountId: string | null
+): Partial<Record<string, PlaybackProgress>> {
+  const nextProgressByItemId: Partial<Record<string, PlaybackProgress>> = {};
+
+  for (const [itemId, progress] of Object.entries(progressByItemId)) {
+    if (!progress) {
+      continue;
+    }
+
+    nextProgressByItemId[
+      activeAccountId && !isAccountScopedProgressKey(itemId)
+        ? createAccountScopedProgressKey(activeAccountId, itemId)
+        : itemId
+    ] = progress;
+  }
+
+  return nextProgressByItemId;
+}
+
+export function getPersistedProgressByItemIdForAccount(
+  progressByItemId: Record<string, PlaybackProgress>,
+  activeAccountId: string | null
+): Record<string, PlaybackProgress> {
+  const scopedProgressByItemId: Record<string, PlaybackProgress> = {};
+  const legacyProgressByItemId: Record<string, PlaybackProgress> = {};
+  const scopedPrefix = activeAccountId
+    ? `${ACCOUNT_SCOPED_PROGRESS_PREFIX}${activeAccountId}::`
+    : null;
+
+  for (const [key, progress] of Object.entries(progressByItemId)) {
+    if (scopedPrefix && key.startsWith(scopedPrefix)) {
+      scopedProgressByItemId[key.slice(scopedPrefix.length)] = progress;
+      continue;
+    }
+
+    if (!isAccountScopedProgressKey(key)) {
+      legacyProgressByItemId[key] = progress;
+    }
+  }
+
+  return {
+    ...legacyProgressByItemId,
+    ...scopedProgressByItemId,
+  };
 }
 
 export function createEmptyPersistedState(): PersistedState {
@@ -100,14 +158,6 @@ export function mergePersistedState(
   partial: PersistedStatePatch = {},
   currentState: PersistedState = createEmptyPersistedState()
 ): PersistedState {
-  const progressByItemId = { ...currentState.progressByItemId };
-
-  for (const [itemId, progress] of Object.entries(partial.progressByItemId ?? {})) {
-    if (progress) {
-      progressByItemId[itemId] = progress;
-    }
-  }
-
   let accounts =
     partial.accounts === undefined
       ? currentState.accounts
@@ -123,13 +173,24 @@ export function mergePersistedState(
     fallbackActiveAccountId = null;
   }
 
+  const activeAccountId = normalizeActiveAccountId(
+    partial.activeAccountId,
+    accounts,
+    fallbackActiveAccountId
+  );
+  const progressByItemId = { ...currentState.progressByItemId };
+
+  for (const [itemId, progress] of Object.entries(
+    createScopedProgressPatch(partial.progressByItemId ?? {}, activeAccountId)
+  )) {
+    if (progress) {
+      progressByItemId[itemId] = progress;
+    }
+  }
+
   return {
     accounts,
-    activeAccountId: normalizeActiveAccountId(
-      partial.activeAccountId,
-      accounts,
-      fallbackActiveAccountId
-    ),
+    activeAccountId,
     settings: {
       rememberSession:
         partial.settings?.rememberSession ?? currentState.settings.rememberSession,
