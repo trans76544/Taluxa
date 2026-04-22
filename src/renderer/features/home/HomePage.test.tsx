@@ -5,6 +5,16 @@ import { HomePage } from './HomePage';
 
 describe('HomePage', () => {
   it('renders continue watching, libraries, and featured rows', () => {
+    const libraries = [
+      {
+        id: 'library-1',
+        title: 'Library 1',
+        posterUrl: 'https://demo.local/lib-1.jpg',
+        imageCandidates: [],
+        href: '/libraries/library-1',
+      },
+    ];
+
     render(
       <MemoryRouter>
         <HomePage
@@ -19,14 +29,7 @@ describe('HomePage', () => {
               href: '/player/item-1',
             },
           ]}
-          libraries={[
-            {
-              id: 'library-1',
-              title: 'Library 1',
-              posterUrl: 'https://demo.local/lib-1.jpg',
-              href: '/libraries/library-1',
-            },
-          ]}
+          libraries={libraries}
           featuredRows={[
             {
               id: 'row-1',
@@ -77,5 +80,49 @@ describe('HomePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
 
     expect(onSortModeChange).toHaveBeenCalledWith('release_date');
+  });
+
+  it('falls back from a broken library-card primary image to the thumb candidate', () => {
+    const libraries = [
+      {
+        id: 'library-1',
+        title: 'Library 1',
+        posterUrl: 'https://demo.local/lib-primary.jpg',
+        imageCandidates: [
+          {
+            url: 'https://demo.local/lib-primary.jpg',
+            kind: 'primary' as const,
+          },
+          {
+            url: 'https://demo.local/lib-thumb.jpg',
+            kind: 'thumb' as const,
+          },
+        ],
+        href: '/libraries/library-1',
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <HomePage
+          accountLabel="ShrekMedia / trans"
+          continueWatching={[]}
+          libraries={libraries}
+          featuredRows={[]}
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const image = screen.getByRole('img', { name: 'Library 1' });
+    expect(image).toHaveAttribute('src', 'https://demo.local/lib-primary.jpg');
+
+    fireEvent.error(image);
+
+    expect(screen.getByRole('img', { name: 'Library 1' })).toHaveAttribute(
+      'src',
+      'https://demo.local/lib-thumb.jpg'
+    );
   });
 });

@@ -732,6 +732,77 @@ describe('App', () => {
     });
   });
 
+  it('persists library-route sort changes and refetches that library with release-date ordering', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        settings: createSettings({ librarySortMode: 'latest_added' }),
+      })
+    );
+    storage.write.mockResolvedValue(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        settings: createSettings({ librarySortMode: 'release_date' }),
+      })
+    );
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries/movies';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Browse items' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchItemsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'movies',
+        'token-123',
+        {
+          sortMode: 'latest_added',
+        }
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        settings: {
+          librarySortMode: 'release_date',
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(fetchItemsMock).toHaveBeenLastCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'movies',
+        'token-123',
+        {
+          sortMode: 'release_date',
+        }
+      );
+    });
+  });
+
   it('keeps saved accounts visible when the active account home request fails', async () => {
     mockStorageRead(
       createPersistedState({

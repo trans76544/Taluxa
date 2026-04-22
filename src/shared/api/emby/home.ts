@@ -28,6 +28,7 @@ export interface HomeLibraryCard {
   id: string;
   title: string;
   posterUrl: string;
+  imageCandidates: LibraryImageCandidate[];
   href: string;
   state?: {
     libraryName: string;

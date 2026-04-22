@@ -447,6 +447,7 @@ function LibrariesRoute() {
               id: view.id,
               title: view.name,
               posterUrl: previewItemsByViewId.get(view.id)?.[0]?.posterUrl ?? '',
+              imageCandidates: previewItemsByViewId.get(view.id)?.[0]?.imageCandidates ?? [],
               href: `/libraries/${view.id}`,
               state: {
                 libraryName: view.name,
