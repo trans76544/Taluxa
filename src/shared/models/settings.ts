@@ -10,3 +10,12 @@ export interface Settings {
   librarySortMode: LibrarySortMode;
   serverPreferencesByUrl: Record<string, ServerPreferences>;
 }
+
+export function createDefaultSettings(): Settings {
+  return {
+    rememberSession: true,
+    defaultVolume: 1,
+    librarySortMode: 'latest_added',
+    serverPreferencesByUrl: {},
+  };
+}

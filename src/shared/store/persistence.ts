@@ -1,6 +1,6 @@
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount, Session } from '@shared/models/session';
-import type { Settings } from '@shared/models/settings';
+import { createDefaultSettings, type Settings } from '../models/settings';
 
 export interface PersistedState {
   accounts: SavedAccount[];
@@ -91,12 +91,7 @@ export function createEmptyPersistedState(): PersistedState {
   return {
     accounts: [],
     activeAccountId: null,
-    settings: {
-      rememberSession: true,
-      defaultVolume: 1,
-      librarySortMode: 'latest_added',
-      serverPreferencesByUrl: {},
-    },
+    settings: createDefaultSettings(),
     progressByItemId: {},
   };
 }

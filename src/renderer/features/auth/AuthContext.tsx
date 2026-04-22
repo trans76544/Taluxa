@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { createAccountId } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
-import type { Settings } from '@shared/models/settings';
+import { createDefaultSettings, type Settings } from '@shared/models/settings';
 
 interface AuthState {
   accounts: SavedAccount[];
@@ -34,16 +34,11 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const defaultSettings: Settings = {
-  rememberSession: true,
-  defaultVolume: 1,
-};
-
 function createDefaultAuthState(): AuthState {
   return {
     accounts: [],
     activeAccountId: null,
-    settings: defaultSettings,
+    settings: createDefaultSettings(),
   };
 }
 
@@ -62,6 +57,17 @@ function mergeAccounts(
   }
 
   return Array.from(accountsById.values());
+}
+
+function mergeSettings(currentSettings: Settings, nextSettings?: Partial<Settings>): Settings {
+  return {
+    ...currentSettings,
+    ...nextSettings,
+    serverPreferencesByUrl: {
+      ...currentSettings.serverPreferencesByUrl,
+      ...nextSettings?.serverPreferencesByUrl,
+    },
+  };
 }
 
 function normalizeActiveAccountId(
@@ -87,7 +93,7 @@ function normalizeAuthState(initialState?: Partial<AuthState>): AuthState {
   return {
     accounts,
     activeAccountId: normalizeActiveAccountId(accounts, initialState?.activeAccountId),
-    settings: initialState?.settings ?? defaultSettings,
+    settings: initialState?.settings ?? createDefaultSettings(),
   };
 }
 
@@ -133,10 +139,7 @@ export function AuthProvider({
     updateState((current) => ({
       accounts: mergeAccounts(current.accounts, [account]),
       activeAccountId: account.id,
-      settings: {
-        rememberSession: settings?.rememberSession ?? current.settings.rememberSession,
-        defaultVolume: settings?.defaultVolume ?? current.settings.defaultVolume,
-      },
+      settings: mergeSettings(current.settings, settings),
     }));
   }
 

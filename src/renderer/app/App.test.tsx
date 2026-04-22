@@ -5,6 +5,7 @@ import { App } from './App';
 import { AppProviders } from './providers';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 
+import { createDefaultSettings } from '@shared/models/settings';
 import type { PersistedState } from '@shared/store/persistence';
 import type { SavedAccount } from '@shared/models/session';
 import { createAccountScopedProgressKey } from '@shared/store/persistence';
@@ -81,15 +82,17 @@ function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount
   };
 }
 
+function createSettings(overrides: Partial<PersistedState['settings']> = {}): PersistedState['settings'] {
+  return {
+    ...createDefaultSettings(),
+    ...overrides,
+  };
+}
+
 function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPersistedState {
   const state: StoredPersistedState = {
     accounts: overrides.accounts ?? [],
-    settings:
-      overrides.settings ??
-      ({
-        rememberSession: true,
-        defaultVolume: 1,
-      } satisfies PersistedState['settings']),
+    settings: overrides.settings ?? createDefaultSettings(),
     progressByItemId: overrides.progressByItemId ?? {},
   };
 
@@ -145,10 +148,7 @@ describe('App', () => {
     deferred.resolve({
       accounts: [createSavedAccount()],
       activeAccountId: 'https://demo.emby.local::user-1',
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-      },
+      settings: createSettings(),
       progressByItemId: {},
     });
 
@@ -724,19 +724,13 @@ describe('App', () => {
       createPersistedState({
         accounts: [createSavedAccount()],
         activeAccountId: 'https://demo.emby.local::user-1',
-        settings: {
-          rememberSession: true,
-          defaultVolume: 0.8,
-        },
+        settings: createSettings({ defaultVolume: 0.8 }),
       })
     );
     storage.clearSession.mockResolvedValue({
       accounts: [createSavedAccount()],
       activeAccountId: null,
-      settings: {
-        rememberSession: true,
-        defaultVolume: 0.8,
-      },
+      settings: createSettings({ defaultVolume: 0.8 }),
       progressByItemId: {},
     });
 
@@ -855,10 +849,7 @@ describe('App', () => {
       createPersistedState({
         accounts: [createSavedAccount(), bobAccount],
         activeAccountId: 'https://demo.emby.local::user-1',
-        settings: {
-          rememberSession: true,
-          defaultVolume: 0.8,
-        },
+        settings: createSettings({ defaultVolume: 0.8 }),
       })
     );
 
