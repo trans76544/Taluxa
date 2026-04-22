@@ -10,9 +10,8 @@ import {
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchItemsByIds, fetchViews } from '@shared/api/emby/library';
-import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playback';
+import { buildStreamUrl } from '@shared/api/emby/playback';
 import type { LibraryItem } from '@shared/models/library';
-import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
 import {
   buildContinueWatchingItems,
@@ -172,50 +171,6 @@ function PlayerRoute() {
     };
   }, [itemId, playerState?.serverPositionTicks, resolvedActiveAccountId]);
 
-  async function handleProgress({
-    itemId: progressItemId,
-    positionSeconds,
-    durationSeconds,
-  }: {
-    itemId: string;
-    positionSeconds: number;
-    durationSeconds: number;
-  }) {
-    if (!session) {
-      return;
-    }
-
-    const nextProgress: PlaybackProgress = {
-      itemId: progressItemId,
-      positionSeconds,
-      durationSeconds,
-      updatedAt: new Date().toISOString(),
-    };
-
-    try {
-      await window.embyDesktop.storage.write({
-        progressByItemId: {
-          [resolvedActiveAccountId
-            ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
-            : progressItemId]: nextProgress,
-        },
-      });
-    } catch {
-      // Persisting progress is best-effort.
-    }
-
-    try {
-      await reportPlaybackProgress({
-        serverUrl,
-        accessToken: session.accessToken,
-        itemId: progressItemId,
-        positionSeconds,
-      });
-    } catch {
-      // Reporting progress is best-effort.
-    }
-  }
-
   return (
     <AuthenticatedLayout title={title}>
       {session ? (
@@ -224,7 +179,6 @@ function PlayerRoute() {
           title={title}
           streamUrl={buildStreamUrl(serverUrl, itemId, session.accessToken)}
           initialPositionSeconds={initialPositionSeconds}
-          onProgress={handleProgress}
         />
       ) : null}
       <p>
