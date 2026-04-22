@@ -263,4 +263,89 @@ describe('writePersistedStatePatch', () => {
       progressByItemId: {},
     });
   });
+
+  it('serializes clear-session behind queued writes so stale snapshots do not restore the active account', async () => {
+    vi.resetModules();
+    vi.doMock('electron', () => ({
+      ipcMain: {
+        handle: vi.fn(),
+      },
+    }));
+    vi.doMock('electron-store', () => {
+      class FakeStore<T> {
+        store: T;
+
+        constructor(options: { defaults: T }) {
+          this.store = options.defaults;
+        }
+      }
+
+      return {
+        default: FakeStore,
+      };
+    });
+
+    const { clearPersistedSession, writePersistedStatePatch } = await import('../ipc/storage');
+
+    const storeLike = {
+      store: {
+        accounts: [],
+        activeAccountId: 'account-1',
+        settings: {
+          rememberSession: true,
+          defaultVolume: 1,
+          librarySortMode: 'latest_added' as const,
+          proxy: {
+            mode: 'system' as const,
+            customProxyUrl: '',
+          },
+          serverPreferencesByUrl: {},
+        },
+        progressByItemId: {},
+      },
+    };
+
+    let releaseFirstWrite: (() => void) | null = null;
+    const firstWriteReady = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+
+    const firstWrite = writePersistedStatePatch(
+      storeLike,
+      {
+        settings: {
+          rememberSession: false,
+        },
+      },
+      {
+        onSettingsChanged: vi.fn().mockImplementationOnce(() => firstWriteReady),
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(storeLike.store.activeAccountId).toBe('account-1');
+    });
+
+    const clearSession = clearPersistedSession(storeLike);
+
+    releaseFirstWrite?.();
+
+    await Promise.all([firstWrite, clearSession]);
+
+    expect(storeLike.store).toEqual({
+      accounts: [],
+      activeAccountId: null,
+      settings: {
+        rememberSession: false,
+        defaultVolume: 1,
+        librarySortMode: 'latest_added',
+        proxy: {
+          mode: 'system',
+          customProxyUrl: '',
+        },
+        serverPreferencesByUrl: {},
+      },
+      progressByItemId: {},
+    });
+  });
 });

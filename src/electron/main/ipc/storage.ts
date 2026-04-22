@@ -63,6 +63,12 @@ export async function writePersistedStatePatch(
   return queuedWrite;
 }
 
+export function clearPersistedSession(storeLike: PersistedStateStoreLike): Promise<PersistedState> {
+  return writePersistedStatePatch(storeLike, {
+    activeAccountId: null,
+  });
+}
+
 export function registerStorageIpc(options: RegisterStorageIpcOptions = {}) {
   ipcMain.handle('storage:read', () => readPersistedState());
 
@@ -70,16 +76,5 @@ export function registerStorageIpc(options: RegisterStorageIpcOptions = {}) {
     writePersistedStatePatch(store, nextState, options)
   );
 
-  ipcMain.handle('storage:clear-session', () => {
-    const currentState = readPersistedState();
-    const merged = mergePersistedState(
-      {
-        activeAccountId: null,
-      },
-      currentState
-    );
-
-    store.store = merged;
-    return merged;
-  });
+  ipcMain.handle('storage:clear-session', () => clearPersistedSession(store));
 }
