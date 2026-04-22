@@ -14,6 +14,7 @@ import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playbac
 import type { LibraryItem } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
+import type { LibrarySortMode } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
   pickFeaturedViews,
@@ -342,7 +343,7 @@ function LoginRoute() {
 }
 
 function LibrariesRoute() {
-  const { activeAccountId, serverUrl, session } = useAuth();
+  const { activeAccountId, serverUrl, session, settings, updateSettings } = useAuth();
   const [continueWatching, setContinueWatching] = useState<
     ReturnType<typeof buildContinueWatchingItems>
   >([]);
@@ -352,6 +353,25 @@ function LibrariesRoute() {
   const [errorMessage, setErrorMessage] = useState('');
   const resolvedActiveAccountId =
     activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
+
+  async function handleSortModeChange(nextSortMode: LibrarySortMode) {
+    if (nextSortMode === settings.librarySortMode) {
+      return;
+    }
+
+    try {
+      await window.embyDesktop.storage.write({
+        settings: {
+          librarySortMode: nextSortMode,
+        },
+      });
+      updateSettings({
+        librarySortMode: nextSortMode,
+      });
+    } catch {
+      // Keeping the current sort mode is safer than diverging UI and persisted state.
+    }
+  }
 
   useEffect(() => {
     if (!session) {
@@ -390,6 +410,7 @@ function LibrariesRoute() {
                   view.id,
                   await fetchItems(serverUrl, session.userId, view.id, session.accessToken, {
                     limit: 8,
+                    sortMode: settings.librarySortMode,
                   }),
                 ]
               )
@@ -448,6 +469,7 @@ function LibrariesRoute() {
                     ? `${Math.round(item.runtimeTicks / 600000000)} min`
                     : 'Ready to play',
                 posterUrl: item.posterUrl,
+                imageCandidates: item.imageCandidates,
                 href: `/player/${item.id}`,
                 state: {
                   title: item.name,
@@ -472,7 +494,7 @@ function LibrariesRoute() {
     return () => {
       cancelled = true;
     };
-  }, [resolvedActiveAccountId, serverUrl, session]);
+  }, [resolvedActiveAccountId, serverUrl, session, settings.librarySortMode]);
 
   return (
     <AuthenticatedLayout>
@@ -485,6 +507,8 @@ function LibrariesRoute() {
           continueWatching={continueWatching}
           libraries={libraries}
           featuredRows={featuredRows}
+          sortMode={settings.librarySortMode}
+          onSortModeChange={handleSortModeChange}
         />
       ) : null}
     </AuthenticatedLayout>
@@ -492,7 +516,7 @@ function LibrariesRoute() {
 }
 
 function LibraryItemsRoute() {
-  const { serverUrl, session } = useAuth();
+  const { serverUrl, session, settings, updateSettings } = useAuth();
   const { viewId = '' } = useParams();
   const location = useLocation();
   const [items, setItems] = useState<LibraryItem[]>([]);
@@ -500,6 +524,25 @@ function LibraryItemsRoute() {
   const [errorMessage, setErrorMessage] = useState('');
   const libraryName =
     (location.state as { libraryName?: string } | null | undefined)?.libraryName ?? 'Library';
+
+  async function handleSortModeChange(nextSortMode: LibrarySortMode) {
+    if (nextSortMode === settings.librarySortMode) {
+      return;
+    }
+
+    try {
+      await window.embyDesktop.storage.write({
+        settings: {
+          librarySortMode: nextSortMode,
+        },
+      });
+      updateSettings({
+        librarySortMode: nextSortMode,
+      });
+    } catch {
+      // Keeping the current sort mode is safer than diverging UI and persisted state.
+    }
+  }
 
   useEffect(() => {
     if (!session || !viewId) {
@@ -513,7 +556,9 @@ function LibraryItemsRoute() {
     setIsLoading(true);
     setErrorMessage('');
 
-    fetchItems(serverUrl, session.userId, viewId, session.accessToken)
+    fetchItems(serverUrl, session.userId, viewId, session.accessToken, {
+      sortMode: settings.librarySortMode,
+    })
       .then((nextItems) => {
         if (!cancelled) {
           setItems(nextItems);
@@ -530,7 +575,7 @@ function LibraryItemsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, session, viewId]);
+  }, [serverUrl, session, settings.librarySortMode, viewId]);
 
   return (
     <AuthenticatedLayout title={libraryName}>
@@ -538,7 +583,12 @@ function LibraryItemsRoute() {
       {isLoading ? (
         <p>Loading items...</p>
       ) : (
-        <LibraryItemsPage libraryName={libraryName} items={items} />
+        <LibraryItemsPage
+          libraryName={libraryName}
+          sortMode={settings.librarySortMode}
+          onSortModeChange={handleSortModeChange}
+          items={items}
+        />
       )}
     </AuthenticatedLayout>
   );

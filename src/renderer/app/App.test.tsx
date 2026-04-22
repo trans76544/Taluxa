@@ -510,6 +510,7 @@ describe('App', () => {
         id: 'item-1',
         name: 'Movie 1',
         posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
         runtimeTicks: 600000000,
         serverPositionTicks: 42000000,
       },
@@ -604,6 +605,7 @@ describe('App', () => {
         id: 'doc-item',
         name: 'Planet Earth',
         posterUrl: 'https://demo.emby.local/Items/doc-item/Images/Primary',
+        imageCandidates: [],
         runtimeTicks: 18000000000,
         serverPositionTicks: 3000000000,
       },
@@ -611,6 +613,7 @@ describe('App', () => {
         id: 'bob-item',
         name: 'Bob Resume',
         posterUrl: 'https://demo.emby.local/Items/bob-item/Images/Primary',
+        imageCandidates: [],
         runtimeTicks: 12000000000,
         serverPositionTicks: 4200000000,
       },
@@ -621,6 +624,7 @@ describe('App', () => {
           id: `${parentId}-item`,
           name: `${parentId} item`,
           posterUrl: `https://demo.emby.local/Items/${parentId}-item/Images/Primary`,
+          imageCandidates: [],
           runtimeTicks: 600000000,
           serverPositionTicks: null,
         },
@@ -645,6 +649,87 @@ describe('App', () => {
       ['doc-item'],
       'token-123'
     );
+  });
+
+  it('requests release-date sorting and persists it when the user switches sort mode on the home screen', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        settings: createSettings({ librarySortMode: 'latest_added' }),
+      })
+    );
+    storage.write.mockResolvedValue(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        settings: createSettings({ librarySortMode: 'release_date' }),
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchItemsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'movies',
+        'token-123',
+        {
+          limit: 8,
+          sortMode: 'latest_added',
+        }
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        settings: {
+          librarySortMode: 'release_date',
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(fetchItemsMock).toHaveBeenLastCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'movies',
+        'token-123',
+        {
+          limit: 8,
+          sortMode: 'release_date',
+        }
+      );
+    });
   });
 
   it('keeps saved accounts visible when the active account home request fails', async () => {
@@ -850,6 +935,7 @@ describe('App', () => {
         id: 'item-1',
         name: 'Movie 1',
         posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
         runtimeTicks: 600000000,
         serverPositionTicks: 42000000,
       },
@@ -889,6 +975,7 @@ describe('App', () => {
         id: 'item-1',
         name: 'Movie 1',
         posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
         runtimeTicks: 600000000,
         serverPositionTicks: 42000000,
       },

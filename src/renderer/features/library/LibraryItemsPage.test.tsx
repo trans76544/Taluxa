@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LibraryItemsPage } from './LibraryItemsPage';
 
 function PlayerLocationState() {
@@ -15,6 +15,8 @@ describe('LibraryItemsPage', () => {
       <MemoryRouter>
         <LibraryItemsPage
           libraryName="Movies"
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
           items={[
             {
               id: 'item-1',
@@ -66,6 +68,8 @@ describe('LibraryItemsPage', () => {
             element={
               <LibraryItemsPage
                 libraryName="Movies"
+                sortMode="latest_added"
+                onSortModeChange={() => undefined}
                 items={[
                   {
                     id: 'item-1',
@@ -92,10 +96,34 @@ describe('LibraryItemsPage', () => {
   it('renders an empty state when no items are available', () => {
     render(
       <MemoryRouter>
-        <LibraryItemsPage libraryName="Movies" items={[]} />
+        <LibraryItemsPage
+          libraryName="Movies"
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
+          items={[]}
+        />
       </MemoryRouter>
     );
 
     expect(screen.getByText('No items found.')).toBeInTheDocument();
+  });
+
+  it('lets the user switch the library sort mode to release date', () => {
+    const onSortModeChange = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <LibraryItemsPage
+          libraryName="Movies"
+          sortMode="latest_added"
+          onSortModeChange={onSortModeChange}
+          items={[]}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
+
+    expect(onSortModeChange).toHaveBeenCalledWith('release_date');
   });
 });

@@ -22,7 +22,9 @@ export function ContinueWatchingRow({ title, items }: ContinueWatchingRowProps) 
               title={item.title}
               subtitle={item.subtitle}
               posterUrl={item.posterUrl}
+              imageCandidates={item.imageCandidates}
               href={item.href}
+              state={item.state}
             />
           ))}
         </div>

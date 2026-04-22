@@ -24,7 +24,16 @@ describe('home helpers', () => {
             id: 'item-1',
             name: 'Movie 1',
             posterUrl: 'https://demo.local/poster-1.jpg',
-            imageCandidates: [],
+            imageCandidates: [
+              {
+                url: 'https://demo.local/poster-1.jpg',
+                kind: 'primary',
+              },
+              {
+                url: 'https://demo.local/thumb-1.jpg',
+                kind: 'thumb',
+              },
+            ],
             runtimeTicks: 18000000000,
             serverPositionTicks: 1200000000,
           },
@@ -32,7 +41,12 @@ describe('home helpers', () => {
             id: 'item-2',
             name: 'Movie 2',
             posterUrl: 'https://demo.local/poster-2.jpg',
-            imageCandidates: [],
+            imageCandidates: [
+              {
+                url: 'https://demo.local/poster-2.jpg',
+                kind: 'primary',
+              },
+            ],
             runtimeTicks: 15000000000,
             serverPositionTicks: 600000000,
           },
@@ -44,6 +58,16 @@ describe('home helpers', () => {
         title: 'Movie 1',
         subtitle: 'Continue watching',
         posterUrl: 'https://demo.local/poster-1.jpg',
+        imageCandidates: [
+          {
+            url: 'https://demo.local/poster-1.jpg',
+            kind: 'primary',
+          },
+          {
+            url: 'https://demo.local/thumb-1.jpg',
+            kind: 'thumb',
+          },
+        ],
         href: '/player/item-1',
         state: {
           title: 'Movie 1',
@@ -55,6 +79,12 @@ describe('home helpers', () => {
         title: 'Movie 2',
         subtitle: 'Continue watching',
         posterUrl: 'https://demo.local/poster-2.jpg',
+        imageCandidates: [
+          {
+            url: 'https://demo.local/poster-2.jpg',
+            kind: 'primary',
+          },
+        ],
         href: '/player/item-2',
         state: {
           title: 'Movie 2',

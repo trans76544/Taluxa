@@ -1,10 +1,18 @@
 import { PosterCard } from '@renderer/components/PosterCard';
 import type { LibraryItem } from '@shared/models/library';
+import type { LibrarySortMode } from '@shared/models/settings';
 
 interface LibraryItemsPageProps {
   libraryName: string;
+  sortMode: LibrarySortMode;
+  onSortModeChange: (nextSortMode: LibrarySortMode) => void;
   items: LibraryItem[];
 }
+
+const SORT_OPTIONS: Array<{ label: string; value: LibrarySortMode }> = [
+  { label: 'Recently Added', value: 'latest_added' },
+  { label: 'Release Date', value: 'release_date' },
+];
 
 function formatRuntime(runtimeTicks: number | null) {
   if (typeof runtimeTicks !== 'number' || runtimeTicks <= 0) {
@@ -15,12 +23,35 @@ function formatRuntime(runtimeTicks: number | null) {
   return `${runtimeMinutes} min`;
 }
 
-export function LibraryItemsPage({ libraryName, items }: LibraryItemsPageProps) {
+export function LibraryItemsPage({
+  libraryName,
+  sortMode,
+  onSortModeChange,
+  items,
+}: LibraryItemsPageProps) {
   return (
     <section className="home-section library-items-page">
       <div className="library-items-page__header">
-        <h2>Browse items</h2>
-        <p>{libraryName}</p>
+        <div>
+          <h2>Browse items</h2>
+          <p>{libraryName}</p>
+        </div>
+        <div role="group" aria-label="Library sort mode">
+          {SORT_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={sortMode === option.value}
+              onClick={() => {
+                if (option.value !== sortMode) {
+                  void onSortModeChange(option.value);
+                }
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {items.length > 0 ? (
@@ -31,6 +62,7 @@ export function LibraryItemsPage({ libraryName, items }: LibraryItemsPageProps) 
                 title={item.name}
                 subtitle={formatRuntime(item.runtimeTicks)}
                 posterUrl={item.posterUrl}
+                imageCandidates={item.imageCandidates}
                 href={`/player/${item.id}`}
                 state={{ title: item.name, serverPositionTicks: item.serverPositionTicks }}
               />
