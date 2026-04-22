@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppProviders } from './providers';
-import { useAuth } from '@renderer/features/auth/AuthContext';
+import { AuthProvider, useAuth } from '@renderer/features/auth/AuthContext';
 
 import { createDefaultSettings } from '@shared/models/settings';
 import type { PersistedState } from '@shared/store/persistence';
@@ -167,6 +167,36 @@ function AuthHarness() {
           Switch to {account.userName}
         </button>
       ))}
+    </div>
+  );
+}
+
+function ServerNameRetryHarness() {
+  const { getServerDisplayName, isHydrated, setAuthState } = useAuth();
+  const serverUrl = 'https://demo.emby.local';
+
+  if (!isHydrated) {
+    return <p>Hydrating...</p>;
+  }
+
+  return (
+    <div>
+      <p data-testid="server-display-name">{getServerDisplayName(serverUrl)}</p>
+      <button
+        type="button"
+        onClick={() =>
+          setAuthState({
+            serverUrl,
+            session: {
+              userId: 'user-1',
+              userName: 'Alice',
+              accessToken: 'token-456',
+            },
+          })
+        }
+      >
+        Reauthenticate
+      </button>
     </div>
   );
 }
@@ -1003,6 +1033,40 @@ describe('App', () => {
     expect(fetchServerInfoMock).toHaveBeenCalledWith('https://backup.emby.local', 'token-456');
   });
 
+  it('retries fetching a friendly server name after a failed attempt when the same server is re-authenticated', async () => {
+    fetchServerInfoMock
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({ serverName: 'Living Room Server' });
+
+    render(
+      <AuthProvider
+        initialState={{
+          accounts: [createSavedAccount()],
+          activeAccountId: 'https://demo.emby.local::user-1',
+          settings: createSettings(),
+        }}
+      >
+        <ServerNameRetryHarness />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(fetchServerInfoMock).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchServerInfoMock).toHaveBeenCalledWith('https://demo.emby.local', 'token-123');
+    expect(screen.getByTestId('server-display-name')).toHaveTextContent('https://demo.emby.local');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reauthenticate' }));
+
+    await waitFor(() => {
+      expect(fetchServerInfoMock).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchServerInfoMock).toHaveBeenLastCalledWith('https://demo.emby.local', 'token-456');
+    await waitFor(() => {
+      expect(screen.getByTestId('server-display-name')).toHaveTextContent('Living Room Server');
+    });
+  });
+
   it('switches the active account through the provider action used by account list UIs', async () => {
     mockStorageRead(
       createPersistedState({
@@ -1164,5 +1228,35 @@ describe('App', () => {
     });
     expect(await screen.findByRole('heading', { name: 'Projector Server' })).toBeInTheDocument();
     expect(screen.getAllByText('https://demo.emby.local').length).toBeGreaterThan(0);
+  });
+
+  it('shows an inline error when persisting a manual server display name override fails', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ defaultVolume: 0.8 }),
+      })
+    );
+    storage.write.mockRejectedValue(new Error('disk full'));
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Server display name'), {
+      target: { value: 'Projector Server' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save server name' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save the server name. Try again.'
+    );
   });
 });

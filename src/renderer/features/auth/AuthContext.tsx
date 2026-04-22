@@ -131,7 +131,7 @@ export function AuthProvider({
   const [fetchedServerDisplayNamesByUrl, setFetchedServerDisplayNamesByUrl] = useState<
     Record<string, string>
   >({});
-  const requestedServerDisplayNamesRef = useRef(new Set<string>());
+  const inFlightServerDisplayNameRequestsRef = useRef(new Map<string, string>());
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
@@ -221,15 +221,17 @@ export function AuthProvider({
     }
 
     for (const account of firstAccountByServerUrl.values()) {
+      const inFlightAccessToken = inFlightServerDisplayNameRequestsRef.current.get(account.serverUrl);
+
       if (
         getServerDisplayNameOverride(resolvedAuthState.settings, account.serverUrl) ||
         hasText(fetchedServerDisplayNamesByUrl[account.serverUrl]) ||
-        requestedServerDisplayNamesRef.current.has(account.serverUrl)
+        inFlightAccessToken === account.accessToken
       ) {
         continue;
       }
 
-      requestedServerDisplayNamesRef.current.add(account.serverUrl);
+      inFlightServerDisplayNameRequestsRef.current.set(account.serverUrl, account.accessToken);
 
       fetchServerInfo(account.serverUrl, account.accessToken)
         .then(({ serverName }) => {
@@ -242,6 +244,14 @@ export function AuthProvider({
         })
         .catch(() => {
           // Friendly server names are best-effort.
+        })
+        .finally(() => {
+          if (
+            inFlightServerDisplayNameRequestsRef.current.get(account.serverUrl) ===
+            account.accessToken
+          ) {
+            inFlightServerDisplayNameRequestsRef.current.delete(account.serverUrl);
+          }
         });
     }
 

@@ -79,4 +79,34 @@ describe('SettingsPage', () => {
 
     expect(screen.getByLabelText('Server display name')).toHaveValue('Projector Server');
   });
+
+  it('shows an inline error when saving the server display name fails', async () => {
+    const onLogout = vi.fn();
+    const onServerDisplayNameSave = vi.fn().mockRejectedValue(new Error('disk full'));
+
+    render(
+      <MemoryRouter>
+        <AuthProvider initialState={{ accounts: [], activeAccountId: null }}>
+          <SettingsPage
+            userName="Alice"
+            serverUrl="https://demo.emby.local"
+            serverDisplayName="Living Room Server"
+            defaultVolume={0.8}
+            onServerDisplayNameSave={onServerDisplayNameSave}
+            onLogout={onLogout}
+          />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('Server display name'), {
+      target: { value: 'Projector Server' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save server name' }));
+
+    expect(onServerDisplayNameSave).toHaveBeenCalledWith('Projector Server');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save the server name. Try again.'
+    );
+  });
 });

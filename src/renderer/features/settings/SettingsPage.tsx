@@ -20,6 +20,7 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const [draftServerDisplayName, setDraftServerDisplayName] = useState(serverDisplayName);
   const [isDraftDirty, setIsDraftDirty] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const lastServerUrlRef = useRef(serverUrl);
 
   useEffect(() => {
@@ -29,12 +30,18 @@ export function SettingsPage({
     if (serverChanged || !isDraftDirty || draftServerDisplayName === serverDisplayName) {
       setDraftServerDisplayName(serverDisplayName);
       setIsDraftDirty(false);
+      setSaveError('');
     }
   }, [draftServerDisplayName, isDraftDirty, serverDisplayName, serverUrl]);
 
   async function handleServerDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onServerDisplayNameSave(draftServerDisplayName.trim());
+    try {
+      await onServerDisplayNameSave(draftServerDisplayName.trim());
+      setSaveError('');
+    } catch {
+      setSaveError('Could not save the server name. Try again.');
+    }
   }
 
   return (
@@ -58,11 +65,14 @@ export function SettingsPage({
           onChange={(event) => {
             setDraftServerDisplayName(event.target.value);
             setIsDraftDirty(true);
+            setSaveError('');
           }}
         />
 
         <button type="submit">Save server name</button>
       </form>
+
+      {saveError ? <p role="alert">{saveError}</p> : null}
 
       <button type="button" onClick={onLogout}>
         Sign out
