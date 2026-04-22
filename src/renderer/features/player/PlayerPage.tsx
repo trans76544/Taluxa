@@ -1,5 +1,4 @@
-import { useEffect, useRef } from 'react';
-import { seekVideo } from './playerAdapter';
+import { useEffect } from 'react';
 
 export interface PlayerPageProps {
   itemId: string;
@@ -13,16 +12,6 @@ export interface PlayerPageProps {
   }) => void | Promise<void>;
 }
 
-function getDurationSeconds(video: HTMLVideoElement): number {
-  return Number.isFinite(video.duration) ? Math.floor(video.duration) : 0;
-}
-
-function getPositionSeconds(video: HTMLVideoElement): number {
-  return Math.floor(video.currentTime);
-}
-
-const PROGRESS_REPORT_INTERVAL_MS = 5000;
-
 export function PlayerPage({
   itemId,
   title,
@@ -30,86 +19,32 @@ export function PlayerPage({
   initialPositionSeconds,
   onProgress,
 }: PlayerPageProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const progressStateRef = useRef<{
-    lastReportedAtMs: number | null;
-    lastReportedPositionSeconds: number | null;
-  }>({
-    lastReportedAtMs: null,
-    lastReportedPositionSeconds: null,
-  });
-  const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    void window.embyDesktop.player.launch({
+      itemId,
+      title,
+      streamUrl,
+      startSeconds: initialPositionSeconds,
+    });
+  }, [initialPositionSeconds, itemId, streamUrl, title]);
 
   useEffect(() => {
-    progressStateRef.current = {
-      lastReportedAtMs: null,
-      lastReportedPositionSeconds: null,
-    };
+    return window.embyDesktop.player.onProgress((event) => {
+      if (event.itemId !== itemId) {
+        return;
+      }
 
-    if (!videoRef.current) {
-      return;
-    }
-
-    seekVideo(videoRef.current, initialPositionSeconds);
-  }, [initialPositionSeconds, streamUrl]);
-
-  function handleLoadedMetadata() {
-    if (!videoRef.current) {
-      return;
-    }
-
-    seekVideo(videoRef.current, initialPositionSeconds);
-  }
-
-  function handleTimeUpdate() {
-    if (!videoRef.current) {
-      return;
-    }
-
-    const positionSeconds = getPositionSeconds(videoRef.current);
-    const nowMs = Date.now();
-    const { lastReportedAtMs, lastReportedPositionSeconds } = progressStateRef.current;
-
-    if (
-      lastReportedPositionSeconds === positionSeconds ||
-      (lastReportedAtMs !== null && nowMs - lastReportedAtMs < PROGRESS_REPORT_INTERVAL_MS)
-    ) {
-      return;
-    }
-
-    progressStateRef.current = {
-      lastReportedAtMs: nowMs,
-      lastReportedPositionSeconds: positionSeconds,
-    };
-
-    const progressInput = {
-      itemId,
-      positionSeconds,
-      durationSeconds: getDurationSeconds(videoRef.current),
-    };
-
-    progressSyncQueueRef.current = progressSyncQueueRef.current
-      .catch(() => undefined)
-      .then(() => onProgress(progressInput))
-      .catch(() => undefined);
-  }
+      void onProgress(event);
+    });
+  }, [itemId, onProgress]);
 
   return (
-    <section className="stack">
+    <section className="stack" data-testid="player-page">
       <div>
         <h2>{title}</h2>
-        <p>HTML5 playback</p>
+        <p>Desktop playback</p>
       </div>
-
-      <video
-        controls
-        key={streamUrl}
-        data-testid="video-player"
-        ref={videoRef}
-        src={streamUrl}
-        onLoadedMetadata={handleLoadedMetadata}
-        onTimeUpdate={handleTimeUpdate}
-      />
+      <p>Launching mpv...</p>
     </section>
   );
 }

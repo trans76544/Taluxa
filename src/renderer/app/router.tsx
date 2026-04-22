@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -39,6 +39,8 @@ interface PlayerLocationState {
   title?: string;
   serverPositionTicks?: number | null;
 }
+
+const PROGRESS_REPORT_INTERVAL_MS = 5000;
 
 function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedAccount) {
   const accountsById = new Map<string, SavedAccount>();
@@ -120,11 +122,27 @@ function PlayerRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const location = useLocation();
-  const [initialPositionSeconds, setInitialPositionSeconds] = useState(0);
+  const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const playerState = location.state as PlayerLocationState | null | undefined;
   const title = playerState?.title?.trim() || itemId || 'Playback';
   const resolvedActiveAccountId =
     activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
+  const progressStateRef = useRef<{
+    lastReportedAtMs: number | null;
+    lastReportedPositionSeconds: number | null;
+  }>({
+    lastReportedAtMs: null,
+    lastReportedPositionSeconds: null,
+  });
+  const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  useEffect(() => {
+    progressStateRef.current = {
+      lastReportedAtMs: null,
+      lastReportedPositionSeconds: null,
+    };
+    progressSyncQueueRef.current = Promise.resolve();
+  }, [itemId, resolvedActiveAccountId]);
 
   useEffect(() => {
     if (!itemId) {
@@ -134,7 +152,7 @@ function PlayerRoute() {
 
     let cancelled = false;
 
-    setInitialPositionSeconds(0);
+    setInitialPositionSeconds(null);
 
     window.embyDesktop.storage
       .read()
@@ -181,44 +199,67 @@ function PlayerRoute() {
     positionSeconds: number;
     durationSeconds: number;
   }) {
-    if (!session) {
+    if (!session || progressItemId !== itemId) {
       return;
     }
 
+    const normalizedPositionSeconds = Math.max(0, Math.floor(positionSeconds));
+    const normalizedDurationSeconds = Math.max(0, Math.floor(durationSeconds));
+    const nowMs = Date.now();
+    const { lastReportedAtMs, lastReportedPositionSeconds } = progressStateRef.current;
+
+    if (
+      lastReportedPositionSeconds === normalizedPositionSeconds ||
+      (lastReportedAtMs !== null && nowMs - lastReportedAtMs < PROGRESS_REPORT_INTERVAL_MS)
+    ) {
+      return;
+    }
+
+    progressStateRef.current = {
+      lastReportedAtMs: nowMs,
+      lastReportedPositionSeconds: normalizedPositionSeconds,
+    };
+
     const nextProgress: PlaybackProgress = {
       itemId: progressItemId,
-      positionSeconds,
-      durationSeconds,
+      positionSeconds: normalizedPositionSeconds,
+      durationSeconds: normalizedDurationSeconds,
       updatedAt: new Date().toISOString(),
     };
 
-    try {
-      await window.embyDesktop.storage.write({
-        progressByItemId: {
-          [resolvedActiveAccountId
-            ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
-            : progressItemId]: nextProgress,
-        },
-      });
-    } catch {
-      // Persisting progress is best-effort.
-    }
+    progressSyncQueueRef.current = progressSyncQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await window.embyDesktop.storage.write({
+            progressByItemId: {
+              [resolvedActiveAccountId
+                ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
+                : progressItemId]: nextProgress,
+            },
+          });
+        } catch {
+          // Persisting progress is best-effort.
+        }
 
-    try {
-      await reportPlaybackProgress({
-        serverUrl,
-        accessToken: session.accessToken,
-        itemId: progressItemId,
-        positionSeconds,
+        try {
+          await reportPlaybackProgress({
+            serverUrl,
+            accessToken: session.accessToken,
+            itemId: progressItemId,
+            positionSeconds: normalizedPositionSeconds,
+          });
+        } catch {
+          // Reporting progress is best-effort.
+        }
       });
-    } catch {
-      // Reporting progress is best-effort.
-    }
+
+    await progressSyncQueueRef.current;
   }
 
   return (
     <AuthenticatedLayout title={title}>
-      {session ? (
+      {session && initialPositionSeconds !== null ? (
         <PlayerPage
           itemId={itemId}
           title={title}

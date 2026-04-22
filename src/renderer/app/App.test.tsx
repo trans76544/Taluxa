@@ -14,7 +14,7 @@ const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
-const playerPageMock = vi.hoisted(() => vi.fn());
+const reportPlaybackProgressMock = vi.hoisted(() => vi.fn());
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
   activeAccountId?: string | null | undefined;
@@ -30,9 +30,16 @@ vi.mock('@shared/api/emby/library', () => ({
   fetchItemsByIds: fetchItemsByIdsMock,
 }));
 
-vi.mock('@renderer/features/player/PlayerPage', () => ({
-  PlayerPage: (props: unknown) => playerPageMock(props),
-}));
+vi.mock('@shared/api/emby/playback', async () => {
+  const actual = await vi.importActual<typeof import('@shared/api/emby/playback')>(
+    '@shared/api/emby/playback'
+  );
+
+  return {
+    ...actual,
+    reportPlaybackProgress: reportPlaybackProgressMock,
+  };
+});
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -45,8 +52,28 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function flushAsyncQueue() {
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+interface PlayerProgressEvent {
+  itemId: string;
+  positionSeconds: number;
+  durationSeconds: number;
+}
+
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
-  const launch = vi.fn();
+  const progressListeners = new Set<(event: PlayerProgressEvent) => void>();
+  const launch = vi.fn().mockResolvedValue(undefined);
+  const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
+    progressListeners.add(listener);
+
+    return () => {
+      progressListeners.delete(listener);
+    };
+  });
   const read = vi.fn().mockResolvedValue(state);
   const write = vi.fn();
   const clearSession = vi.fn();
@@ -54,15 +81,27 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   window.embyDesktop = {
     player: {
       launch,
+      onProgress,
     },
     storage: {
       read,
       write,
       clearSession,
     },
-  };
+  } as Window['embyDesktop'];
 
-  return { read, write, clearSession };
+  return {
+    launch,
+    onProgress,
+    read,
+    write,
+    clearSession,
+    emitProgress(event: PlayerProgressEvent) {
+      for (const listener of progressListeners) {
+        listener(event);
+      }
+    },
+  };
 }
 
 type PersistedStateOverrides = {
@@ -130,10 +169,11 @@ function AuthHarness() {
 describe('App', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.useRealTimers();
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
-    playerPageMock.mockReturnValue(<div data-testid="player-page" />);
+    reportPlaybackProgressMock.mockResolvedValue(undefined);
     window.location.hash = '';
   });
 
@@ -415,7 +455,7 @@ describe('App', () => {
   });
 
   it('passes server resume ticks through to the player route', async () => {
-    mockStorageRead(
+    const storage = mockStorageRead(
       createPersistedState({
         accounts: [createSavedAccount()],
         activeAccountId: 'https://demo.emby.local::user-1',
@@ -450,12 +490,21 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
 
-    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
-    expect(playerPageMock).toHaveBeenCalledWith(
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'item-1',
+          title: 'Movie 1',
+          startSeconds: 4,
+        })
+      );
+    });
+    expect(storage.launch).toHaveBeenCalledWith(
       expect.objectContaining({
         itemId: 'item-1',
         title: 'Movie 1',
-        initialPositionSeconds: 4,
+        streamUrl:
+          'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
       })
     );
   });
@@ -588,7 +637,7 @@ describe('App', () => {
     expect(screen.queryByText('No libraries found.')).not.toBeInTheDocument();
   });
 
-  it('uses playback progress from the active account when resuming a player route', async () => {
+  it('waits for resume lookup before first player launch and uses active account progress', async () => {
     const aliceAccount = createSavedAccount();
     const bobAccount = createSavedAccount({
       id: 'https://backup.emby.local::user-2',
@@ -598,8 +647,21 @@ describe('App', () => {
       accessToken: 'token-456',
       lastUsedAt: '2026-04-21T01:00:00.000Z',
     });
+    const deferred = createDeferred<StoredPersistedState>();
 
-    mockStorageRead(
+    const storage = mockStorageRead(deferred.promise);
+
+    window.location.hash = '#/player/item-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(storage.launch).not.toHaveBeenCalled();
+
+    deferred.resolve(
       createPersistedState({
         accounts: [aliceAccount, bobAccount],
         activeAccountId: aliceAccount.id,
@@ -620,6 +682,33 @@ describe('App', () => {
       })
     );
 
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'item-1',
+          startSeconds: 120,
+        })
+      );
+    });
+    expect(storage.launch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'item-1',
+        startSeconds: 0,
+      })
+    );
+  });
+
+  it('persists and reports throttled progress from mpv bridge events at the route layer', async () => {
+    let nowMs = Date.parse('2026-04-22T08:00:00.000Z');
+    vi.spyOn(Date, 'now').mockImplementation(() => nowMs);
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
     window.location.hash = '#/player/item-1';
 
     render(
@@ -628,15 +717,81 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
     await waitFor(() => {
-      expect(playerPageMock).toHaveBeenLastCalledWith(
+      expect(storage.launch).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'item-1',
-          initialPositionSeconds: 120,
+          startSeconds: 0,
         })
       );
     });
+
+    storage.emitProgress({
+      itemId: 'item-1',
+      positionSeconds: 12.7,
+      durationSeconds: 180,
+    });
+
+    await flushAsyncQueue();
+
+    expect(storage.write).toHaveBeenCalledWith({
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'item-1')]: {
+          itemId: 'item-1',
+          positionSeconds: 12,
+          durationSeconds: 180,
+          updatedAt: expect.any(String),
+        },
+      },
+    });
+    expect(reportPlaybackProgressMock).toHaveBeenCalledWith({
+      serverUrl: 'https://demo.emby.local',
+      accessToken: 'token-123',
+      itemId: 'item-1',
+      positionSeconds: 12,
+    });
+
+    nowMs = Date.parse('2026-04-22T08:00:01.000Z');
+    storage.emitProgress({
+      itemId: 'item-1',
+      positionSeconds: 13.2,
+      durationSeconds: 180,
+    });
+
+    await flushAsyncQueue();
+
+    expect(storage.write).toHaveBeenCalledTimes(1);
+    expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(1);
+
+    nowMs = Date.parse('2026-04-22T08:00:06.000Z');
+    storage.emitProgress({
+      itemId: 'item-1',
+      positionSeconds: 13.2,
+      durationSeconds: 180,
+    });
+
+    await flushAsyncQueue();
+
+    expect(storage.write).toHaveBeenCalledTimes(2);
+    expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(2);
+    expect(reportPlaybackProgressMock).toHaveBeenLastCalledWith({
+      serverUrl: 'https://demo.emby.local',
+      accessToken: 'token-123',
+      itemId: 'item-1',
+      positionSeconds: 13,
+    });
+
+    nowMs = Date.parse('2026-04-22T08:00:12.000Z');
+    storage.emitProgress({
+      itemId: 'item-1',
+      positionSeconds: 13.9,
+      durationSeconds: 180,
+    });
+
+    await flushAsyncQueue();
+
+    expect(storage.write).toHaveBeenCalledTimes(2);
+    expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(2);
   });
 
   it('preserves library name when opening a library from the home screen', async () => {
@@ -679,7 +834,7 @@ describe('App', () => {
   });
 
   it('passes title and resume metadata when opening playback from the home screen', async () => {
-    mockStorageRead(
+    const storage = mockStorageRead(
       createPersistedState({
         accounts: [createSavedAccount()],
         activeAccountId: 'https://demo.emby.local::user-1',
@@ -713,12 +868,21 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
 
-    expect(await screen.findByTestId('player-page')).toBeInTheDocument();
-    expect(playerPageMock).toHaveBeenCalledWith(
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'item-1',
+          title: 'Movie 1',
+          startSeconds: 4,
+        })
+      );
+    });
+    expect(storage.launch).toHaveBeenCalledWith(
       expect.objectContaining({
         itemId: 'item-1',
         title: 'Movie 1',
-        initialPositionSeconds: 4,
+        streamUrl:
+          'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
       })
     );
   });

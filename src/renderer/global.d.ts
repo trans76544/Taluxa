@@ -2,7 +2,10 @@ import type {
   PersistedState,
   PersistedStatePatch,
 } from '@shared/store/persistence';
-import type { PlayerLaunchInput } from '../electron/preload/index';
+import type {
+  PlayerLaunchInput,
+  PlayerProgressEvent,
+} from '../electron/preload/index';
 
 export {};
 
@@ -11,6 +14,7 @@ declare global {
     embyDesktop: {
       player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;
+        onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
       };
       storage: {
         read: () => Promise<PersistedState>;

@@ -5,15 +5,33 @@ import type {
 } from '../../shared/store/persistence';
 
 export interface PlayerLaunchInput {
+  itemId: string;
   streamUrl: string;
   title: string;
   startSeconds?: number;
+}
+
+export interface PlayerProgressEvent {
+  itemId: string;
+  positionSeconds: number;
+  durationSeconds: number;
 }
 
 contextBridge.exposeInMainWorld('embyDesktop', {
   player: {
     launch: (input: PlayerLaunchInput) =>
       ipcRenderer.invoke('player:launch', input) as Promise<void>,
+    onProgress: (listener: (event: PlayerProgressEvent) => void) => {
+      const handleProgress = (_event: Electron.IpcRendererEvent, payload: PlayerProgressEvent) => {
+        listener(payload);
+      };
+
+      ipcRenderer.on('player:progress', handleProgress);
+
+      return () => {
+        ipcRenderer.removeListener('player:progress', handleProgress);
+      };
+    },
   },
   storage: {
     read: () => ipcRenderer.invoke('storage:read') as Promise<PersistedState>,
