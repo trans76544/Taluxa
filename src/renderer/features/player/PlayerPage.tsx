@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export interface PlayerPageProps {
   itemId: string;
@@ -19,13 +19,29 @@ export function PlayerPage({
   initialPositionSeconds,
   onProgress,
 }: PlayerPageProps) {
+  const [launchError, setLaunchError] = useState('');
+
   useEffect(() => {
-    void window.embyDesktop.player.launch({
-      itemId,
-      title,
-      streamUrl,
-      startSeconds: initialPositionSeconds,
-    });
+    let cancelled = false;
+
+    setLaunchError('');
+
+    window.embyDesktop.player
+      .launch({
+        itemId,
+        title,
+        streamUrl,
+        startSeconds: initialPositionSeconds,
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLaunchError('Could not start desktop playback. Restart the app and try again.');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialPositionSeconds, itemId, streamUrl, title]);
 
   useEffect(() => {
@@ -44,7 +60,7 @@ export function PlayerPage({
         <h2>{title}</h2>
         <p>Desktop playback</p>
       </div>
-      <p>Launching mpv...</p>
+      {launchError ? <p role="alert">{launchError}</p> : <p>Launching mpv...</p>}
     </section>
   );
 }
