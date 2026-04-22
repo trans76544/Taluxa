@@ -5,7 +5,11 @@ export interface PlayerPageProps {
   title: string;
   streamUrl: string;
   initialPositionSeconds: number;
-  onProgress?: never;
+  onProgress?: (input: {
+    itemId: string;
+    positionSeconds: number;
+    durationSeconds: number;
+  }) => void | Promise<void>;
 }
 
 export function PlayerPage({

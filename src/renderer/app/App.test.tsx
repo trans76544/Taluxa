@@ -13,6 +13,7 @@ const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
+const reportPlaybackProgressMock = vi.hoisted(() => vi.fn());
 const playerPageMock = vi.hoisted(() => vi.fn());
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
@@ -27,6 +28,13 @@ vi.mock('@shared/api/emby/library', () => ({
   fetchViews: fetchViewsMock,
   fetchItems: fetchItemsMock,
   fetchItemsByIds: fetchItemsByIdsMock,
+}));
+
+vi.mock('@shared/api/emby/playback', () => ({
+  buildStreamUrl: vi.fn((serverUrl: string, itemId: string, accessToken: string) =>
+    `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream.mp4?static=true&api_key=${encodeURIComponent(accessToken)}`
+  ),
+  reportPlaybackProgress: reportPlaybackProgressMock,
 }));
 
 vi.mock('@renderer/features/player/PlayerPage', () => ({
@@ -689,6 +697,62 @@ describe('App', () => {
         initialPositionSeconds: 120,
       })
     );
+  });
+
+  it('preserves the route-owned progress reporting path for player handoff', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    window.location.hash = '#/player/item-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    await waitFor(() => {
+      expect(playerPageMock).toHaveBeenCalled();
+    });
+
+    const playerProps = playerPageMock.mock.calls[0]?.[0] as
+      | {
+          onProgress?: (input: {
+            itemId: string;
+            positionSeconds: number;
+            durationSeconds: number;
+          }) => Promise<void> | void;
+        }
+      | undefined;
+
+    expect(playerProps?.onProgress).toEqual(expect.any(Function));
+
+    await playerProps?.onProgress?.({
+      itemId: 'item-1',
+      positionSeconds: 123,
+      durationSeconds: 3600,
+    });
+
+    expect(storage.write).toHaveBeenCalledWith({
+      progressByItemId: {
+        [createAccountScopedProgressKey('https://demo.emby.local::user-1', 'item-1')]: {
+          itemId: 'item-1',
+          positionSeconds: 123,
+          durationSeconds: 3600,
+          updatedAt: expect.any(String),
+        },
+      },
+    });
+    expect(reportPlaybackProgressMock).toHaveBeenCalledWith({
+      serverUrl: 'https://demo.emby.local',
+      accessToken: 'token-123',
+      itemId: 'item-1',
+      positionSeconds: 123,
+    });
   });
 
   it('preserves library name when opening a library from the home screen', async () => {
