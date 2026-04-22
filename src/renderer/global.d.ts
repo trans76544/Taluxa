@@ -9,7 +9,7 @@ export {};
 declare global {
   interface Window {
     embyDesktop: {
-      player?: {
+      player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;
       };
       storage: {

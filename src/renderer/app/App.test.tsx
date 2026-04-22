@@ -46,11 +46,15 @@ function createDeferred<T>() {
 }
 
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
+  const launch = vi.fn();
   const read = vi.fn().mockResolvedValue(state);
   const write = vi.fn();
   const clearSession = vi.fn();
 
   window.embyDesktop = {
+    player: {
+      launch,
+    },
     storage: {
       read,
       write,
