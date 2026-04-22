@@ -1033,6 +1033,50 @@ describe('App', () => {
     expect(fetchServerInfoMock).toHaveBeenCalledWith('https://backup.emby.local', 'token-456');
   });
 
+  it('prefers a better same-server saved account token during hydration when the first account token is stale', async () => {
+    fetchServerInfoMock.mockImplementation(async (_serverUrl: string, accessToken: string) => {
+      if (accessToken === 'token-stale') {
+        throw new Error('stale token');
+      }
+
+      return { serverName: 'Living Room Server' };
+    });
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [
+          createSavedAccount({
+            id: 'https://demo.emby.local::user-1',
+            userId: 'user-1',
+            userName: 'Alice',
+            accessToken: 'token-stale',
+            lastUsedAt: '2026-04-21T00:00:00.000Z',
+          }),
+          createSavedAccount({
+            id: 'https://demo.emby.local::user-2',
+            userId: 'user-2',
+            userName: 'Bob',
+            accessToken: 'token-fresh',
+            lastUsedAt: '2026-04-21T01:00:00.000Z',
+          }),
+        ],
+        activeAccountId: 'https://demo.emby.local::user-2',
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
+    expect(fetchServerInfoMock).toHaveBeenCalledWith('https://demo.emby.local', 'token-fresh');
+  });
+
   it('retries fetching a friendly server name after a failed attempt when the same server is re-authenticated', async () => {
     fetchServerInfoMock
       .mockRejectedValueOnce(new Error('temporary failure'))

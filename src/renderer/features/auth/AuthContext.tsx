@@ -83,6 +83,29 @@ function getServerDisplayNameOverride(settings: Settings, serverUrl: string): st
   return hasText(displayNameOverride) ? displayNameOverride.trim() : null;
 }
 
+function pickBetterServerInfoAccount(
+  currentBest: SavedAccount | undefined,
+  candidate: SavedAccount,
+  activeAccountId: string | null
+): SavedAccount {
+  if (!currentBest) {
+    return candidate;
+  }
+
+  const currentIsActive = currentBest.id === activeAccountId;
+  const candidateIsActive = candidate.id === activeAccountId;
+
+  if (candidateIsActive && !currentIsActive) {
+    return candidate;
+  }
+
+  if (currentIsActive && !candidateIsActive) {
+    return currentBest;
+  }
+
+  return candidate.lastUsedAt.localeCompare(currentBest.lastUsedAt) > 0 ? candidate : currentBest;
+}
+
 function normalizeActiveAccountId(
   accounts: SavedAccount[],
   activeAccountId: string | null | undefined
@@ -212,15 +235,20 @@ export function AuthProvider({
 
     let cancelled = false;
 
-    const firstAccountByServerUrl = new Map<string, SavedAccount>();
+    const bestAccountByServerUrl = new Map<string, SavedAccount>();
 
     for (const account of resolvedAuthState.accounts) {
-      if (!firstAccountByServerUrl.has(account.serverUrl)) {
-        firstAccountByServerUrl.set(account.serverUrl, account);
-      }
+      bestAccountByServerUrl.set(
+        account.serverUrl,
+        pickBetterServerInfoAccount(
+          bestAccountByServerUrl.get(account.serverUrl),
+          account,
+          resolvedAuthState.activeAccountId
+        )
+      );
     }
 
-    for (const account of firstAccountByServerUrl.values()) {
+    for (const account of bestAccountByServerUrl.values()) {
       const inFlightAccessToken = inFlightServerDisplayNameRequestsRef.current.get(account.serverUrl);
 
       if (
