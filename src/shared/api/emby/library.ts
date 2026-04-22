@@ -1,6 +1,8 @@
-﻿import { createEmbyRequest } from './client';
+import { createEmbyRequest } from './client';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import type { LibraryItem, LibraryView } from '@shared/models/library';
+
+export type LibrarySortMode = 'latest_added' | 'release_date';
 
 interface EmbyLibraryViewPayload {
   Items?: Array<{
@@ -40,6 +42,11 @@ function hasText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function buildImageUrl(serverUrl: string, itemId: string, imageType: 'Primary' | 'Thumb' | 'Backdrop'): string {
+  const normalizedServerUrl = normalizeServerUrl(serverUrl);
+  return `${normalizedServerUrl}/Items/${itemId}/Images/${imageType}`;
+}
+
 export function mapViewsResponse(payload: EmbyLibraryViewPayload): LibraryView[] {
   return (payload.Items ?? []).reduce<LibraryView[]>((views, item) => {
     if (!hasText(item.Id) || !hasText(item.Name)) {
@@ -61,16 +68,35 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
 
   return (payload.Items ?? [])
     .filter((item): item is EmbyLibraryItem => hasText(item.Id) && hasText(item.Name))
-    .map((item) => ({
-      id: item.Id.trim(),
-      name: item.Name.trim(),
-      posterUrl: `${normalizedServerUrl}/Items/${item.Id.trim()}/Images/Primary`,
-      runtimeTicks: typeof item.RunTimeTicks === 'number' ? item.RunTimeTicks : null,
-      serverPositionTicks:
-        typeof item.UserData?.PlaybackPositionTicks === 'number'
-          ? item.UserData.PlaybackPositionTicks
-          : null,
-    }));
+    .map((item) => {
+      const itemId = item.Id.trim();
+      const posterUrl = `${normalizedServerUrl}/Items/${itemId}/Images/Primary`;
+
+      return {
+        id: itemId,
+        name: item.Name.trim(),
+        posterUrl,
+        imageCandidates: [
+          {
+            url: buildImageUrl(normalizedServerUrl, itemId, 'Primary'),
+            kind: 'primary',
+          },
+          {
+            url: buildImageUrl(normalizedServerUrl, itemId, 'Thumb'),
+            kind: 'thumb',
+          },
+          {
+            url: buildImageUrl(normalizedServerUrl, itemId, 'Backdrop'),
+            kind: 'backdrop',
+          },
+        ],
+        runtimeTicks: typeof item.RunTimeTicks === 'number' ? item.RunTimeTicks : null,
+        serverPositionTicks:
+          typeof item.UserData?.PlaybackPositionTicks === 'number'
+            ? item.UserData.PlaybackPositionTicks
+            : null,
+      };
+    });
 }
 
 export async function fetchViews(
@@ -96,12 +122,21 @@ export async function fetchItems(
   accessToken: string,
   options: {
     limit?: number;
+    sortMode?: LibrarySortMode;
   } = {}
 ): Promise<LibraryItem[]> {
   const query = new URLSearchParams({
     ParentId: parentId,
     Recursive: 'true',
     IncludeItemTypes: 'Movie,Episode',
+    SortBy:
+      options.sortMode === 'release_date'
+        ? 'PremiereDate,ProductionYear,SortName'
+        : 'DateCreated,SortName',
+    SortOrder:
+      options.sortMode === 'release_date'
+        ? 'Descending,Descending,Ascending'
+        : 'Descending,Ascending',
   });
 
   if (typeof options.limit === 'number') {
