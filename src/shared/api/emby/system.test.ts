@@ -35,6 +35,20 @@ describe('fetchServerInfo', () => {
     });
   });
 
+  it('returns a null server name for whitespace-only values', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ServerName: '   ',
+      }),
+    });
+
+    await expect(fetchServerInfo('https://demo.emby.local', 'token-1')).resolves.toEqual({
+      serverName: null,
+    });
+  });
+
   it('rejects malformed system info payloads', async () => {
     fetchMock.mockResolvedValue({
       ok: true,

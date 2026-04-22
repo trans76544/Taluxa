@@ -30,7 +30,7 @@ export async function fetchServerInfo(
   }
 
   const serverName = payload.ServerName;
-  if (serverName !== undefined && serverName !== null && !hasText(serverName)) {
+  if (serverName !== undefined && serverName !== null && typeof serverName !== 'string') {
     throw new Error('Invalid Emby server info response');
   }
 
