@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ProxySettings } from '@shared/models/settings';
 
 export interface LaunchMpvInput {
   itemId: string;
@@ -117,6 +118,18 @@ function isRetryableIpcError(error: Error): boolean {
   return errorCode === 'ECONNREFUSED' || errorCode === 'ENOENT';
 }
 
+function getProxyArgs(proxy: ProxySettings): string[] {
+  if (proxy.mode === 'direct') {
+    return ['--no-http-proxy'];
+  }
+
+  if (proxy.mode === 'custom') {
+    return [`--http-proxy=${proxy.customProxyUrl}`];
+  }
+
+  return [];
+}
+
 export class MpvController {
   private activeSession: ActiveSession | null = null;
 
@@ -174,7 +187,7 @@ export class MpvController {
     return executablePath;
   }
 
-  async launch(input: LaunchMpvInput): Promise<void> {
+  async launch(input: LaunchMpvInput, proxy: ProxySettings): Promise<void> {
     const executablePath = this.getExecutablePath();
     const ipcServerPath = this.createIpcEndpoint();
     const sessionId = ++this.sessionCounter;
@@ -183,6 +196,7 @@ export class MpvController {
       `--input-ipc-server=${ipcServerPath}`,
       `--title=${input.title}`,
       `--start=${normalizeStartSeconds(input.startSeconds)}`,
+      ...getProxyArgs(proxy),
       input.streamUrl,
     ];
 

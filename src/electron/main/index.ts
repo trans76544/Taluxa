@@ -29,7 +29,7 @@ app.whenReady().then(() => {
           applyProxySettings(session.defaultSession, settings.proxy),
       });
       ipcMain.handle('player:launch', (_event, input: LaunchMpvInput) =>
-        mpvController.launch(input)
+        mpvController.launch(input, readPersistedState().settings.proxy)
       );
       createMainWindow();
 

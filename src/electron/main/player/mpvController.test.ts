@@ -9,6 +9,7 @@ import {
   type MpvProgressSnapshot,
   type SpawnedMpvProcess,
 } from './mpvController';
+import type { ProxySettings } from '@shared/models/settings';
 
 class FakeSpawnedProcess extends EventEmitter implements SpawnedMpvProcess {
   readonly unref = vi.fn();
@@ -51,6 +52,14 @@ describe('MpvController', () => {
       streamUrl: 'https://example.com/stream.m3u8',
       title: 'Episode 1',
       startSeconds: 12,
+      ...overrides,
+    };
+  }
+
+  function createProxySettings(overrides: Partial<ProxySettings> = {}): ProxySettings {
+    return {
+      mode: 'system',
+      customProxyUrl: '',
       ...overrides,
     };
   }
@@ -102,7 +111,10 @@ describe('MpvController', () => {
       createIpcEndpoint: () => ipcServerPath,
     });
 
-    const launchPromise = controller.launch(createLaunchInput({ startSeconds: -5 }));
+    const launchPromise = controller.launch(
+      createLaunchInput({ startSeconds: -5 }),
+      createProxySettings()
+    );
     child.emit('spawn');
     ipcClient.emit('connect');
 
@@ -124,6 +136,128 @@ describe('MpvController', () => {
     expect(child.unref).toHaveBeenCalledTimes(1);
   });
 
+  it('does not add proxy arguments when proxy mode is system', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        'https://example.com/stream.m3u8',
+      ],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+      }
+    );
+  });
+
+  it('adds no-http-proxy when proxy mode is direct', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings({ mode: 'direct' })
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        '--no-http-proxy',
+        'https://example.com/stream.m3u8',
+      ],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+      }
+    );
+  });
+
+  it('adds a custom http proxy when proxy mode is custom', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings({
+        mode: 'custom',
+        customProxyUrl: 'http://127.0.0.1:7890',
+      })
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        '--http-proxy=http://127.0.0.1:7890',
+        'https://example.com/stream.m3u8',
+      ],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+      }
+    );
+  });
+
   it('rejects when the bundled runtime is missing', async () => {
     existingPaths.add(path.join(repoRoot, 'package.json'));
 
@@ -131,7 +265,7 @@ describe('MpvController', () => {
       moduleDir: devModuleDir,
     });
 
-    await expect(controller.launch(createLaunchInput())).rejects.toThrow(
+    await expect(controller.launch(createLaunchInput(), createProxySettings())).rejects.toThrow(
       /Bundled mpv runtime was not found/
     );
   });
@@ -148,7 +282,7 @@ describe('MpvController', () => {
       spawnProcess,
     });
 
-    const launchPromise = controller.launch(createLaunchInput());
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
     child.emit('error', new Error('spawn failed'));
 
     await expect(launchPromise).rejects.toThrow('spawn failed');
@@ -172,7 +306,10 @@ describe('MpvController', () => {
       onProgress,
     });
 
-    const launchPromise = controller.launch(createLaunchInput({ itemId: 'episode-1' }));
+    const launchPromise = controller.launch(
+      createLaunchInput({ itemId: 'episode-1' }),
+      createProxySettings()
+    );
     child.emit('spawn');
     ipcClient.emit('connect');
     await expect(launchPromise).resolves.toBeUndefined();
@@ -231,7 +368,10 @@ describe('MpvController', () => {
       onProgress,
     });
 
-    const launchPromise = controller.launch(createLaunchInput({ itemId: 'episode-2' }));
+    const launchPromise = controller.launch(
+      createLaunchInput({ itemId: 'episode-2' }),
+      createProxySettings()
+    );
     child.emit('spawn');
 
     const retryableError = Object.assign(new Error('pipe not ready'), { code: 'ENOENT' });
@@ -284,7 +424,7 @@ describe('MpvController', () => {
       createIpcEndpoint: () => ipcServerPath,
     });
 
-    const launchPromise = controller.launch(createLaunchInput());
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
     child.emit('spawn');
     child.emit('exit', 1, null);
 
@@ -310,7 +450,7 @@ describe('MpvController', () => {
       connectTimeoutMs: 200,
     });
 
-    const launchPromise = controller.launch(createLaunchInput());
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
     child.emit('spawn');
     const timeoutAssertion = expect(launchPromise).rejects.toThrow(/timed out/i);
 
