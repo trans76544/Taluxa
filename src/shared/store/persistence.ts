@@ -94,6 +94,8 @@ export function createEmptyPersistedState(): PersistedState {
     settings: {
       rememberSession: true,
       defaultVolume: 1,
+      librarySortMode: 'latest_added',
+      serverPreferencesByUrl: {},
     },
     progressByItemId: {},
   };
@@ -154,6 +156,21 @@ function createSavedAccountFromLegacyPatch(
   };
 }
 
+function mergeSettings(
+  currentSettings: Settings,
+  nextSettings: Partial<Settings> | undefined
+): Settings {
+  return {
+    rememberSession: nextSettings?.rememberSession ?? currentSettings.rememberSession,
+    defaultVolume: nextSettings?.defaultVolume ?? currentSettings.defaultVolume,
+    librarySortMode: nextSettings?.librarySortMode ?? currentSettings.librarySortMode,
+    serverPreferencesByUrl: {
+      ...currentSettings.serverPreferencesByUrl,
+      ...nextSettings?.serverPreferencesByUrl,
+    },
+  };
+}
+
 export function mergePersistedState(
   partial: PersistedStatePatch = {},
   currentState: PersistedState = createEmptyPersistedState()
@@ -191,11 +208,7 @@ export function mergePersistedState(
   return {
     accounts,
     activeAccountId,
-    settings: {
-      rememberSession:
-        partial.settings?.rememberSession ?? currentState.settings.rememberSession,
-      defaultVolume: partial.settings?.defaultVolume ?? currentState.settings.defaultVolume,
-    },
+    settings: mergeSettings(currentState.settings, partial.settings),
     progressByItemId,
   };
 }
