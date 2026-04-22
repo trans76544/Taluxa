@@ -45,6 +45,15 @@
       "dist-electron/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "vendor/mpv/windows-x64",
+        "to": "vendor/mpv/windows-x64",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "win": {
       "target": "nsis",
       "signAndEditExecutable": false

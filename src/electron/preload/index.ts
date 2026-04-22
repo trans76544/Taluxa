@@ -4,7 +4,17 @@ import type {
   PersistedStatePatch,
 } from '../../shared/store/persistence';
 
+export interface PlayerLaunchInput {
+  streamUrl: string;
+  title: string;
+  startSeconds?: number;
+}
+
 contextBridge.exposeInMainWorld('embyDesktop', {
+  player: {
+    launch: (input: PlayerLaunchInput) =>
+      ipcRenderer.invoke('player:launch', input) as Promise<void>,
+  },
   storage: {
     read: () => ipcRenderer.invoke('storage:read') as Promise<PersistedState>,
     write: (nextState: PersistedStatePatch) =>
