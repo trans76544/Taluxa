@@ -11,6 +11,9 @@ Windows desktop Emby player built with Electron, React, TypeScript, and Vite.
 - Poster-wall home screen for the active account with continue watching, libraries, and featured rows
 - Poster artwork falls back through alternate image candidates and then a styled placeholder tile when every image fails
 - Featured sort modes include Recently Added and Release Date
+- Network settings default to the Windows system proxy
+- Proxy mode can switch between the Windows system proxy, direct connection, and a full custom proxy URL
+- The same proxy policy is used for Emby requests, poster artwork, and bundled `mpv` playback launches
 - Settings page that reflects the currently active account and server
 
 ## Development
@@ -45,3 +48,7 @@ npm run dist
 8. Switch the home sort mode between Recently Added and Release Date and confirm the selected mode persists.
 9. Open Settings and confirm it shows the active account user name, the active server display name, the active server URL, and that sign-out returns to the login page.
 10. Restart the app and confirm remembered accounts are restored and the sidebar still lets you switch accounts.
+11. Open Settings and confirm the default proxy mode is `Use Windows system proxy`.
+12. Switch the proxy mode to `Direct connection`, save it, and confirm the app still loads libraries without using the Windows system proxy.
+13. Switch the proxy mode to `Custom proxy`, enter `http://127.0.0.1:7890`, save it, and confirm Emby login, poster loading, and playback launches still work through that proxy.
+14. Enter an invalid custom proxy value such as `127.0.0.1:7890` and confirm the settings page shows the inline proxy error without persisting the change.

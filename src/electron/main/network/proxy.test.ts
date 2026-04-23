@@ -207,7 +207,7 @@ describe('writePersistedStatePatch', () => {
       },
     };
 
-    let releaseFirstWrite: (() => void) | null = null;
+    let releaseFirstWrite!: () => void;
     const firstWriteReady = new Promise<void>((resolve) => {
       releaseFirstWrite = resolve;
     });
@@ -242,7 +242,7 @@ describe('writePersistedStatePatch', () => {
       expect(onSettingsChanged).toHaveBeenCalledTimes(1);
     });
 
-    releaseFirstWrite?.();
+    releaseFirstWrite();
 
     await Promise.all([firstWrite, secondWrite]);
 
@@ -305,7 +305,7 @@ describe('writePersistedStatePatch', () => {
       },
     };
 
-    let releaseFirstWrite: (() => void) | null = null;
+    let releaseFirstWrite!: () => void;
     const firstWriteReady = new Promise<void>((resolve) => {
       releaseFirstWrite = resolve;
     });
@@ -328,7 +328,7 @@ describe('writePersistedStatePatch', () => {
 
     const clearSession = clearPersistedSession(storeLike);
 
-    releaseFirstWrite?.();
+    releaseFirstWrite();
 
     await Promise.all([firstWrite, clearSession]);
 
