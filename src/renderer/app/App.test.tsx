@@ -1503,6 +1503,46 @@ describe('App', () => {
     });
   });
 
+  it('rejects invalid custom proxy settings before persistence at the route layer', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ defaultVolume: 0.8 }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Custom proxy'));
+    fireEvent.change(screen.getByLabelText('Custom proxy URL'), {
+      target: { value: '127.0.0.1:7890' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save proxy settings' }));
+
+    await waitFor(() => {
+      expect(storage.write).not.toHaveBeenCalledWith({
+        settings: {
+          proxy: {
+            mode: 'custom',
+            customProxyUrl: '127.0.0.1:7890',
+          },
+        },
+      });
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save proxy settings. Check the proxy URL and try again.'
+    );
+  });
+
   it('shows an inline error when persisting a manual server display name override fails', async () => {
     const storage = mockStorageRead(
       createPersistedState({
