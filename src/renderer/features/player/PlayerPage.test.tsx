@@ -58,6 +58,7 @@ describe('PlayerPage', () => {
 
     render(
       <PlayerPage
+        httpHeaders={{}}
         itemId="item-1"
         title="Movie 1"
         streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
@@ -70,14 +71,17 @@ describe('PlayerPage', () => {
     expect(screen.getByText('Desktop playback')).toBeInTheDocument();
   });
 
-  it('launches mpv with the resolved resume position', async () => {
+  it('launches mpv with the resolved resume position and playback headers', async () => {
     const { launch } = mockPlayerBridge();
 
     render(
       <PlayerPage
+        httpHeaders={{
+          Authorization: 'MediaBrowser Token="token-123"',
+        }}
         itemId="item-1"
         title="Movie 1"
-        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mkv?MediaSourceId=source-1&api_key=token-123"
         initialPositionSeconds={42}
         onProgress={vi.fn()}
       />
@@ -85,10 +89,13 @@ describe('PlayerPage', () => {
 
     await waitFor(() => {
       expect(launch).toHaveBeenCalledWith({
+        httpHeaders: {
+          Authorization: 'MediaBrowser Token="token-123"',
+        },
         itemId: 'item-1',
         title: 'Movie 1',
         streamUrl:
-          'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
+          'https://demo.emby.local/Videos/item-1/stream.mkv?MediaSourceId=source-1&api_key=token-123',
         startSeconds: 42,
       });
     });
@@ -101,6 +108,7 @@ describe('PlayerPage', () => {
 
     render(
       <PlayerPage
+        httpHeaders={{}}
         itemId="item-1"
         title="Movie 1"
         streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
@@ -113,16 +121,19 @@ describe('PlayerPage', () => {
 
     deferred.resolve();
 
-    expect(await screen.findByText('mpv window opened. Keep this page open to sync progress.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('mpv window opened. Keep this page open to sync progress.')
+    ).toBeInTheDocument();
     expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
   });
 
   it('shows a visible error when the mpv bridge launch rejects', async () => {
     const { launch } = mockPlayerBridge();
-    launch.mockRejectedValueOnce(new Error('spawn failed'));
+    launch.mockRejectedValueOnce(new Error('Access denied'));
 
     render(
       <PlayerPage
+        httpHeaders={{}}
         itemId="item-1"
         title="Movie 1"
         streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
@@ -131,9 +142,7 @@ describe('PlayerPage', () => {
       />
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not start desktop playback. Restart the app and try again.'
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Access denied');
     expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
   });
 
@@ -143,6 +152,7 @@ describe('PlayerPage', () => {
 
     const { unmount } = render(
       <PlayerPage
+        httpHeaders={{}}
         itemId="item-1"
         title="Movie 1"
         streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"

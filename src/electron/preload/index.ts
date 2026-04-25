@@ -5,6 +5,7 @@ import type {
 } from '../../shared/store/persistence';
 
 export interface PlayerLaunchInput {
+  httpHeaders?: Record<string, string>;
   itemId: string;
   streamUrl: string;
   title: string;
@@ -21,6 +22,8 @@ contextBridge.exposeInMainWorld('embyDesktop', {
   player: {
     launch: (input: PlayerLaunchInput) =>
       ipcRenderer.invoke('player:launch', input) as Promise<void>,
+    preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) =>
+      ipcRenderer.invoke('player:preflight', input) as Promise<void>,
     onProgress: (listener: (event: PlayerProgressEvent) => void) => {
       const handleProgress = (_event: Electron.IpcRendererEvent, payload: PlayerProgressEvent) => {
         listener(payload);

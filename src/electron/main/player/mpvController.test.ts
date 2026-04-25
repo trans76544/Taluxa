@@ -12,6 +12,10 @@ import {
 import type { ProxySettings } from '@shared/models/settings';
 
 class FakeSpawnedProcess extends EventEmitter implements SpawnedMpvProcess {
+  readonly stderr = new EventEmitter();
+
+  readonly kill = vi.fn();
+
   readonly unref = vi.fn();
 }
 
@@ -26,6 +30,7 @@ class FakeIpcClient extends EventEmitter {
 describe('MpvController', () => {
   const repoRoot = path.join('G:', 'JSProject', 'Emby_Player', '.worktrees', 'mpv-ui-sort-fallback');
   const devModuleDir = path.join(repoRoot, 'src', 'electron', 'main', 'player');
+  const logFilePath = path.join(repoRoot, 'mpv.log');
   const packagedResourcesPath = path.join('C:', 'Program Files', 'Emby Player', 'resources');
   const ipcServerPath = String.raw`\\.\pipe\emby-player-session-1`;
 
@@ -41,6 +46,7 @@ describe('MpvController', () => {
 
   function createController(overrides: Partial<ConstructorParameters<typeof MpvController>[0]> = {}) {
     return new MpvController({
+      createLogFilePath: () => logFilePath,
       fileExists: (targetPath) => existingPaths.has(targetPath),
       ...overrides,
     });
@@ -117,6 +123,7 @@ describe('MpvController', () => {
     );
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -126,14 +133,68 @@ describe('MpvController', () => {
         `--input-ipc-server=${ipcServerPath}`,
         '--title=Episode 1',
         '--start=0',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
         'https://example.com/stream.m3u8',
       ],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       }
     );
     expect(child.unref).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes playback http headers through to mpv', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput({
+        httpHeaders: {
+          Authorization: 'MediaBrowser Token="token-123"',
+          'X-Emby-Token': 'token-123',
+        },
+      }),
+      createProxySettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
+        '--http-header-fields=Authorization: MediaBrowser Token="token-123",X-Emby-Token: token-123',
+        '--demuxer-lavf-o=headers=Authorization: MediaBrowser Token="token-123"\r\nX-Emby-Token: token-123\r\n',
+        'https://example.com/stream.m3u8',
+      ],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      }
+    );
   });
 
   it('does not add proxy arguments when proxy mode is system', async () => {
@@ -155,6 +216,7 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -164,16 +226,19 @@ describe('MpvController', () => {
         `--input-ipc-server=${ipcServerPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
         'https://example.com/stream.m3u8',
       ],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       }
     );
   });
 
-  it('adds no-http-proxy when proxy mode is direct', async () => {
+  it('clears mpv http proxy when proxy mode is direct', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const child = new FakeSpawnedProcess();
     const ipcClient = new FakeIpcClient();
@@ -195,6 +260,7 @@ describe('MpvController', () => {
     );
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -204,11 +270,14 @@ describe('MpvController', () => {
         `--input-ipc-server=${ipcServerPath}`,
         '--title=Episode 1',
         '--start=12',
-        '--no-http-proxy',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
+        '--http-proxy=',
         'https://example.com/stream.m3u8',
       ],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       }
     );
@@ -239,6 +308,7 @@ describe('MpvController', () => {
     );
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -248,11 +318,64 @@ describe('MpvController', () => {
         `--input-ipc-server=${ipcServerPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
         '--http-proxy=http://127.0.0.1:7890',
         'https://example.com/stream.m3u8',
       ],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      }
+    );
+  });
+
+  it('clears mpv http proxy for local playback proxy urls even when a custom proxy is configured', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput({
+        streamUrl: 'http://127.0.0.1:12066/hls/source-1?url=https%3A%2F%2Fdemo.emby.local',
+      }),
+      createProxySettings({
+        mode: 'custom',
+        customProxyUrl: 'http://127.0.0.1:20122',
+      })
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      [
+        '--force-window=yes',
+        `--input-ipc-server=${ipcServerPath}`,
+        '--title=Episode 1',
+        '--start=12',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
+        '--http-proxy=',
+        'http://127.0.0.1:12066/hls/source-1?url=https%3A%2F%2Fdemo.emby.local',
+      ],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       }
     );
@@ -283,6 +406,7 @@ describe('MpvController', () => {
     );
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -292,10 +416,13 @@ describe('MpvController', () => {
         `--input-ipc-server=${ipcServerPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
         'https://example.com/stream.m3u8',
       ],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       }
     );
@@ -326,6 +453,7 @@ describe('MpvController', () => {
     );
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
     expect(spawnProcess).toHaveBeenCalledWith(
@@ -335,11 +463,14 @@ describe('MpvController', () => {
         `--input-ipc-server=${ipcServerPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--msg-level=all=v',
+        `--log-file=${logFilePath}`,
+        '--ytdl=no',
         '--http-proxy=http://127.0.0.1:7890',
         'https://example.com/stream.m3u8',
       ],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       }
     );
@@ -399,6 +530,7 @@ describe('MpvController', () => {
     );
     child.emit('spawn');
     ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
     await expect(launchPromise).resolves.toBeUndefined();
 
     expect(connectIpc).toHaveBeenCalledWith(ipcServerPath);
@@ -470,6 +602,7 @@ describe('MpvController', () => {
 
     expect(connectIpc).toHaveBeenCalledTimes(2);
     secondIpcClient.emit('connect');
+    secondIpcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
     await expect(launchPromise).resolves.toBeUndefined();
     secondIpcClient.emit(
       'data',
@@ -516,6 +649,269 @@ describe('MpvController', () => {
     child.emit('exit', 1, null);
 
     await expect(launchPromise).rejects.toThrow(/before playback became ready/i);
+  });
+
+  it('terminates the previous mpv process when launching another playback session', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const firstChild = new FakeSpawnedProcess();
+    const secondChild = new FakeSpawnedProcess();
+    const firstIpcClient = new FakeIpcClient();
+    const secondIpcClient = new FakeIpcClient();
+    const spawnProcess = vi
+      .fn<() => FakeSpawnedProcess>()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
+    const connectIpc = vi
+      .fn<() => FakeIpcClient>()
+      .mockReturnValueOnce(firstIpcClient)
+      .mockReturnValueOnce(secondIpcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const firstLaunch = controller.launch(createLaunchInput({ itemId: 'item-1' }), createProxySettings());
+    firstChild.emit('spawn');
+    firstIpcClient.emit('connect');
+
+    const secondLaunch = controller.launch(createLaunchInput({ itemId: 'item-2' }), createProxySettings());
+    secondChild.emit('spawn');
+    secondIpcClient.emit('connect');
+    secondIpcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(firstLaunch).resolves.toBeUndefined();
+    await expect(secondLaunch).resolves.toBeUndefined();
+    expect(firstChild.kill).toHaveBeenCalledTimes(1);
+    expect(secondChild.kill).not.toHaveBeenCalled();
+  });
+
+  it('waits for file-loaded before resolving launch', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    let didResolve = false;
+    void launchPromise.then(() => {
+      didResolve = true;
+    });
+    await Promise.resolve();
+    expect(didResolve).toBe(false);
+
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+  });
+
+  it('resolves launch when playback properties arrive before file-loaded', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    let didResolve = false;
+    void launchPromise.then(() => {
+      didResolve = true;
+    });
+    await Promise.resolve();
+    expect(didResolve).toBe(false);
+
+    ipcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 7200 })}\n`)
+    );
+
+    await expect(launchPromise).resolves.toBeUndefined();
+  });
+
+  it('resolves launch after ipc connects when mpv does not emit readiness events', async () => {
+    vi.useFakeTimers();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    const timeoutAssertion = expect(launchPromise).resolves.toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(1500);
+    await timeoutAssertion;
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('rejects with the mpv end-file error before the media loads', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit(
+      'data',
+      Buffer.from(
+        `${JSON.stringify({ event: 'end-file', reason: 'error', error: 'Access denied' })}\n`
+      )
+    );
+
+    await expect(launchPromise).rejects.toThrow('Access denied');
+  });
+
+  it('includes the raw mpv end-file payload when no error text is present', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit(
+      'data',
+      Buffer.from(
+        `${JSON.stringify({
+          event: 'end-file',
+          reason: 'error',
+          file_error: '403 Forbidden',
+          playlist_entry_id: 1,
+        })}\n`
+      )
+    );
+
+    await expect(launchPromise).rejects.toThrow(
+      '403 Forbidden Event: {"event":"end-file","reason":"error","file_error":"403 Forbidden","playlist_entry_id":1}'
+    );
+  });
+
+  it('includes recent mpv stderr output when media loading fails', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    child.stderr.emit('data', Buffer.from('[ffmpeg] tls: handshake failed\n'));
+    ipcClient.emit('connect');
+    ipcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'error' })}\n`)
+    );
+
+    await expect(launchPromise).rejects.toThrow(
+      '[ffmpeg] tls: handshake failed'
+    );
+  });
+
+  it('includes recent mpv log file output when media loading fails without stderr', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      readTextFile: () => [
+        '[cplayer] Command line options:',
+        '[ffmpeg] http: HTTP error 403 Forbidden',
+        '[stream] Failed to open https://demo.emby.local/stream',
+      ].join('\n'),
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'error', file_error: 'loading failed' })}\n`)
+    );
+
+    await expect(launchPromise).rejects.toThrow(
+      'mpv log: [cplayer] Command line options: | [ffmpeg] http: HTTP error 403 Forbidden | [stream] Failed to open https://demo.emby.local/stream'
+    );
   });
 
   it('rejects when mpv readiness times out before IPC connects', async () => {

@@ -10,7 +10,11 @@ import {
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchItemsByIds, fetchViews } from '@shared/api/emby/library';
-import { buildStreamUrl, reportPlaybackProgress } from '@shared/api/emby/playback';
+import {
+  fetchPlaybackStreamSource,
+  reportPlaybackProgress,
+  type PlaybackStreamSource,
+} from '@shared/api/emby/playback';
 import type { LibraryItem } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
@@ -126,6 +130,8 @@ function PlayerRoute() {
   const { itemId = '' } = useParams();
   const location = useLocation();
   const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
+  const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
+  const [playbackSource, setPlaybackSource] = useState<PlaybackStreamSource | null>(null);
   const playerState = location.state as PlayerLocationState | null | undefined;
   const title = playerState?.title?.trim() || itemId || 'Playback';
   const resolvedActiveAccountId =
@@ -148,18 +154,35 @@ function PlayerRoute() {
   }, [itemId, resolvedActiveAccountId]);
 
   useEffect(() => {
-    if (!itemId) {
+    if (!session || !itemId) {
       setInitialPositionSeconds(0);
+      setPlaybackSource(null);
+      setPlaybackErrorMessage('Could not prepare desktop playback. Check the server and try again.');
       return;
     }
 
     let cancelled = false;
 
     setInitialPositionSeconds(null);
+    setPlaybackSource(null);
+    setPlaybackErrorMessage('');
 
-    window.embyDesktop.storage
-      .read()
-      .then((persistedState) => {
+    Promise.all([
+      window.embyDesktop.storage.read(),
+      fetchPlaybackStreamSource({
+        serverUrl,
+        userId: session.userId,
+        itemId,
+        accessToken: session.accessToken,
+      }),
+    ])
+      .then(async ([persistedState, nextPlaybackSource]) => {
+        if (cancelled) {
+          return;
+        }
+
+        await window.embyDesktop.player.preflight(nextPlaybackSource);
+
         if (cancelled) {
           return;
         }
@@ -181,17 +204,30 @@ function PlayerRoute() {
             serverPositionTicks,
           })
         );
+        setPlaybackSource(nextPlaybackSource);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
+          const message =
+            error instanceof Error && error.message.trim()
+              ? error.message.trim()
+              : 'Could not prepare desktop playback. Check the server and try again.';
           setInitialPositionSeconds(0);
+          setPlaybackSource(null);
+          setPlaybackErrorMessage(message);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [itemId, playerState?.serverPositionTicks, resolvedActiveAccountId]);
+  }, [
+    itemId,
+    playerState?.serverPositionTicks,
+    resolvedActiveAccountId,
+    serverUrl,
+    session,
+  ]);
 
   async function handleProgress({
     itemId: progressItemId,
@@ -262,11 +298,16 @@ function PlayerRoute() {
 
   return (
     <AuthenticatedLayout title={title}>
-      {session && initialPositionSeconds !== null ? (
+      {playbackErrorMessage ? <p role="alert">{playbackErrorMessage}</p> : null}
+      {!playbackErrorMessage && session && (initialPositionSeconds === null || !playbackSource) ? (
+        <p>Preparing playback...</p>
+      ) : null}
+      {session && initialPositionSeconds !== null && playbackSource ? (
         <PlayerPage
+          httpHeaders={playbackSource.httpHeaders}
           itemId={itemId}
           title={title}
-          streamUrl={buildStreamUrl(serverUrl, itemId, session.accessToken)}
+          streamUrl={playbackSource.streamUrl}
           initialPositionSeconds={initialPositionSeconds}
           onProgress={handleProgress}
         />

@@ -14,6 +14,7 @@ declare global {
     embyDesktop: {
       player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;
+        preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;
         onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
       };
       storage: {

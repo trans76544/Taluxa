@@ -14,6 +14,7 @@ const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
+const fetchPlaybackStreamSourceMock = vi.hoisted(() => vi.fn());
 const reportPlaybackProgressMock = vi.hoisted(() => vi.fn());
 const fetchServerInfoMock = vi.hoisted(() => vi.fn());
 
@@ -38,6 +39,7 @@ vi.mock('@shared/api/emby/playback', async () => {
 
   return {
     ...actual,
+    fetchPlaybackStreamSource: fetchPlaybackStreamSourceMock,
     reportPlaybackProgress: reportPlaybackProgressMock,
   };
 });
@@ -72,6 +74,7 @@ interface PlayerProgressEvent {
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
   const progressListeners = new Set<(event: PlayerProgressEvent) => void>();
   const launch = vi.fn().mockResolvedValue(undefined);
+  const preflight = vi.fn().mockResolvedValue(undefined);
   const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
     progressListeners.add(listener);
 
@@ -86,6 +89,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   window.embyDesktop = {
     player: {
       launch,
+      preflight,
       onProgress,
     },
     storage: {
@@ -97,6 +101,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
 
   return {
     launch,
+    preflight,
     onProgress,
     read,
     write,
@@ -208,6 +213,20 @@ describe('App', () => {
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
+    fetchPlaybackStreamSourceMock.mockImplementation(
+      async ({
+        serverUrl,
+        itemId,
+        accessToken,
+      }: {
+        serverUrl: string;
+        itemId: string;
+        accessToken: string;
+      }) => ({
+        streamUrl: `${serverUrl}/Videos/${itemId}/stream.mp4?static=true&api_key=${accessToken}`,
+        httpHeaders: {},
+      })
+    );
     reportPlaybackProgressMock.mockResolvedValue(undefined);
     fetchServerInfoMock.mockResolvedValue({ serverName: null });
     window.location.hash = '';
@@ -497,6 +516,13 @@ describe('App', () => {
         activeAccountId: 'https://demo.emby.local::user-1',
       })
     );
+    fetchPlaybackStreamSourceMock.mockResolvedValue({
+      streamUrl:
+        'https://demo.emby.local/Videos/item-1/stream.mkv?MediaSourceId=source-1&api_key=token-123',
+      httpHeaders: {
+        Authorization: 'MediaBrowser Token="token-123"',
+      },
+    });
 
     fetchViewsMock.mockResolvedValue([
       {
@@ -538,12 +564,71 @@ describe('App', () => {
     });
     expect(storage.launch).toHaveBeenCalledWith(
       expect.objectContaining({
+        httpHeaders: {
+          Authorization: 'MediaBrowser Token="token-123"',
+        },
         itemId: 'item-1',
         title: 'Movie 1',
         streamUrl:
-          'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
+          'https://demo.emby.local/Videos/item-1/stream.mkv?MediaSourceId=source-1&api_key=token-123',
       })
     );
+    expect(storage.preflight).toHaveBeenCalledWith({
+      streamUrl:
+        'https://demo.emby.local/Videos/item-1/stream.mkv?MediaSourceId=source-1&api_key=token-123',
+      httpHeaders: {
+        Authorization: 'MediaBrowser Token="token-123"',
+      },
+    });
+  });
+
+  it('shows playback stream preflight failures before launching mpv', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    storage.preflight.mockRejectedValueOnce(
+      new Error(
+        'Playback stream preflight failed (403 Forbidden) for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]'
+      )
+    );
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: 0,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
+    fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+
+    expect(
+      await screen.findByText(
+        'Playback stream preflight failed (403 Forbidden) for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]'
+      )
+    ).toBeInTheDocument();
+    expect(storage.launch).not.toHaveBeenCalled();
   });
 
   it('loads continue watching items from non-featured libraries when local progress exists', async () => {

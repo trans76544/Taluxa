@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 export interface PlayerPageProps {
+  httpHeaders?: Record<string, string>;
   itemId: string;
   title: string;
   streamUrl: string;
@@ -13,6 +14,7 @@ export interface PlayerPageProps {
 }
 
 export function PlayerPage({
+  httpHeaders = {},
   itemId,
   title,
   streamUrl,
@@ -30,6 +32,7 @@ export function PlayerPage({
 
     window.embyDesktop.player
       .launch({
+        httpHeaders,
         itemId,
         title,
         streamUrl,
@@ -40,16 +43,20 @@ export function PlayerPage({
           setHasLaunched(true);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
-          setLaunchError('Could not start desktop playback. Restart the app and try again.');
+          const message =
+            error instanceof Error && error.message.trim()
+              ? error.message.trim()
+              : 'Could not start desktop playback. Restart the app and try again.';
+          setLaunchError(message);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [initialPositionSeconds, itemId, streamUrl, title]);
+  }, [httpHeaders, initialPositionSeconds, itemId, streamUrl, title]);
 
   useEffect(() => {
     return window.embyDesktop.player.onProgress((event) => {

@@ -1,10 +1,50 @@
 import { createEmbyRequest } from './client';
 
+const EMBY_DEVICE_ID = 'emby-player-desktop';
+const EMBY_HLS_DEVICE_PROFILE = {
+  MaxStreamingBitrate: 120000000,
+  MaxStaticBitrate: 0,
+  DirectPlayProfiles: [],
+  TranscodingProfiles: [
+    {
+      Container: 'ts',
+      Type: 'Video',
+      VideoCodec: 'h264',
+      AudioCodec: 'aac,mp3,ac3,eac3',
+      Protocol: 'hls',
+      Context: 'Streaming',
+      MaxAudioChannels: '6',
+      MinSegments: 2,
+      BreakOnNonKeyFrames: true,
+      EnableSubtitlesInManifest: false,
+    },
+  ],
+};
+
 export interface BuildStreamUrlInput {
   serverUrl: string;
   itemId: string;
   accessToken: string;
 }
+
+export interface FetchPlaybackStreamSourceInput {
+  serverUrl: string;
+  userId: string;
+  itemId: string;
+  accessToken: string;
+}
+
+export interface PlaybackStreamSource {
+  streamUrl: string;
+  httpHeaders: Record<string, string>;
+}
+
+export interface PreflightPlaybackStreamSourceInput extends PlaybackStreamSource {}
+
+type PlaybackPreflightFetch = (
+  input: string,
+  init: RequestInit
+) => Promise<Response>;
 
 export interface ReportPlaybackProgressInput {
   serverUrl: string;
@@ -13,8 +53,294 @@ export interface ReportPlaybackProgressInput {
   positionSeconds: number;
 }
 
+interface PlaybackInfoResponse {
+  PlaySessionId?: string | null;
+  MediaSources?: Array<{
+    AddApiKeyToDirectStreamUrl?: boolean;
+    Container?: string | null;
+    DirectStreamUrl?: string | null;
+    Id?: string | null;
+    RequiredHttpHeaders?: Record<string, string> | null;
+    SupportsTranscoding?: boolean;
+    TranscodingUrl?: string | null;
+  }>;
+}
+
+type PlaybackMediaSource = NonNullable<PlaybackInfoResponse['MediaSources']>[number];
+
 export function buildStreamUrl(serverUrl: string, itemId: string, accessToken: string): string {
-  return `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream.mp4?static=true&api_key=${encodeURIComponent(accessToken)}`;
+  return `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${encodeURIComponent(accessToken)}`;
+}
+
+function buildMediaSourceHlsUrl(
+  serverUrl: string,
+  itemId: string,
+  accessToken: string,
+  playSessionId?: string | null,
+  mediaSourceId?: string | null
+): string {
+  const streamUrl = new URL(
+    `/Videos/${encodeURIComponent(itemId)}/master.m3u8`,
+    serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
+  );
+
+  streamUrl.searchParams.set('api_key', accessToken);
+
+  if (playSessionId?.trim()) {
+    streamUrl.searchParams.set('PlaySessionId', playSessionId.trim());
+  }
+
+  streamUrl.searchParams.set('DeviceId', EMBY_DEVICE_ID);
+
+  if (mediaSourceId?.trim()) {
+    streamUrl.searchParams.set('MediaSourceId', mediaSourceId.trim());
+  }
+
+  streamUrl.searchParams.set('Container', 'ts');
+  streamUrl.searchParams.set('EnableAutoStreamCopy', 'false');
+
+  return streamUrl.toString();
+}
+
+function buildMediaSourceDirectUrl(
+  serverUrl: string,
+  itemId: string,
+  accessToken: string,
+  playSessionId?: string | null,
+  mediaSourceId?: string | null
+): string {
+  const streamUrl = new URL(
+    `/Videos/${encodeURIComponent(itemId)}/stream`,
+    serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
+  );
+
+  streamUrl.searchParams.set('static', 'true');
+  streamUrl.searchParams.set('api_key', accessToken);
+
+  if (playSessionId?.trim()) {
+    streamUrl.searchParams.set('PlaySessionId', playSessionId.trim());
+  }
+
+  streamUrl.searchParams.set('DeviceId', EMBY_DEVICE_ID);
+
+  if (mediaSourceId?.trim()) {
+    streamUrl.searchParams.set('MediaSourceId', mediaSourceId.trim());
+  }
+
+  return streamUrl.toString();
+}
+
+function buildPlaybackInfoStreamUrl(
+  serverUrl: string,
+  streamPath: string,
+  accessToken: string,
+  addApiKeyToDirectStreamUrl: boolean,
+  playSessionId?: string | null,
+  mediaSourceId?: string | null
+): string {
+  const streamUrl = new URL(
+    streamPath,
+    serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
+  );
+
+  if (addApiKeyToDirectStreamUrl && !streamUrl.searchParams.has('api_key')) {
+    streamUrl.searchParams.set('api_key', accessToken);
+  }
+
+  if (playSessionId?.trim() && !streamUrl.searchParams.has('PlaySessionId')) {
+    streamUrl.searchParams.set('PlaySessionId', playSessionId.trim());
+  }
+
+  if (!streamUrl.searchParams.has('DeviceId')) {
+    streamUrl.searchParams.set('DeviceId', EMBY_DEVICE_ID);
+  }
+
+  if (mediaSourceId?.trim() && !streamUrl.searchParams.has('MediaSourceId')) {
+    streamUrl.searchParams.set('MediaSourceId', mediaSourceId.trim());
+  }
+
+  return streamUrl.toString();
+}
+
+function isHlsStreamPath(streamPath: string | null | undefined): boolean {
+  return streamPath?.toLowerCase().includes('.m3u8') ?? false;
+}
+
+function pickPreferredMediaSource(
+  mediaSources: PlaybackMediaSource[] | undefined
+): PlaybackMediaSource | null {
+  if (!mediaSources?.length) {
+    return null;
+  }
+
+  return (
+    mediaSources.find((candidate) => isHlsStreamPath(candidate.TranscodingUrl)) ??
+    mediaSources.find((candidate) => candidate.TranscodingUrl?.trim()) ??
+    mediaSources.find((candidate) => candidate.DirectStreamUrl?.trim()) ??
+    mediaSources[0]
+  );
+}
+
+function pickPreferredStreamPath(mediaSource: PlaybackMediaSource | null): string {
+  return mediaSource?.TranscodingUrl?.trim() || mediaSource?.DirectStreamUrl?.trim() || '';
+}
+
+function canBuildFallbackHls(mediaSource: PlaybackMediaSource | null): boolean {
+  return mediaSource?.SupportsTranscoding !== false;
+}
+
+function buildHlsHttpHeaders(
+  accessToken: string,
+  requiredHeaders: Record<string, string> | null | undefined
+): Record<string, string> {
+  return {
+    ...(requiredHeaders ?? {}),
+    'X-Emby-Token': accessToken,
+  };
+}
+
+function redactPlaybackUrl(value: string): string {
+  return value.replace(/([?&]api_key=)[^&]+/giu, '$1[redacted]');
+}
+
+export async function preflightPlaybackStreamSource({
+  streamUrl,
+  httpHeaders,
+}: PreflightPlaybackStreamSourceInput,
+fetcher: PlaybackPreflightFetch = fetch): Promise<void> {
+  async function executePreflight(headers: Record<string, string>): Promise<Response> {
+    try {
+      return await fetcher(streamUrl, {
+        method: 'GET',
+        headers,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : 'network request failed';
+
+      throw new Error(
+        `Playback stream preflight could not reach ${redactPlaybackUrl(streamUrl)} (${message})`
+      );
+    }
+  }
+
+  let response = await executePreflight({
+    ...httpHeaders,
+    Range: 'bytes=0-0',
+  });
+
+  if (response.status === 416) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The preflight only needs response headers/status.
+    }
+
+    response = await executePreflight({
+      ...httpHeaders,
+    });
+  }
+
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The preflight only needs response headers/status.
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Playback stream preflight failed (${response.status} ${response.statusText}) for ${redactPlaybackUrl(streamUrl)}`
+    );
+  }
+}
+
+export async function fetchPlaybackStreamSource({
+  serverUrl,
+  userId,
+  itemId,
+  accessToken,
+}: FetchPlaybackStreamSourceInput): Promise<PlaybackStreamSource> {
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
+    {
+      method: 'POST',
+      accessToken,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        UserId: userId,
+        IsPlayback: true,
+        AutoOpenLiveStream: true,
+        DeviceProfile: EMBY_HLS_DEVICE_PROFILE,
+        EnableDirectPlay: false,
+        EnableDirectStream: false,
+        EnableTranscoding: true,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch playback info (${response.status})`);
+  }
+
+  const payload = (await response.json()) as PlaybackInfoResponse;
+  const mediaSource = pickPreferredMediaSource(payload.MediaSources);
+  const streamPath = pickPreferredStreamPath(mediaSource);
+
+  if (!streamPath) {
+    if (mediaSource?.Id?.trim()) {
+      if (!canBuildFallbackHls(mediaSource)) {
+        return {
+          streamUrl: buildMediaSourceDirectUrl(
+            serverUrl,
+            itemId,
+            accessToken,
+            payload.PlaySessionId,
+            mediaSource.Id
+          ),
+          httpHeaders: {
+            ...(mediaSource.RequiredHttpHeaders ?? {}),
+          },
+        };
+      }
+
+      return {
+        streamUrl: buildMediaSourceHlsUrl(
+          serverUrl,
+          itemId,
+          accessToken,
+          payload.PlaySessionId,
+          mediaSource.Id
+        ),
+        httpHeaders: buildHlsHttpHeaders(accessToken, mediaSource.RequiredHttpHeaders),
+      };
+    }
+
+    return {
+      streamUrl: buildStreamUrl(serverUrl, itemId, accessToken),
+      httpHeaders: {},
+    };
+  }
+
+  return {
+    streamUrl: buildPlaybackInfoStreamUrl(
+      serverUrl,
+      streamPath,
+      accessToken,
+      mediaSource?.AddApiKeyToDirectStreamUrl === true,
+      payload.PlaySessionId,
+      mediaSource?.Id
+    ),
+    httpHeaders: isHlsStreamPath(streamPath)
+      ? buildHlsHttpHeaders(accessToken, mediaSource?.RequiredHttpHeaders)
+      : {
+          ...(mediaSource?.RequiredHttpHeaders ?? {}),
+        },
+  };
 }
 
 export async function reportPlaybackProgress({
