@@ -53,15 +53,8 @@ export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps
 
   if (!resolvedSidebar) {
     return (
-      <main className="shell">
-        <section className="panel">
-          <header className="layout-header">
-            <div>
-              <p className="eyebrow">Emby Player</p>
-              <h1>{title}</h1>
-            </div>
-          </header>
-
+      <main className="app-layout">
+        <section className="app-main">
           {children}
         </section>
       </main>
@@ -69,20 +62,11 @@ export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps
   }
 
   return (
-    <main className="shell shell--app">
-      <aside className="shell-sidebar">{resolvedSidebar}</aside>
+    <main className="app-layout">
+      <aside className="app-sidebar">{resolvedSidebar}</aside>
 
-      <section className="shell-content">
-        <div className="panel panel--content">
-          <header className="layout-header">
-            <div>
-              <p className="eyebrow">Emby Player</p>
-              <h1>{title}</h1>
-            </div>
-          </header>
-
-          {children}
-        </div>
+      <section className="app-main">
+        {children}
       </section>
     </main>
   );

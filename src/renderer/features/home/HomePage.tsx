@@ -28,33 +28,13 @@ export function HomePage({
 }: HomePageProps) {
   return (
     <section className="home-screen">
-      <div className="home-screen__intro">
-        <p className="eyebrow">Active account</p>
-        <p className="home-screen__account">{accountLabel}</p>
-      </div>
-
-      <div className="home-section__header" role="group" aria-label="Featured sort controls">
-        <h2>Featured Sort</h2>
-        <div>
-          {SORT_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={sortMode === option.value}
-              onClick={() => {
-                if (option.value !== sortMode) {
-                  void onSortModeChange(option.value);
-                }
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <ContinueWatchingRow title="Continue Watching" items={continueWatching} />
-      <LibraryCardRow title="Libraries" items={libraries} />
+      {continueWatching && continueWatching.length > 0 && (
+        <ContinueWatchingRow title="继续观看" items={continueWatching} />
+      )}
+      
+      {libraries && libraries.length > 0 && (
+        <LibraryCardRow title="媒体库" items={libraries} />
+      )}
 
       {featuredRows.map((row) => (
         <PosterRow key={row.id} title={row.title} href={row.href} state={row.state} items={row.items} />

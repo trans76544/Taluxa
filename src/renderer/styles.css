@@ -839,3 +839,230 @@ a {
     padding: 22px;
   }
 }
+
+/* === NEW UI STYLES === */
+.app-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+  background: #111113;
+}
+.app-layout--centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.app-sidebar {
+  background: #18181b;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow-y: auto;
+}
+.app-main {
+  background: #111113;
+  padding: 40px;
+  overflow-y: auto;
+}
+.account-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.account-sidebar__brand {
+  padding: 30px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.brand-title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: #27272a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  gap: 8px;
+}
+.search-icon {
+  font-size: 0.9rem;
+  opacity: 0.6;
+}
+.search-input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  outline: none;
+  width: 100%;
+  font-size: 0.9rem;
+}
+.search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.account-sidebar__main-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 16px 20px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+.nav-item.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.nav-icon {
+  font-size: 1.1rem;
+}
+.account-sidebar__servers-section {
+  flex: 1;
+  padding: 0 16px 20px;
+}
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 12px 8px;
+}
+.account-sidebar__servers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.server-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.server-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.server-item.is-active {
+  background: rgba(43, 169, 104, 0.15);
+  color: #fff;
+}
+.server-item.is-active .play-icon {
+  color: #2ba968;
+}
+.server-item__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.play-icon {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.3);
+}
+.server-item__info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.server-item__name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+}
+.server-item__status {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.server-item__action {
+  font-weight: bold;
+  opacity: 0.3;
+}
+.account-sidebar__footer {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.footer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.poster-card--landscape .poster-card__image {
+  aspect-ratio: 16 / 9;
+}
+/* Cleanup Home Page rows */
+.home-screen {
+  gap: 32px;
+}
+.home-section__header h2 {
+  font-weight: 700;
+}
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}

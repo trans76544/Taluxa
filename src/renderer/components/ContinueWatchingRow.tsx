@@ -25,6 +25,7 @@ export function ContinueWatchingRow({ title, items }: ContinueWatchingRowProps) 
               imageCandidates={item.imageCandidates}
               href={item.href}
               state={item.state}
+              landscape={true}
             />
           ))}
         </div>

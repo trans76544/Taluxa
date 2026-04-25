@@ -12,6 +12,7 @@ interface PosterCardProps {
     title?: string;
     serverPositionTicks?: number | null;
   };
+  landscape?: boolean;
 }
 
 function getPosterCandidates(
@@ -41,6 +42,7 @@ export function PosterCard({
   imageCandidates,
   href,
   state,
+  landscape = false,
 }: PosterCardProps) {
   const candidates = getPosterCandidates(posterUrl, imageCandidates);
   const [candidateIndex, setCandidateIndex] = useState(0);
@@ -52,10 +54,10 @@ export function PosterCard({
   const activePosterUrl = candidates[candidateIndex] ?? null;
 
   return (
-    <Link className="poster-card" to={href} state={state}>
+    <Link className={`poster-card ${landscape ? 'poster-card--landscape' : ''}`} to={href} state={state}>
       {activePosterUrl ? (
         <img
-          className="poster-card__image"
+          className={`poster-card__image ${landscape ? 'poster-card__image--landscape' : ''}`}
           alt={title}
           src={activePosterUrl}
           onError={() => {
@@ -63,7 +65,7 @@ export function PosterCard({
           }}
         />
       ) : (
-        <div className="poster-card__image poster-card__image--placeholder" aria-hidden="true" />
+        <div className={`poster-card__image poster-card__image--placeholder ${landscape ? 'poster-card__image--landscape' : ''}`} aria-hidden="true" />
       )}
       <span className="poster-card__title">{title}</span>
       <span className="poster-card__subtitle">{subtitle}</span>
