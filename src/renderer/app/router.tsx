@@ -451,7 +451,7 @@ function LibrariesRoute() {
           const [continueWatchingItems, previewEntries] = await Promise.all([
             fetchItemsByIds(serverUrl, session.userId, continueWatchingIds, session.accessToken),
             Promise.all(
-              featuredViews.map(
+              nextViews.map(
                 async (view): Promise<[string, LibraryItem[]]> => [
                   view.id,
                   await fetchItems(serverUrl, session.userId, view.id, session.accessToken, {
