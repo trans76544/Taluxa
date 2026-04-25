@@ -1,9 +1,9 @@
 {
-  "name": "emby_player",
+  "name": "taluxa",
   "private": true,
   "version": "1.0.0",
-  "description": "Windows desktop Emby player",
-  "author": "Emby Player contributors",
+  "description": "Windows desktop media player",
+  "author": "Taluxa contributors",
   "type": "module",
   "main": "dist-electron/main/index.js",
   "scripts": {
@@ -35,14 +35,16 @@
     "vitest": "^2.1.8"
   },
   "build": {
-    "appId": "com.emby.player",
-    "productName": "Emby Player",
+    "appId": "com.taluxa.player",
+    "productName": "Taluxa",
+    "icon": "sources/icon.png",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**",
       "dist-electron/**",
+      "sources/**",
       "package.json"
     ],
     "extraResources": [
@@ -56,6 +58,7 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": "sources/icon.png",
       "signAndEditExecutable": false
     }
   }

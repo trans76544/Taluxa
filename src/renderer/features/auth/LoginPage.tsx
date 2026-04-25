@@ -28,8 +28,8 @@ export function LoginPage({ onSubmit, hasRememberedAccounts = false }: LoginPage
 
   return (
     <main className="shell">
-      <section className="panel" aria-label="Emby sign in">
-        <p className="eyebrow">Emby Player</p>
+      <section className="panel" aria-label="Taluxa sign in">
+        <p className="eyebrow">Taluxa</p>
         <h1>Sign in</h1>
         <p>
           {hasRememberedAccounts

@@ -36,7 +36,7 @@ export function HomePage({
         <LibraryCardRow title="媒体库" items={libraries} />
       )}
 
-      {featuredRows.map((row) => (
+      {featuredRows.filter((row) => row.items.length > 0).map((row) => (
         <PosterRow key={row.id} title={row.title} href={row.href} state={row.state} items={row.items} />
       ))}
     </section>

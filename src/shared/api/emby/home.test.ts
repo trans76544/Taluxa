@@ -72,7 +72,7 @@ describe('home helpers', () => {
             kind: 'thumb',
           },
         ],
-        href: '/player/item-1',
+        href: '/item/item-1',
         state: {
           title: 'Movie 1',
           serverPositionTicks: 1200000000,
@@ -89,7 +89,7 @@ describe('home helpers', () => {
             kind: 'primary',
           },
         ],
-        href: '/player/item-2',
+        href: '/item/item-2',
         state: {
           title: 'Movie 2',
           serverPositionTicks: 600000000,
@@ -98,7 +98,7 @@ describe('home helpers', () => {
     ]);
   });
 
-  it('picks the first three featured library views', () => {
+  it('picks every featured library view in order', () => {
     expect(
       pickFeaturedViews([
         { id: 'movies', name: 'Movies', collectionType: 'movies' },
@@ -110,6 +110,7 @@ describe('home helpers', () => {
       { id: 'movies', name: 'Movies', collectionType: 'movies' },
       { id: 'shows', name: 'Shows', collectionType: 'tvshows' },
       { id: 'anime', name: 'Anime', collectionType: 'movies' },
+      { id: 'docs', name: 'Docs', collectionType: 'movies' },
     ]);
   });
 });

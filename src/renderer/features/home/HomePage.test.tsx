@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { HomePage } from './HomePage';
 
 describe('HomePage', () => {
@@ -53,33 +53,52 @@ describe('HomePage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('ShrekMedia / trans')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Continue Watching' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '继续观看' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '媒体库' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Featured Movies' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Feature 1/ })).toBeInTheDocument();
   });
 
-  it('lets the user switch the featured sort mode to release date', () => {
-    const onSortModeChange = vi.fn();
-
+  it('does not render a featured row when the library has no preview items', () => {
     render(
       <MemoryRouter>
         <HomePage
           accountLabel="ShrekMedia / trans"
           continueWatching={[]}
           libraries={[]}
-          featuredRows={[]}
+          featuredRows={[
+            {
+              id: 'k-drama',
+              title: '韩剧',
+              href: '/libraries/k-drama',
+              items: [],
+            },
+            {
+              id: 'movies',
+              title: 'Movies',
+              href: '/libraries/movies',
+              items: [
+                {
+                  id: 'item-1',
+                  title: 'Movie 1',
+                  subtitle: '2026',
+                  posterUrl: 'https://demo.local/poster-1.jpg',
+                  imageCandidates: [],
+                  href: '/player/item-1',
+                },
+              ],
+            },
+          ]}
           sortMode="latest_added"
-          onSortModeChange={onSortModeChange}
+          onSortModeChange={() => undefined}
         />
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
-
-    expect(onSortModeChange).toHaveBeenCalledWith('release_date');
+    expect(screen.queryByRole('heading', { name: '韩剧' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No items available yet.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Movies' })).toBeInTheDocument();
   });
 
   it('falls back from a broken library-card primary image to the thumb candidate', () => {

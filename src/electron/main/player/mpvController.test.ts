@@ -31,7 +31,7 @@ describe('MpvController', () => {
   const repoRoot = path.join('G:', 'JSProject', 'Emby_Player', '.worktrees', 'mpv-ui-sort-fallback');
   const devModuleDir = path.join(repoRoot, 'src', 'electron', 'main', 'player');
   const logFilePath = path.join(repoRoot, 'mpv.log');
-  const packagedResourcesPath = path.join('C:', 'Program Files', 'Emby Player', 'resources');
+  const packagedResourcesPath = path.join('C:', 'Program Files', 'Taluxa', 'resources');
   const ipcServerPath = String.raw`\\.\pipe\emby-player-session-1`;
 
   let existingPaths: Set<string>;

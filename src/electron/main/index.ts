@@ -38,6 +38,8 @@ async function prepareLaunchInput(input: LaunchMpvInput): Promise<LaunchMpvInput
 }
 
 app.whenReady().then(() => {
+  app.setName('Taluxa');
+
   const persistedState = readPersistedState();
 
   return applyProxySettingsWithFallback(session.defaultSession, persistedState.settings.proxy).then(

@@ -3,6 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { LoginPage } from './LoginPage';
 
 describe('LoginPage', () => {
+  it('renders the Taluxa product name', () => {
+    render(<LoginPage onSubmit={vi.fn()} />);
+
+    expect(screen.getByText('Taluxa')).toBeInTheDocument();
+  });
+
   it('renders a stacked form layout for sign-in fields', () => {
     render(<LoginPage onSubmit={vi.fn()} />);
 

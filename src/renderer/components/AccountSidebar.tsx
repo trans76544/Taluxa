@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { SavedAccount } from '@shared/models/session';
+import logoUrl from '../../../sources/logo.png';
 
 interface AccountSidebarProps {
   accounts: SavedAccount[];
@@ -36,7 +37,10 @@ export function AccountSidebar({
   return (
     <div className="account-sidebar">
       <div className="account-sidebar__brand">
-        <h1 className="brand-title">Hills Lite</h1>
+        <div className="brand-lockup">
+          <img className="brand-logo" src={logoUrl} alt="Taluxa" />
+          <h1 className="brand-title">Taluxa</h1>
+        </div>
         <div className="search-bar">
           <span className="search-icon">🔍</span>
           <input type="text" placeholder="搜索" className="search-input" />

@@ -59,5 +59,5 @@ export function buildContinueWatchingItems(args: {
 }
 
 export function pickFeaturedViews(views: LibraryView[]): LibraryView[] {
-  return views.slice(0, 3);
+  return views;
 }

@@ -9,7 +9,7 @@ interface LayoutProps {
   title?: string;
 }
 
-export function Layout({ children, sidebar, title = 'Emby Player' }: LayoutProps) {
+export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   const navigate = useNavigate();
   const { accounts, activeAccountId, getServerDisplayName, session, setActiveAccountId } =
     useAuth();

@@ -6,9 +6,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function createMainWindow() {
   const mainWindow = new BrowserWindow({
+    title: 'Taluxa',
     width: 1280,
     height: 800,
     backgroundColor: '#0b1020',
+    icon: join(__dirname, '../../sources/icon.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

@@ -20,7 +20,23 @@ function createAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
 }
 
 describe('AccountSidebar', () => {
-  it('prefers friendly server display names and shows the raw url as secondary text', () => {
+  it('renders the Taluxa brand logo and product name', () => {
+    render(
+      <MemoryRouter>
+        <AccountSidebar
+          accounts={[createAccount()]}
+          activeAccountId="https://demo.emby.local::user-1"
+          serverDisplayNamesByUrl={{}}
+          onSelectAccount={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('img', { name: 'Taluxa' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Taluxa' })).toBeInTheDocument();
+  });
+
+  it('prefers friendly server display names in the account switcher', () => {
     render(
       <MemoryRouter>
         <AccountSidebar
@@ -54,24 +70,20 @@ describe('AccountSidebar', () => {
       </MemoryRouter>
     );
 
-    const alphaHeading = screen.getByRole('heading', { name: 'Living Room Server' });
-    const betaHeading = screen.getByRole('heading', { name: 'Bedroom Server' });
+    expect(screen.getAllByText('Living Room Server')).toHaveLength(2);
+    expect(screen.getByText('Bedroom Server')).toBeInTheDocument();
+    expect(screen.queryByText('https://alpha.emby.local')).not.toBeInTheDocument();
+    expect(screen.queryByText('https://beta.emby.local')).not.toBeInTheDocument();
 
-    expect(alphaHeading).toBeInTheDocument();
-    expect(betaHeading).toBeInTheDocument();
-    expect(screen.getByText('https://alpha.emby.local')).toBeInTheDocument();
-    expect(screen.getByText('https://beta.emby.local')).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /Alice/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Bob/ })).toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Bob' })).toBeInTheDocument();
+    const activeButton = screen.getByRole('button', { name: /Charlie/ });
+    expect(activeButton).toHaveClass('server-item', 'is-active');
 
-    const activeButton = screen.getByRole('button', { name: 'Charlie' });
-    expect(activeButton).toHaveClass('account-sidebar__account', 'is-active');
-
-    expect(screen.getByRole('link', { name: 'Libraries' })).toHaveAttribute('href', '/libraries');
-    expect(screen.getByRole('link', { name: 'Add account' })).toHaveAttribute('href', '/login');
-    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('link', { name: /收藏/ })).toHaveAttribute('href', '/libraries');
+    expect(screen.getByRole('link', { name: /添加服务器/ })).toHaveAttribute('href', '/login');
+    expect(screen.getByRole('link', { name: /设置/ })).toHaveAttribute('href', '/settings');
   });
 
   it('falls back to the raw server url when no friendly display name exists', () => {
@@ -86,9 +98,7 @@ describe('AccountSidebar', () => {
       </MemoryRouter>
     );
 
-    expect(
-      screen.getByRole('heading', { name: 'https://demo.emby.local' })
-    ).toBeInTheDocument();
+    expect(screen.getByText('https://demo.emby.local')).toBeInTheDocument();
     expect(screen.getAllByText('https://demo.emby.local')).toHaveLength(1);
   });
 
@@ -113,7 +123,7 @@ describe('AccountSidebar', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+    fireEvent.click(screen.getByRole('button', { name: /Bob/ }));
 
     expect(onSelectAccount).toHaveBeenCalledWith('https://demo.emby.local::user-2');
   });

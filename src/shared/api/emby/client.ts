@@ -5,7 +5,7 @@ export interface EmbyRequestInit extends RequestInit {
 }
 
 const EMBY_AUTH_HEADER =
-  'MediaBrowser Client="Emby Player", Device="Windows Desktop", DeviceId="emby-player-desktop", Version="0.1.0"';
+  'MediaBrowser Client="Taluxa", Device="Windows Desktop", DeviceId="taluxa-desktop", Version="0.1.0"';
 
 export function createEmbyRequest(
   serverUrl: string,
