@@ -36,6 +36,8 @@ describe('home helpers', () => {
             ],
             runtimeTicks: 18000000000,
             serverPositionTicks: 1200000000,
+            communityRating: 9.0,
+            productionYear: 2026,
           },
           'item-2': {
             id: 'item-2',
@@ -49,6 +51,8 @@ describe('home helpers', () => {
             ],
             runtimeTicks: 15000000000,
             serverPositionTicks: 600000000,
+            communityRating: null,
+            productionYear: null,
           },
         },
       })

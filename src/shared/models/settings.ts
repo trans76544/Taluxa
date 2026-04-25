@@ -1,4 +1,4 @@
-export type LibrarySortMode = 'latest_added' | 'release_date';
+export type LibrarySortMode = 'latest_added' | 'date_added' | 'sort_name' | 'community_rating' | 'critic_rating' | 'production_year' | 'premiere_date' | 'official_rating' | 'date_played' | 'runtime' | 'release_date';
 export type ProxyMode = 'system' | 'direct' | 'custom';
 
 export interface ProxySettings {

@@ -16,6 +16,8 @@ export interface LibraryItem {
   imageCandidates: LibraryImageCandidate[];
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
+  communityRating: number | null;
+  productionYear: number | null;
 }
 
 export interface LibraryItemPerson {

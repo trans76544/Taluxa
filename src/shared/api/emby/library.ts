@@ -1,8 +1,7 @@
 import { createEmbyRequest } from './client';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import type { LibraryItem, LibraryView, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
-
-export type LibrarySortMode = 'latest_added' | 'release_date';
+import type { LibrarySortMode } from '@shared/models/settings';
 
 interface EmbyLibraryViewPayload {
   Items?: Array<{
@@ -23,6 +22,8 @@ interface EmbyLibraryItemPayload {
     Id?: string;
     Name?: string;
     RunTimeTicks?: number | null;
+    CommunityRating?: number | null;
+    ProductionYear?: number | null;
     UserData?: {
       PlaybackPositionTicks?: number | null;
     };
@@ -33,6 +34,8 @@ interface EmbyLibraryItem {
   Id: string;
   Name: string;
   RunTimeTicks?: number | null;
+  CommunityRating?: number | null;
+  ProductionYear?: number | null;
   UserData?: {
     PlaybackPositionTicks?: number | null;
   };
@@ -91,6 +94,8 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
           },
         ],
         runtimeTicks: typeof item.RunTimeTicks === 'number' ? item.RunTimeTicks : null,
+        communityRating: typeof item.CommunityRating === 'number' ? item.CommunityRating : null,
+        productionYear: typeof item.ProductionYear === 'number' ? item.ProductionYear : null,
         serverPositionTicks:
           typeof item.UserData?.PlaybackPositionTicks === 'number'
             ? item.UserData.PlaybackPositionTicks
@@ -125,18 +130,57 @@ export async function fetchItems(
     sortMode?: LibrarySortMode;
   } = {}
 ): Promise<LibraryItem[]> {
+  let SortBy = 'DateCreated,SortName';
+  let SortOrder = 'Descending,Ascending';
+
+  switch (options.sortMode) {
+    case 'date_added':
+    case 'latest_added':
+      SortBy = 'DateCreated,SortName';
+      SortOrder = 'Descending,Ascending';
+      break;
+    case 'sort_name':
+      SortBy = 'SortName';
+      SortOrder = 'Ascending';
+      break;
+    case 'community_rating':
+      SortBy = 'CommunityRating,SortName';
+      SortOrder = 'Descending,Ascending';
+      break;
+    case 'critic_rating':
+      SortBy = 'CriticRating,SortName';
+      SortOrder = 'Descending,Ascending';
+      break;
+    case 'production_year':
+      SortBy = 'ProductionYear,PremiereDate,SortName';
+      SortOrder = 'Descending,Descending,Ascending';
+      break;
+    case 'premiere_date':
+    case 'release_date':
+      SortBy = 'PremiereDate,ProductionYear,SortName';
+      SortOrder = 'Descending,Descending,Ascending';
+      break;
+    case 'official_rating':
+      SortBy = 'OfficialRating,SortName';
+      SortOrder = 'Descending,Ascending';
+      break;
+    case 'date_played':
+      SortBy = 'DatePlayed,SortName';
+      SortOrder = 'Descending,Ascending';
+      break;
+    case 'runtime':
+      SortBy = 'Runtime,SortName';
+      SortOrder = 'Descending,Ascending';
+      break;
+  }
+
   const query = new URLSearchParams({
     ParentId: parentId,
     Recursive: 'true',
     IncludeItemTypes: 'Movie,Series',
-    SortBy:
-      options.sortMode === 'release_date'
-        ? 'PremiereDate,ProductionYear,SortName'
-        : 'DateCreated,SortName',
-    SortOrder:
-      options.sortMode === 'release_date'
-        ? 'Descending,Descending,Ascending'
-        : 'Descending,Ascending',
+    Fields: 'CommunityRating,ProductionYear',
+    SortBy,
+    SortOrder,
   });
 
   if (typeof options.limit === 'number') {

@@ -15,6 +15,8 @@ interface PosterCardProps {
   landscape?: boolean;
   onClick?: React.MouseEventHandler<HTMLAnchorElement>;
   className?: string;
+  communityRating?: number | null;
+  productionYear?: number | null;
 }
 
 function getPosterCandidates(
@@ -45,6 +47,10 @@ export function PosterCard({
   href,
   state,
   landscape = false,
+  onClick,
+  className = '',
+  communityRating,
+  productionYear,
 }: PosterCardProps) {
   const candidates = getPosterCandidates(posterUrl, imageCandidates);
   const [candidateIndex, setCandidateIndex] = useState(0);
@@ -56,19 +62,24 @@ export function PosterCard({
   const activePosterUrl = candidates[candidateIndex] ?? null;
 
   return (
-    <Link className={`poster-card ${landscape ? 'poster-card--landscape' : ''}`} to={href} state={state}>
-      {activePosterUrl ? (
-        <img
-          className={`poster-card__image ${landscape ? 'poster-card__image--landscape' : ''}`}
-          alt={title}
-          src={activePosterUrl}
-          onError={() => {
-            setCandidateIndex((currentIndex) => currentIndex + 1);
-          }}
-        />
-      ) : (
-        <div className={`poster-card__image poster-card__image--placeholder ${landscape ? 'poster-card__image--landscape' : ''}`} aria-hidden="true" />
-      )}
+    <Link className={`poster-card ${landscape ? 'poster-card--landscape' : ''} ${className}`} to={href} state={state} onClick={onClick}>
+      <div className="poster-card__image-container">
+        {activePosterUrl ? (
+          <img
+            className={`poster-card__image ${landscape ? 'poster-card__image--landscape' : ''}`}
+            alt={title}
+            src={activePosterUrl}
+            onError={() => {
+              setCandidateIndex((currentIndex) => currentIndex + 1);
+            }}
+          />
+        ) : (
+          <div className={`poster-card__image poster-card__image--placeholder ${landscape ? 'poster-card__image--landscape' : ''}`} aria-hidden="true" />
+        )}
+        {communityRating != null && communityRating > 0 && (
+          <div className="poster-card__rating">{communityRating.toFixed(1)}</div>
+        )}
+      </div>
       <span className="poster-card__title">{title}</span>
       <span className="poster-card__subtitle">{subtitle}</span>
     </Link>
