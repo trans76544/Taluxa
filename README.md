@@ -1,4 +1,4 @@
-# Emby Player
+# Taluxa
 
 Windows desktop Emby player built with Electron, React, TypeScript, and Vite.
 
