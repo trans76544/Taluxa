@@ -50,7 +50,7 @@ export function buildContinueWatchingItems(args: {
       subtitle: 'Continue watching',
       posterUrl: item.posterUrl,
       imageCandidates: item.imageCandidates,
-      href: `/player/${item.id}`,
+      href: `/item/${item.id}`,
       state: {
         title: item.name,
         serverPositionTicks: item.serverPositionTicks,

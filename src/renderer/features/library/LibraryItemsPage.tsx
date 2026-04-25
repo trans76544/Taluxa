@@ -63,7 +63,7 @@ export function LibraryItemsPage({
                 subtitle={formatRuntime(item.runtimeTicks)}
                 posterUrl={item.posterUrl}
                 imageCandidates={item.imageCandidates}
-                href={`/player/${item.id}`}
+                href={`/item/${item.id}`}
                 state={{ title: item.name, serverPositionTicks: item.serverPositionTicks }}
               />
             </li>

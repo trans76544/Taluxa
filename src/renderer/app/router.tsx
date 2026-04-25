@@ -9,13 +9,13 @@ import {
   useParams,
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
-import { fetchItems, fetchItemsByIds, fetchViews } from '@shared/api/emby/library';
+import { fetchItems, fetchItemsByIds, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
   fetchPlaybackStreamSource,
   reportPlaybackProgress,
   type PlaybackStreamSource,
 } from '@shared/api/emby/playback';
-import type { LibraryItem } from '@shared/models/library';
+import type { LibraryItem, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
 import type { LibrarySortMode } from '@shared/models/settings';
@@ -39,6 +39,7 @@ import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { HomePage } from '@renderer/features/home/HomePage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
+import { ItemDetailsPage } from '@renderer/features/library/ItemDetailsPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
 import type { ProxyMode } from '@shared/models/settings';
 
@@ -105,14 +106,14 @@ function LibraryItemsGate() {
   return session ? <LibraryItemsRoute /> : <Navigate to="/login" replace />;
 }
 
-function PlayerGate() {
+function ItemDetailsGate() {
   const { isHydrated, session } = useAuth();
 
   if (!isHydrated) {
     return null;
   }
 
-  return session ? <PlayerRoute /> : <Navigate to="/login" replace />;
+  return session ? <ItemDetailsRoute /> : <Navigate to="/login" replace />;
 }
 
 function SettingsGate() {
@@ -125,122 +126,115 @@ function SettingsGate() {
   return session ? <SettingsRoute /> : <Navigate to="/login" replace />;
 }
 
-function PlayerRoute() {
+function ItemDetailsRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const location = useLocation();
+
+  const [details, setDetails] = useState<LibraryItemDetails | null>(null);
+  const [similarItems, setSimilarItems] = useState<LibraryItem[]>([]);
+  const [seasons, setSeasons] = useState<LibrarySeason[]>([]);
+  const [episodes, setEpisodes] = useState<LibraryEpisode[]>([]);
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const [playbackSource, setPlaybackSource] = useState<PlaybackStreamSource | null>(null);
+  const [playbackItemId, setPlaybackItemId] = useState('');
   const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
-  const [playbackSource, setPlaybackSource] = useState<PlaybackStreamSource | null>(null);
-  const playerState = location.state as PlayerLocationState | null | undefined;
-  const title = playerState?.title?.trim() || itemId || 'Playback';
-  const resolvedActiveAccountId =
-    activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
-  const progressStateRef = useRef<{
-    lastReportedAtMs: number | null;
-    lastReportedPositionSeconds: number | null;
-  }>({
-    lastReportedAtMs: null,
-    lastReportedPositionSeconds: null,
-  });
+
+  const resolvedActiveAccountId = activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
+  const progressStateRef = useRef<{ lastReportedAtMs: number | null; lastReportedPositionSeconds: number | null }>({ lastReportedAtMs: null, lastReportedPositionSeconds: null });
   const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
-    progressStateRef.current = {
-      lastReportedAtMs: null,
-      lastReportedPositionSeconds: null,
-    };
+    progressStateRef.current = { lastReportedAtMs: null, lastReportedPositionSeconds: null };
     progressSyncQueueRef.current = Promise.resolve();
-  }, [itemId, resolvedActiveAccountId]);
+  }, [playbackItemId, resolvedActiveAccountId]);
 
   useEffect(() => {
-    if (!session || !itemId) {
-      setInitialPositionSeconds(0);
-      setPlaybackSource(null);
-      setPlaybackErrorMessage('Could not prepare desktop playback. Check the server and try again.');
-      return;
-    }
-
+    const currentSession = session;
+    if (!currentSession || !itemId) return;
     let cancelled = false;
-
-    setInitialPositionSeconds(null);
+    setIsLoading(true);
+    setErrorMessage('');
+    
     setPlaybackSource(null);
+    setPlaybackItemId('');
     setPlaybackErrorMessage('');
 
-    Promise.all([
-      window.embyDesktop.storage.read(),
-      fetchPlaybackStreamSource({
-        serverUrl,
-        userId: session.userId,
-        itemId,
-        accessToken: session.accessToken,
-      }),
-    ])
-      .then(async ([persistedState, nextPlaybackSource]) => {
-        if (cancelled) {
-          return;
+    async function loadData() {
+      try {
+        const itemDetails = await fetchItemDetails(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken);
+        if (cancelled) return;
+        setDetails(itemDetails);
+
+        const similar = await fetchSimilarItems(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken, 8).catch(() => []);
+        if (cancelled) return;
+        setSimilarItems(similar);
+
+        if (itemDetails.type === 'Series') {
+          const seasonsList = await fetchSeasons(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken).catch(() => []);
+          if (cancelled) return;
+          setSeasons(seasonsList);
+          
+          if (seasonsList.length > 0) {
+            const firstSeason = seasonsList[0].id;
+            setSelectedSeasonId(firstSeason);
+            const episodesList = await fetchEpisodes(serverUrl, currentSession!.userId, itemId, firstSeason, currentSession!.accessToken).catch(() => []);
+            if (cancelled) return;
+            setEpisodes(episodesList);
+          }
         }
-
-        await window.embyDesktop.player.preflight(nextPlaybackSource);
-
-        if (cancelled) {
-          return;
-        }
-
-        const progressByItemId = getPersistedProgressByItemIdForAccount(
-          persistedState.progressByItemId,
-          resolvedActiveAccountId
-        );
-        const savedPositionSeconds =
-          progressByItemId[itemId]?.positionSeconds ?? null;
-        const serverPositionTicks =
-          typeof playerState?.serverPositionTicks === 'number'
-            ? playerState.serverPositionTicks
-            : null;
-
-        setInitialPositionSeconds(
-          getResumePositionSeconds({
-            savedPositionSeconds,
-            serverPositionTicks,
-          })
-        );
-        setPlaybackSource(nextPlaybackSource);
-      })
-      .catch((error: unknown) => {
+        setIsLoading(false);
+      } catch (err) {
         if (!cancelled) {
-          const message =
-            error instanceof Error && error.message.trim()
-              ? error.message.trim()
-              : 'Could not prepare desktop playback. Check the server and try again.';
-          setInitialPositionSeconds(0);
-          setPlaybackSource(null);
-          setPlaybackErrorMessage(message);
+          setErrorMessage('Could not load item details.');
+          setIsLoading(false);
         }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    itemId,
-    playerState?.serverPositionTicks,
-    resolvedActiveAccountId,
-    serverUrl,
-    session,
-  ]);
-
-  async function handleProgress({
-    itemId: progressItemId,
-    positionSeconds,
-    durationSeconds,
-  }: {
-    itemId: string;
-    positionSeconds: number;
-    durationSeconds: number;
-  }) {
-    if (!session || progressItemId !== itemId) {
-      return;
+      }
     }
+    void loadData();
+    return () => { cancelled = true; };
+  }, [itemId, serverUrl, session]);
+
+  useEffect(() => {
+    const currentSession = session;
+    if (!currentSession || !itemId || !selectedSeasonId || details?.type !== 'Series') return;
+    let cancelled = false;
+    fetchEpisodes(serverUrl, currentSession!.userId, itemId, selectedSeasonId, currentSession!.accessToken)
+      .then(eps => { if (!cancelled) setEpisodes(eps); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedSeasonId, itemId, serverUrl, session, details?.type]);
+
+  async function handlePlay(playItemId: string, resumeTicks?: number | null) {
+    if (!session) return;
+    setPlaybackErrorMessage('');
+    setPlaybackSource(null);
+    setPlaybackItemId(playItemId);
+
+    try {
+      const [persistedState, nextSource] = await Promise.all([
+        window.embyDesktop.storage.read(),
+        fetchPlaybackStreamSource({ serverUrl, userId: session.userId, itemId: playItemId, accessToken: session.accessToken })
+      ]);
+      await window.embyDesktop.player.preflight(nextSource);
+      
+      const progressByItemId = getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId);
+      const savedPositionSeconds = progressByItemId[playItemId]?.positionSeconds ?? null;
+      
+      setInitialPositionSeconds(getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }));
+      setPlaybackSource(nextSource);
+    } catch (err) {
+      setPlaybackSource(null);
+      setPlaybackErrorMessage('Could not prepare desktop playback.');
+    }
+  }
+
+  async function handleProgress({ itemId: progressItemId, positionSeconds, durationSeconds }: { itemId: string; positionSeconds: number; durationSeconds: number; }) {
+    if (!session || progressItemId !== playbackItemId) return;
 
     const normalizedPositionSeconds = Math.max(0, Math.floor(positionSeconds));
     const normalizedDurationSeconds = Math.max(0, Math.floor(durationSeconds));
@@ -277,10 +271,7 @@ function PlayerRoute() {
                 : progressItemId]: nextProgress,
             },
           });
-        } catch {
-          // Persisting progress is best-effort.
-        }
-
+        } catch {}
         try {
           await reportPlaybackProgress({
             serverUrl,
@@ -288,33 +279,45 @@ function PlayerRoute() {
             itemId: progressItemId,
             positionSeconds: normalizedPositionSeconds,
           });
-        } catch {
-          // Reporting progress is best-effort.
-        }
+        } catch {}
       });
 
     await progressSyncQueueRef.current;
   }
 
+  if (isLoading) {
+    return <AuthenticatedLayout><p>Loading item details...</p></AuthenticatedLayout>;
+  }
+  if (errorMessage || !details) {
+    return <AuthenticatedLayout><p role="alert">{errorMessage || 'Not found'}</p></AuthenticatedLayout>;
+  }
+
   return (
-    <AuthenticatedLayout title={title}>
+    <AuthenticatedLayout title={details.name}>
       {playbackErrorMessage ? <p role="alert">{playbackErrorMessage}</p> : null}
-      {!playbackErrorMessage && session && (initialPositionSeconds === null || !playbackSource) ? (
-        <p>Preparing playback...</p>
-      ) : null}
+      
       {session && initialPositionSeconds !== null && playbackSource ? (
         <PlayerPage
           httpHeaders={playbackSource.httpHeaders}
-          itemId={itemId}
-          title={title}
+          itemId={playbackItemId}
+          title={details.name}
           streamUrl={playbackSource.streamUrl}
           initialPositionSeconds={initialPositionSeconds}
           onProgress={handleProgress}
         />
       ) : null}
-      <p>
-        <Link to="/libraries">Back to libraries</Link>
-      </p>
+
+      {!playbackSource && (
+        <ItemDetailsPage 
+          details={details} 
+          similarItems={similarItems}
+          seasons={seasons}
+          episodes={episodes}
+          selectedSeasonId={selectedSeasonId}
+          onSelectSeason={setSelectedSeasonId}
+          onPlay={handlePlay}
+        />
+      )}
     </AuthenticatedLayout>
   );
 }
@@ -711,7 +714,7 @@ export function AppRouter() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/libraries" element={<LibrariesGate />} />
       <Route path="/libraries/:viewId" element={<LibraryItemsGate />} />
-      <Route path="/player/:itemId" element={<PlayerGate />} />
+      <Route path="/item/:itemId" element={<ItemDetailsGate />} />
       <Route path="/settings" element={<SettingsGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

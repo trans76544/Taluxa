@@ -13,6 +13,8 @@ interface PosterCardProps {
     serverPositionTicks?: number | null;
   };
   landscape?: boolean;
+  onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+  className?: string;
 }
 
 function getPosterCandidates(

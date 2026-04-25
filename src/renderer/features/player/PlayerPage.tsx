@@ -69,18 +69,8 @@ export function PlayerPage({
   }, [itemId, onProgress]);
 
   return (
-    <section className="stack" data-testid="player-page">
-      <div>
-        <h2>{title}</h2>
-        <p>Desktop playback</p>
-      </div>
-      {launchError ? (
-        <p role="alert">{launchError}</p>
-      ) : hasLaunched ? (
-        <p>mpv window opened. Keep this page open to sync progress.</p>
-      ) : (
-        <p>Launching mpv...</p>
-      )}
-    </section>
+    <div style={{ display: 'none' }} data-testid="player-page">
+      {launchError && <p className="player-error">{launchError}</p>}
+    </div>
   );
 }
