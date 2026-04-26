@@ -1,54 +1,102 @@
 # Taluxa
 
-Windows desktop Emby player built with Electron, React, TypeScript, and Vite.
+Taluxa is a Windows desktop Emby client built with Electron, React, TypeScript, Vite, and bundled mpv playback.
 
-## Highlights
+It focuses on a quiet desktop media experience: saved Emby accounts, a poster-first home screen, fast library browsing, global search, detailed item pages, and external mpv playback with resume/progress sync.
 
-- Bundled `mpv` runtime ships with the app so desktop playback works without a separate player install
-- Multiple saved Emby accounts grouped by server in the sidebar
-- Sidebar switching between remembered users without signing in again
-- Friendly server display names appear in the sidebar, home shell, and settings
-- Poster-wall home screen for the active account with continue watching, libraries, and featured rows
-- Poster artwork falls back through alternate image candidates and then a styled placeholder tile when every image fails
-- Featured sort modes include Recently Added and Release Date
-- Network settings default to the Windows system proxy
-- Proxy mode can switch between the Windows system proxy, direct connection, and a full custom proxy URL
-- The same proxy policy is used for Emby requests, poster artwork, and bundled `mpv` playback launches
-- Settings page that reflects the currently active account and server
+## Features
 
-## Development
+- Windows desktop app powered by Electron and Vite
+- Bundled mpv runtime for external playback without a separate player install
+- Custom frameless title bar with back navigation, global search, and window controls
+- Automatic development port selection to avoid Vite port conflicts
+- Multiple saved Emby accounts with sidebar switching
+- Server display names and account-aware settings
+- Home screen with continue watching, media libraries, and featured rows
+- Library and search results with poster fallback handling
+- Item details pages with backdrop hero art, metadata, cast, seasons, episodes, similar items, and media stream details
+- Version and audio-track selectors for movies with multiple media sources or audio streams
+- Playback handoff to mpv while keeping the item details page visible
+- Resume lookup and progress reporting through the desktop bridge
+- Proxy settings for Windows system proxy, direct connection, or a custom proxy URL
+
+## Tech Stack
+
+- Electron
+- React
+- TypeScript
+- Vite
+- Vitest
+- mpv
+
+## Getting Started
+
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-## Tests
+The dev script automatically chooses an available local port and starts Vite on `127.0.0.1`.
+
+## Scripts
+
+```bash
+npm run dev
+```
+
+Starts Vite through the automatic port picker.
 
 ```bash
 npm test
 ```
 
-## Build
+Runs the Vitest suite.
 
 ```bash
 npm run build
+```
+
+Runs TypeScript checking and builds the renderer, Electron main process, and preload script.
+
+```bash
 npm run dist
+```
+
+Builds the app and creates a Windows installer with electron-builder.
+
+## Project Structure
+
+```text
+src/electron/          Electron main process, preload bridge, storage, proxy, and mpv integration
+src/renderer/          React application, routes, pages, components, and styles
+src/shared/            Emby API clients, shared models, persistence helpers, and utilities
+scripts/               Development helper scripts
+sources/               App icons and logo assets
+vendor/mpv/windows-x64 Bundled Windows mpv runtime
 ```
 
 ## Manual Verification
 
-1. Start the app with `npm run dev`.
-2. Sign into one Emby account and confirm the home screen shows continue watching, libraries, and featured rows for that account.
-3. Use the sidebar to add a second account, either on the same server or on a different server.
-4. Confirm the sidebar groups saved users under each server URL and marks the active account.
-5. Switch between users from the sidebar and verify the poster-wall home reloads for the selected account.
-6. Open a library and start playback, then confirm the bundled `mpv` handoff view appears, seek forward, close the app, reopen it, and verify resume behavior still works.
-7. Trigger an item with a broken primary poster image and confirm the UI retries alternate artwork before showing the styled placeholder tile.
-8. Switch the home sort mode between Recently Added and Release Date and confirm the selected mode persists.
-9. Open Settings and confirm it shows the active account user name, the active server display name, the active server URL, and that sign-out returns to the login page.
-10. Restart the app and confirm remembered accounts are restored and the sidebar still lets you switch accounts.
-11. Open Settings and confirm the default proxy mode is `Use Windows system proxy`.
-12. Switch the proxy mode to `Direct connection`, save it, and confirm the app still loads libraries without using the Windows system proxy.
-13. Switch the proxy mode to `Custom proxy`, enter `http://127.0.0.1:7890`, save it, and confirm Emby login, poster loading, and playback launches still work through that proxy.
-14. Enter an invalid custom proxy value such as `127.0.0.1:7890` and confirm the settings page shows the inline proxy error without persisting the change.
+1. Run `npm run dev`.
+2. Sign into an Emby server.
+3. Confirm the home screen loads continue watching, libraries, and featured rows.
+4. Use the title-bar search to find a movie or series.
+5. Open a library item and confirm the details page loads metadata and artwork.
+6. For a movie with multiple versions or audio tracks, select a version and audio option before playback.
+7. Click play and confirm mpv opens while the details page remains visible in Taluxa.
+8. Close playback, restart the app, and confirm resume progress is preserved.
+9. Open Settings and confirm account, server name, proxy, and sign-out controls work.
+10. Restart the app and confirm saved accounts are restored.
+
+## Notes
+
+- The app is designed for Windows.
+- Playback is delegated to bundled mpv.
+- Emby requests and poster artwork respect the configured proxy mode.
