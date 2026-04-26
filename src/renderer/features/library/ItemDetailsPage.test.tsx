@@ -2,7 +2,38 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { ItemDetailsPage } from './ItemDetailsPage';
-import type { LibraryItemDetails } from '@shared/models/library';
+import type { LibraryEpisode, LibraryItemDetails, LibraryItemMediaSource } from '@shared/models/library';
+
+function createMediaSource(
+  id: string,
+  overrides: Partial<LibraryItemMediaSource> = {}
+): LibraryItemMediaSource {
+  return {
+    id,
+    container: 'mkv',
+    path: `/media/${id}.mkv`,
+    size: 12_000_000_000,
+    bitrate: 20_000_000,
+    videoCodec: 'hevc',
+    videoStream: {
+      Width: 1920,
+      Height: 1080,
+      RealFrameRate: 24,
+      Codec: 'hevc',
+    },
+    audioStreams: [
+      {
+        Index: 1,
+        DisplayTitle: 'AAC stereo',
+        Codec: 'aac',
+        Channels: 2,
+        ChannelLayout: 'stereo',
+        IsDefault: true,
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function createMovieDetails(overrides: Partial<LibraryItemDetails> = {}): LibraryItemDetails {
   return {
@@ -23,19 +54,9 @@ function createMovieDetails(overrides: Partial<LibraryItemDetails> = {}): Librar
     studios: [],
     externalUrls: [],
     mediaSources: [
-      {
-        id: 'source-1080',
+      createMediaSource('source-1080', {
         container: 'mp4',
         path: '/movies/movie-1-1080p.mp4',
-        size: 12_000_000_000,
-        bitrate: 20_000_000,
-        videoCodec: 'hevc',
-        videoStream: {
-          Width: 1920,
-          Height: 1080,
-          RealFrameRate: 24,
-          Codec: 'hevc',
-        },
         audioStreams: [
           {
             Index: 1,
@@ -53,14 +74,12 @@ function createMovieDetails(overrides: Partial<LibraryItemDetails> = {}): Librar
             ChannelLayout: '5.1',
           },
         ],
-      },
-      {
-        id: 'source-2160',
+      }),
+      createMediaSource('source-2160', {
         container: 'mp4',
         path: '/movies/movie-1-2160p.mp4',
         size: 27_500_000_000,
         bitrate: 35_100_000,
-        videoCodec: 'hevc',
         videoStream: {
           Width: 3840,
           Height: 2160,
@@ -77,8 +96,35 @@ function createMovieDetails(overrides: Partial<LibraryItemDetails> = {}): Librar
             IsDefault: true,
           },
         ],
-      },
+      }),
     ],
+    ...overrides,
+  };
+}
+
+function createSeriesDetails(overrides: Partial<LibraryItemDetails> = {}): LibraryItemDetails {
+  return createMovieDetails({
+    id: 'series-1',
+    name: 'Series 1',
+    type: 'Series',
+    runtimeTicks: null,
+    serverPositionTicks: null,
+    mediaSources: [],
+    ...overrides,
+  });
+}
+
+function createEpisode(overrides: Partial<LibraryEpisode> = {}): LibraryEpisode {
+  return {
+    id: 'episode-1',
+    name: 'First Case',
+    overview: '',
+    indexNumber: 1,
+    parentIndexNumber: 1,
+    posterUrl: '',
+    runtimeTicks: 600000000,
+    serverPositionTicks: null,
+    mediaSources: [createMediaSource('episode-1-source')],
     ...overrides,
   };
 }
@@ -110,6 +156,74 @@ describe('ItemDetailsPage', () => {
     expect(onPlay).toHaveBeenCalledWith('movie-1', 42000000, {
       mediaSourceId: 'source-2160',
       audioStreamIndex: 5,
+    });
+  });
+
+  it('selects a series episode and only plays it when the play button is clicked', () => {
+    const onPlay = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[
+            createEpisode(),
+            createEpisode({
+              id: 'episode-2',
+              name: 'Second Case',
+              indexNumber: 2,
+              mediaSources: [
+                createMediaSource('episode-2-1080', {
+                  path: '/series/episode-2-1080p.mkv',
+                }),
+                createMediaSource('episode-2-2160', {
+                  path: '/series/episode-2-2160p.mkv',
+                  videoStream: {
+                    Width: 3840,
+                    Height: 2160,
+                    RealFrameRate: 24,
+                    Codec: 'hevc',
+                  },
+                  audioStreams: [
+                    {
+                      Index: 7,
+                      DisplayTitle: 'Japanese FLAC stereo',
+                      Codec: 'flac',
+                      Channels: 2,
+                      ChannelLayout: 'stereo',
+                      IsDefault: true,
+                    },
+                  ],
+                }),
+              ],
+            }),
+          ]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={onPlay}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: /2\. Second Case/ }));
+
+    expect(onPlay).not.toHaveBeenCalled();
+    expect(screen.getByText('S1:E2 - Second Case')).toBeInTheDocument();
+    expect(screen.getByLabelText('版本')).toHaveValue('episode-2-1080');
+
+    fireEvent.change(screen.getByLabelText('版本'), {
+      target: { value: 'episode-2-2160' },
+    });
+    expect(screen.getByLabelText('音频')).toHaveValue('7');
+
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    expect(onPlay).toHaveBeenCalledWith('episode-2', null, {
+      title: 'Series 1 - S1:E2 - Second Case',
+      mediaSourceId: 'episode-2-2160',
+      audioStreamIndex: 7,
     });
   });
 });

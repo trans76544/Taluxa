@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchItems, fetchSearchItems, mapItemsResponse, mapViewsResponse } from './library';
+import { fetchEpisodes, fetchItems, fetchSearchItems, mapItemsResponse, mapViewsResponse } from './library';
 
 const fetchMock = vi.fn();
 
@@ -170,6 +170,85 @@ describe('fetchItems', () => {
     const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestUrl.searchParams.get('SortBy')).toBe('PremiereDate,ProductionYear,SortName');
     expect(requestUrl.searchParams.get('SortOrder')).toBe('Descending,Descending,Ascending');
+  });
+});
+
+describe('fetchEpisodes', () => {
+  it('requests and maps episode media sources for version selection', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        Items: [
+          {
+            Id: 'episode-1',
+            Name: 'Pilot',
+            IndexNumber: 1,
+            ParentIndexNumber: 1,
+            Overview: 'Episode overview.',
+            RunTimeTicks: 600000000,
+            UserData: {
+              PlaybackPositionTicks: 120000000,
+            },
+            ImageTags: {
+              Primary: 'tag-1',
+            },
+            MediaSources: [
+              {
+                Id: 'episode-1-2160',
+                Path: '/series/pilot-2160p.mkv',
+                Container: 'mkv',
+                Size: 24000000000,
+                Bitrate: 32000000,
+                MediaStreams: [
+                  {
+                    Type: 'Video',
+                    Codec: 'hevc',
+                    Width: 3840,
+                    Height: 2160,
+                    RealFrameRate: 24,
+                  },
+                  {
+                    Type: 'Audio',
+                    Index: 2,
+                    DisplayTitle: 'FLAC stereo',
+                    Codec: 'flac',
+                    Channels: 2,
+                    ChannelLayout: 'stereo',
+                    IsDefault: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const episodes = await fetchEpisodes(
+      'https://demo.emby.local',
+      'user-1',
+      'series-1',
+      'season-1',
+      'token-1'
+    );
+
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.pathname).toBe('/Shows/series-1/Episodes');
+    expect(requestUrl.searchParams.get('Fields')).toBe('Overview,MediaSources');
+    expect(episodes[0].mediaSources).toEqual([
+      expect.objectContaining({
+        id: 'episode-1-2160',
+        path: '/series/pilot-2160p.mkv',
+        videoCodec: 'hevc',
+        audioStreams: [
+          expect.objectContaining({
+            Index: 2,
+            DisplayTitle: 'FLAC stereo',
+          }),
+        ],
+      }),
+    ]);
   });
 });
 

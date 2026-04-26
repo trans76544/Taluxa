@@ -92,5 +92,6 @@ export interface LibraryEpisode {
   posterUrl: string | null;
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
+  mediaSources: LibraryItemMediaSource[];
 }
 

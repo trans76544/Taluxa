@@ -1912,7 +1912,8 @@ a {
   aspect-ratio: 16/9;
 }
 
-.season-active .poster-card__image {
+.season-active .poster-card__image,
+.episode-active .poster-card__image {
   border: 2px solid #a980db;
 }
 

@@ -54,6 +54,19 @@ function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
+function mapMediaSources(item: any) {
+  return (item.MediaSources || []).map((m: any) => ({
+    id: m.Id,
+    path: m.Path,
+    container: m.Container,
+    size: typeof m.Size === 'number' ? m.Size : null,
+    bitrate: typeof m.Bitrate === 'number' ? m.Bitrate : null,
+    videoCodec: m.MediaStreams?.find((s: any) => s.Type === 'Video')?.Codec || m.VideoType || '',
+    videoStream: m.MediaStreams?.find((s: any) => s.Type === 'Video') || null,
+    audioStreams: m.MediaStreams?.filter((s: any) => s.Type === 'Audio') || []
+  }));
+}
+
 export function mapViewsResponse(payload: EmbyLibraryViewPayload): LibraryView[] {
   return (payload.Items ?? []).reduce<LibraryView[]>((views, item) => {
     if (!hasText(item.Id) || !hasText(item.Name)) {
@@ -344,16 +357,7 @@ export async function fetchItemDetails(
       name: e.Name,
       url: e.Url
     })),
-    mediaSources: (item.MediaSources || []).map((m: any) => ({
-      id: m.Id,
-      path: m.Path,
-      container: m.Container,
-      size: typeof m.Size === 'number' ? m.Size : null,
-      bitrate: typeof m.Bitrate === 'number' ? m.Bitrate : null,
-      videoCodec: m.MediaStreams?.find((s: any) => s.Type === 'Video')?.Codec || m.VideoType || '',
-      videoStream: m.MediaStreams?.find((s: any) => s.Type === 'Video') || null,
-      audioStreams: m.MediaStreams?.filter((s: any) => s.Type === 'Audio') || []
-    })),
+    mediaSources: mapMediaSources(item),
   };
 }
 
@@ -414,7 +418,7 @@ export async function fetchEpisodes(
   const normalizedServerUrl = normalizeServerUrl(serverUrl);
   const response = await createEmbyRequest(
     serverUrl,
-    `/Shows/${seriesId}/Episodes?SeasonId=${seasonId}&UserId=${encodeURIComponent(userId)}&Fields=Overview`,
+    `/Shows/${seriesId}/Episodes?SeasonId=${seasonId}&UserId=${encodeURIComponent(userId)}&Fields=Overview,MediaSources`,
     { accessToken }
   );
 
@@ -431,6 +435,7 @@ export async function fetchEpisodes(
     overview: item.Overview || '',
     runtimeTicks: item.RunTimeTicks || null,
     serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
-    posterUrl: item.ImageTags?.Primary ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary` : null
+    posterUrl: item.ImageTags?.Primary ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary` : null,
+    mediaSources: mapMediaSources(item),
   }));
 }

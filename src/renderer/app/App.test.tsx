@@ -862,7 +862,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
   });
 
-  it('launches a selected series episode with the episode title and id', async () => {
+  it('selects a series episode before launching it with the episode title and id', async () => {
     const account = createSavedAccount();
     const storage = mockStorageRead(
       createPersistedState({
@@ -908,6 +908,7 @@ describe('App', () => {
         posterUrl: null,
         runtimeTicks: 600000000,
         serverPositionTicks: null,
+        mediaSources: [],
       },
       {
         id: 'episode-2',
@@ -918,18 +919,26 @@ describe('App', () => {
         posterUrl: null,
         runtimeTicks: 600000000,
         serverPositionTicks: null,
+        mediaSources: [],
       },
     ]);
 
     window.location.hash = '#/item/series-1';
 
-    render(
+    const { container } = render(
       <HashRouter>
         <App />
       </HashRouter>
     );
 
     fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
+
+    expect(storage.launch).not.toHaveBeenCalled();
+    expect(screen.getByText('S1:E2 - Second Case')).toBeInTheDocument();
+
+    const playButton = container.querySelector<HTMLButtonElement>('.btn-play');
+    expect(playButton).not.toBeNull();
+    fireEvent.click(playButton!);
 
     await waitFor(() => {
       expect(storage.launch).toHaveBeenCalledWith(

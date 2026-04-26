@@ -138,27 +138,36 @@ export function ItemDetailsPage({
   const [selectedMediaSourceId, setSelectedMediaSourceId] = useState(
     details.mediaSources[0]?.id ?? ''
   );
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState('');
+  const selectedEpisode = useMemo(
+    () =>
+      episodes.find((episode) => episode.id === selectedEpisodeId) ??
+      episodes.find((episode) => episode.serverPositionTicks !== null && episode.serverPositionTicks > 0) ??
+      episodes[0],
+    [episodes, selectedEpisodeId]
+  );
+  const playbackMediaSources = isSeries
+    ? selectedEpisode?.mediaSources ?? []
+    : details.mediaSources;
   const selectedMediaSource = useMemo(
     () =>
-      details.mediaSources.find((source) => source.id === selectedMediaSourceId) ??
-      details.mediaSources[0],
-    [details.mediaSources, selectedMediaSourceId]
+      playbackMediaSources.find((source) => source.id === selectedMediaSourceId) ??
+      playbackMediaSources[0],
+    [playbackMediaSources, selectedMediaSourceId]
   );
   const [selectedAudioValue, setSelectedAudioValue] = useState(
     getDefaultAudioValue(selectedMediaSource)
   );
 
   useEffect(() => {
-    const firstMediaSource = details.mediaSources[0];
+    const firstMediaSource = playbackMediaSources[0];
     setSelectedMediaSourceId(firstMediaSource?.id ?? '');
-  }, [details.id, details.mediaSources]);
+  }, [details.id, selectedEpisode?.id, playbackMediaSources]);
 
   useEffect(() => {
     setSelectedAudioValue(getDefaultAudioValue(selectedMediaSource));
   }, [selectedMediaSource]);
 
-  // For series, determine next up
-  const activeEpisode = episodes.find(e => e.serverPositionTicks !== null && e.serverPositionTicks > 0) || episodes[0];
   const selectedAudioStreamIndex =
     selectedAudioValue.trim() === '' ? null : Number(selectedAudioValue);
   const playbackSelection = selectedMediaSource
@@ -169,6 +178,17 @@ export function ItemDetailsPage({
           : null,
       }
     : undefined;
+  const selectedEpisodePlaybackSelection =
+    selectedEpisode && playbackSelection
+      ? {
+          ...playbackSelection,
+          title: formatEpisodePlaybackTitle(details.name, selectedEpisode),
+        }
+      : selectedEpisode
+        ? {
+            title: formatEpisodePlaybackTitle(details.name, selectedEpisode),
+          }
+        : undefined;
 
   return (
     <div className="item-details-page">
@@ -205,18 +225,20 @@ export function ItemDetailsPage({
                 <button 
                   className="btn-play" 
                   onClick={() =>
-                    activeEpisode &&
-                    onPlay(activeEpisode.id, activeEpisode.serverPositionTicks, {
-                      title: formatEpisodePlaybackTitle(details.name, activeEpisode),
-                    })
+                    selectedEpisode &&
+                    onPlay(
+                      selectedEpisode.id,
+                      selectedEpisode.serverPositionTicks,
+                      selectedEpisodePlaybackSelection
+                    )
                   }
-                  disabled={!activeEpisode}
+                  disabled={!selectedEpisode}
                 >
                   <span className="btn-icon">▶</span> 播放
                 </button>
-                {activeEpisode && (
+                {selectedEpisode && (
                   <span className="series-play-subtitle">
-                    S{activeEpisode.parentIndexNumber}:E{activeEpisode.indexNumber} - {activeEpisode.name}
+                    S{selectedEpisode.parentIndexNumber}:E{selectedEpisode.indexNumber} - {selectedEpisode.name}
                   </span>
                 )}
               </div>
@@ -229,7 +251,7 @@ export function ItemDetailsPage({
           </div>
         </div>
 
-        {details.mediaSources.length > 0 && !isSeries && (
+        {playbackMediaSources.length > 0 && (
           <div className="item-hero__media-badge">
             <label className="media-select">
               <span className="media-select__label">版本</span>
@@ -237,7 +259,7 @@ export function ItemDetailsPage({
                 value={selectedMediaSource?.id ?? ''}
                 onChange={(event) => setSelectedMediaSourceId(event.target.value)}
               >
-                {details.mediaSources.map((source) => (
+                {playbackMediaSources.map((source) => (
                   <option key={source.id} value={source.id}>
                     {formatVersionOption(source)}
                   </option>
@@ -282,10 +304,9 @@ export function ItemDetailsPage({
                     href="#" // Prevent navigation
                     onClick={(e) => {
                       e.preventDefault();
-                      onPlay(eps.id, eps.serverPositionTicks, {
-                        title: formatEpisodePlaybackTitle(details.name, eps),
-                      });
+                      setSelectedEpisodeId(eps.id);
                     }}
+                    className={selectedEpisode?.id === eps.id ? 'episode-active' : ''}
                     state={{}}
                   />
                 </li>
