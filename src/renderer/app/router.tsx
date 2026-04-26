@@ -50,6 +50,7 @@ interface PlayerLocationState {
 }
 
 interface PlaybackSelection {
+  title?: string | null;
   mediaSourceId?: string | null;
   audioStreamIndex?: number | null;
 }
@@ -157,6 +158,7 @@ function ItemDetailsRoute() {
 
   const [playbackSource, setPlaybackSource] = useState<PlaybackStreamSource | null>(null);
   const [playbackItemId, setPlaybackItemId] = useState('');
+  const [playbackTitle, setPlaybackTitle] = useState('');
   const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
 
@@ -178,6 +180,7 @@ function ItemDetailsRoute() {
     
     setPlaybackSource(null);
     setPlaybackItemId('');
+    setPlaybackTitle('');
     setPlaybackErrorMessage('');
 
     async function loadData() {
@@ -234,6 +237,7 @@ function ItemDetailsRoute() {
     setPlaybackErrorMessage('');
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
+    setPlaybackTitle(selection?.title?.trim() || details?.name || '');
 
     try {
       const [persistedState, nextSource] = await Promise.all([
@@ -327,7 +331,7 @@ function ItemDetailsRoute() {
         <PlayerPage
           httpHeaders={playbackSource.httpHeaders}
           itemId={playbackItemId}
-          title={details.name}
+          title={playbackTitle || details.name}
           streamUrl={playbackSource.streamUrl}
           initialPositionSeconds={initialPositionSeconds}
           onProgress={handleProgress}

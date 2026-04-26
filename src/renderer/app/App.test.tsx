@@ -862,6 +862,85 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
   });
 
+  it('launches a selected series episode with the episode title and id', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    fetchItemDetailsMock.mockResolvedValue({
+      id: 'series-1',
+      name: 'Series 1',
+      posterUrl: 'https://demo.emby.local/Items/series-1/Images/Primary',
+      imageCandidates: [],
+      runtimeTicks: null,
+      serverPositionTicks: null,
+      communityRating: null,
+      productionYear: 2026,
+      type: 'Series',
+      overview: 'A test series.',
+      genres: [],
+      officialRating: '',
+      people: [],
+      studios: [],
+      externalUrls: [],
+      mediaSources: [],
+      backdropUrl: null,
+    });
+    fetchSeasonsMock.mockResolvedValue([
+      {
+        id: 'season-1',
+        name: 'Season 1',
+        indexNumber: 1,
+        posterUrl: null,
+      },
+    ]);
+    fetchEpisodesMock.mockResolvedValue([
+      {
+        id: 'episode-1',
+        name: 'First Case',
+        overview: '',
+        indexNumber: 1,
+        parentIndexNumber: 1,
+        posterUrl: null,
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+      {
+        id: 'episode-2',
+        name: 'Second Case',
+        overview: '',
+        indexNumber: 2,
+        parentIndexNumber: 1,
+        posterUrl: null,
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/item/series-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
+
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'episode-2',
+          title: 'Series 1 - S1:E2 - Second Case',
+        })
+      );
+    });
+  });
+
   it('requests release-date sorting and persists it when the user switches sort mode on the home screen', async () => {
     const account = createSavedAccount();
     const storage = mockStorageRead(

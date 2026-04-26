@@ -9,6 +9,7 @@ import type {
 } from '@shared/models/library';
 
 interface PlaybackSelection {
+  title?: string | null;
   mediaSourceId?: string | null;
   audioStreamIndex?: number | null;
 }
@@ -119,6 +120,10 @@ function getDefaultAudioValue(source: LibraryItemMediaSource | undefined) {
   return getAudioValue(source.audioStreams[selectedIndex], selectedIndex);
 }
 
+function formatEpisodePlaybackTitle(seriesName: string, episode: LibraryEpisode) {
+  return `${seriesName} - S${episode.parentIndexNumber}:E${episode.indexNumber} - ${episode.name}`;
+}
+
 export function ItemDetailsPage({
   details,
   similarItems,
@@ -199,7 +204,12 @@ export function ItemDetailsPage({
               <div className="series-play-block">
                 <button 
                   className="btn-play" 
-                  onClick={() => activeEpisode && onPlay(activeEpisode.id, activeEpisode.serverPositionTicks)}
+                  onClick={() =>
+                    activeEpisode &&
+                    onPlay(activeEpisode.id, activeEpisode.serverPositionTicks, {
+                      title: formatEpisodePlaybackTitle(details.name, activeEpisode),
+                    })
+                  }
                   disabled={!activeEpisode}
                 >
                   <span className="btn-icon">▶</span> 播放
@@ -272,7 +282,9 @@ export function ItemDetailsPage({
                     href="#" // Prevent navigation
                     onClick={(e) => {
                       e.preventDefault();
-                      onPlay(eps.id, eps.serverPositionTicks);
+                      onPlay(eps.id, eps.serverPositionTicks, {
+                        title: formatEpisodePlaybackTitle(details.name, eps),
+                      });
                     }}
                     state={{}}
                   />
