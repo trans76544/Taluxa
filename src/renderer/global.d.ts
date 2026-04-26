@@ -12,6 +12,11 @@ export {};
 declare global {
   interface Window {
     embyDesktop: {
+      windowControls: {
+        minimize: () => void;
+        maximize: () => void;
+        close: () => void;
+      };
       player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;
         preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;

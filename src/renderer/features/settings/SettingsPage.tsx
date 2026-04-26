@@ -75,105 +75,187 @@ export function SettingsPage({
 
   return (
     <Layout title="Settings">
-      <dl>
-        <dt>Active account</dt>
-        <dd>{userName}</dd>
-        <dt>Server URL</dt>
-        <dd>{serverUrl}</dd>
-        <dt>Default volume</dt>
-        <dd>{Math.round(defaultVolume * 100)}%</dd>
-      </dl>
+      <section className="settings-page" aria-labelledby="settings-title">
+        <header className="settings-page__header">
+          <h1 id="settings-title">设置</h1>
+        </header>
 
-      <form onSubmit={(event) => void handleServerDisplayNameSubmit(event)}>
-        <label htmlFor="server-display-name">Server display name</label>
-        <input
-          id="server-display-name"
-          name="server-display-name"
-          type="text"
-          value={draftServerDisplayName}
-          onChange={(event) => {
-            setDraftServerDisplayName(event.target.value);
-            setIsDraftDirty(true);
-            setServerSaveError('');
-          }}
-        />
+        <section className="settings-group" aria-labelledby="settings-general-title">
+          <h2 id="settings-general-title">通用</h2>
 
-        <button type="submit">Save server name</button>
-      </form>
+          <div className="settings-list">
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                👤
+              </span>
+              <div className="settings-row__body">
+                <h3>当前账户</h3>
+                <p>正在使用的 Emby 用户</p>
+              </div>
+              <strong className="settings-row__value">{userName}</strong>
+            </div>
 
-      {serverSaveError ? <p role="alert">{serverSaveError}</p> : null}
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                🔗
+              </span>
+              <div className="settings-row__body">
+                <h3>服务器地址</h3>
+                <p>当前连接的媒体服务器</p>
+              </div>
+              <span className="settings-row__value settings-row__value--url">{serverUrl}</span>
+            </div>
 
-      <form noValidate onSubmit={(event) => void handleProxySettingsSubmit(event)}>
-        <fieldset>
-          <legend>Proxy</legend>
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                🔊
+              </span>
+              <div className="settings-row__body">
+                <h3>默认音量</h3>
+                <p>播放器启动时使用的音量</p>
+              </div>
+              <strong className="settings-row__value">{Math.round(defaultVolume * 100)}%</strong>
+            </div>
+          </div>
+        </section>
 
-          <label htmlFor="proxy-mode-system">
-            <input
-              id="proxy-mode-system"
-              name="proxy-mode"
-              type="radio"
-              checked={draftProxyMode === 'system'}
-              onChange={() => {
-                setDraftProxyMode('system');
-                setProxySaveError('');
-              }}
-            />
-            Use Windows system proxy
-          </label>
+        <section className="settings-group" aria-labelledby="settings-network-title">
+          <h2 id="settings-network-title">网络与账户</h2>
 
-          <label htmlFor="proxy-mode-direct">
-            <input
-              id="proxy-mode-direct"
-              name="proxy-mode"
-              type="radio"
-              checked={draftProxyMode === 'direct'}
-              onChange={() => {
-                setDraftProxyMode('direct');
-                setProxySaveError('');
-              }}
-            />
-            Direct connection
-          </label>
+          <div className="settings-list">
+            <form
+              className="settings-row settings-row--form"
+              onSubmit={(event) => void handleServerDisplayNameSubmit(event)}
+            >
+              <span className="settings-row__icon" aria-hidden="true">
+                🏷
+              </span>
+              <div className="settings-row__body">
+                <h3>服务器显示名称</h3>
+                <p>用于侧边栏服务器列表的名称</p>
+              </div>
+              <div className="settings-row__control">
+                <label className="sr-only" htmlFor="server-display-name">
+                  Server display name
+                </label>
+                <input
+                  id="server-display-name"
+                  name="server-display-name"
+                  type="text"
+                  value={draftServerDisplayName}
+                  onChange={(event) => {
+                    setDraftServerDisplayName(event.target.value);
+                    setIsDraftDirty(true);
+                    setServerSaveError('');
+                  }}
+                />
+                <button type="submit" aria-label="Save server name">
+                  保存
+                </button>
+                {serverSaveError ? <p role="alert">{serverSaveError}</p> : null}
+              </div>
+            </form>
 
-          <label htmlFor="proxy-mode-custom">
-            <input
-              id="proxy-mode-custom"
-              name="proxy-mode"
-              type="radio"
-              checked={draftProxyMode === 'custom'}
-              onChange={() => {
-                setDraftProxyMode('custom');
-                setProxySaveError('');
-              }}
-            />
-            Custom proxy
-          </label>
-        </fieldset>
+            <form
+              className="settings-row settings-row--form settings-row--stacked"
+              noValidate
+              onSubmit={(event) => void handleProxySettingsSubmit(event)}
+            >
+              <span className="settings-row__icon" aria-hidden="true">
+                🛡
+              </span>
+              <div className="settings-row__body">
+                <h3>代理</h3>
+                <p>配置媒体请求使用的网络代理</p>
+              </div>
+              <div className="settings-row__control">
+                <fieldset className="settings-segmented">
+                  <legend className="sr-only">Proxy</legend>
 
-        {draftProxyMode === 'custom' ? (
-          <>
-            <label htmlFor="custom-proxy-url">Custom proxy URL</label>
-            <input
-              id="custom-proxy-url"
-              name="custom-proxy-url"
-              type="url"
-              value={draftCustomProxyUrl}
-              onChange={(event) => {
-                setDraftCustomProxyUrl(event.target.value);
-                setProxySaveError('');
-              }}
-            />
-          </>
-        ) : null}
+                  <label>
+                    <input
+                      aria-label="Use Windows system proxy"
+                      name="proxy-mode"
+                      type="radio"
+                      checked={draftProxyMode === 'system'}
+                      onChange={() => {
+                        setDraftProxyMode('system');
+                        setProxySaveError('');
+                      }}
+                    />
+                    <span>系统代理</span>
+                  </label>
 
-        <button type="submit">Save proxy settings</button>
-      </form>
+                  <label>
+                    <input
+                      aria-label="Direct connection"
+                      name="proxy-mode"
+                      type="radio"
+                      checked={draftProxyMode === 'direct'}
+                      onChange={() => {
+                        setDraftProxyMode('direct');
+                        setProxySaveError('');
+                      }}
+                    />
+                    <span>直连</span>
+                  </label>
 
-      {proxySaveError ? <p role="alert">{proxySaveError}</p> : null}
+                  <label>
+                    <input
+                      aria-label="Custom proxy"
+                      name="proxy-mode"
+                      type="radio"
+                      checked={draftProxyMode === 'custom'}
+                      onChange={() => {
+                        setDraftProxyMode('custom');
+                        setProxySaveError('');
+                      }}
+                    />
+                    <span>自定义</span>
+                  </label>
+                </fieldset>
 
-      <button type="button" onClick={onLogout}>
-        Sign out
-      </button>
+                {draftProxyMode === 'custom' ? (
+                  <div className="settings-proxy-url">
+                    <label className="sr-only" htmlFor="custom-proxy-url">
+                      Custom proxy URL
+                    </label>
+                    <input
+                      id="custom-proxy-url"
+                      name="custom-proxy-url"
+                      type="url"
+                      placeholder="http://127.0.0.1:7890"
+                      value={draftCustomProxyUrl}
+                      onChange={(event) => {
+                        setDraftCustomProxyUrl(event.target.value);
+                        setProxySaveError('');
+                      }}
+                    />
+                  </div>
+                ) : null}
+
+                <button type="submit" aria-label="Save proxy settings">
+                  保存代理设置
+                </button>
+                {proxySaveError ? <p role="alert">{proxySaveError}</p> : null}
+              </div>
+            </form>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ⎋
+              </span>
+              <div className="settings-row__body">
+                <h3>退出登录</h3>
+                <p>从当前服务器账户退出</p>
+              </div>
+              <button className="settings-danger-button" type="button" onClick={onLogout} aria-label="Sign out">
+                退出
+              </button>
+            </div>
+          </div>
+        </section>
+      </section>
     </Layout>
   );
 }

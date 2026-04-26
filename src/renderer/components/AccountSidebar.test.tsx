@@ -20,7 +20,7 @@ function createAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
 }
 
 describe('AccountSidebar', () => {
-  it('renders the Taluxa brand logo and product name', () => {
+  it('renders the enlarged Taluxa brand logo without the product name', () => {
     render(
       <MemoryRouter>
         <AccountSidebar
@@ -33,7 +33,7 @@ describe('AccountSidebar', () => {
     );
 
     expect(screen.getByRole('img', { name: 'Taluxa' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Taluxa' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Taluxa' })).not.toBeInTheDocument();
   });
 
   it('prefers friendly server display names in the account switcher', () => {

@@ -50,6 +50,10 @@ function buildImageUrl(serverUrl: string, itemId: string, imageType: 'Primary' |
   return `${normalizedServerUrl}/Items/${itemId}/Images/${imageType}`;
 }
 
+function normalizeSearchText(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
 export function mapViewsResponse(payload: EmbyLibraryViewPayload): LibraryView[] {
   return (payload.Items ?? []).reduce<LibraryView[]>((views, item) => {
     if (!hasText(item.Id) || !hasText(item.Name)) {
@@ -202,6 +206,69 @@ export async function fetchItems(
   return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);
 }
 
+export async function fetchSearchItems(
+  serverUrl: string,
+  userId: string,
+  searchTerm: string,
+  accessToken: string
+): Promise<LibraryItem[]> {
+  const normalizedSearchTerm = normalizeSearchText(searchTerm);
+
+  if (!normalizedSearchTerm) {
+    return [];
+  }
+
+  const query = new URLSearchParams({
+    SearchTerm: searchTerm.trim(),
+    Recursive: 'true',
+    IncludeItemTypes: 'Movie,Series',
+    Fields: 'CommunityRating,ProductionYear',
+    SortBy: 'SortName',
+    SortOrder: 'Ascending',
+  });
+
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
+    {
+      accessToken,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to search Emby items (${response.status})`);
+  }
+
+  const serverResults = mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);
+
+  if (serverResults.length > 0) {
+    return serverResults;
+  }
+
+  const fallbackQuery = new URLSearchParams({
+    Recursive: 'true',
+    IncludeItemTypes: 'Movie,Series',
+    Fields: 'CommunityRating,ProductionYear',
+    SortBy: 'SortName',
+    SortOrder: 'Ascending',
+  });
+  const fallbackResponse = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items?${fallbackQuery.toString()}`,
+    {
+      accessToken,
+    }
+  );
+
+  if (!fallbackResponse.ok) {
+    throw new Error(`Failed to load Emby items for search fallback (${fallbackResponse.status})`);
+  }
+
+  return mapItemsResponse((await fallbackResponse.json()) as EmbyLibraryItemPayload, serverUrl).filter((item) =>
+    normalizeSearchText(item.name).includes(normalizedSearchTerm)
+  );
+}
+
 export async function fetchItemsByIds(
   serverUrl: string,
   userId: string,
@@ -281,9 +348,9 @@ export async function fetchItemDetails(
       id: m.Id,
       path: m.Path,
       container: m.Container,
-      size: m.Size,
-      bitrate: m.Bitrate,
-      videoCodec: m.VideoType,
+      size: typeof m.Size === 'number' ? m.Size : null,
+      bitrate: typeof m.Bitrate === 'number' ? m.Bitrate : null,
+      videoCodec: m.MediaStreams?.find((s: any) => s.Type === 'Video')?.Codec || m.VideoType || '',
       videoStream: m.MediaStreams?.find((s: any) => s.Type === 'Video') || null,
       audioStreams: m.MediaStreams?.filter((s: any) => s.Type === 'Audio') || []
     })),

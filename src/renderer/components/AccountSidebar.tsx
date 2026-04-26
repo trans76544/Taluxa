@@ -39,11 +39,6 @@ export function AccountSidebar({
       <div className="account-sidebar__brand">
         <div className="brand-lockup">
           <img className="brand-logo" src={logoUrl} alt="Taluxa" />
-          <h1 className="brand-title">Taluxa</h1>
-        </div>
-        <div className="search-bar">
-          <span className="search-icon">🔍</span>
-          <input type="text" placeholder="搜索" className="search-input" />
         </div>
       </div>
 

@@ -19,6 +19,11 @@ export interface PlayerProgressEvent {
 }
 
 contextBridge.exposeInMainWorld('embyDesktop', {
+  windowControls: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    maximize: () => ipcRenderer.send('window:maximize'),
+    close: () => ipcRenderer.send('window:close'),
+  },
   player: {
     launch: (input: PlayerLaunchInput) =>
       ipcRenderer.invoke('player:launch', input) as Promise<void>,

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { AccountSidebar } from './AccountSidebar';
+import { AppTitleBar } from './AppTitleBar';
 
 interface LayoutProps {
   children: ReactNode;
@@ -53,21 +54,23 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
 
   if (!resolvedSidebar) {
     return (
-      <main className="app-layout">
-        <section className="app-main">
-          {children}
-        </section>
-      </main>
+      <div className="desktop-shell">
+        <AppTitleBar title={title} />
+        <main className="app-layout app-layout--no-sidebar">
+          <section className="app-main">{children}</section>
+        </main>
+      </div>
     );
   }
 
   return (
-    <main className="app-layout">
-      <aside className="app-sidebar">{resolvedSidebar}</aside>
+    <div className="desktop-shell">
+      <AppTitleBar title="Taluxa" />
+      <main className="app-layout">
+        <aside className="app-sidebar">{resolvedSidebar}</aside>
 
-      <section className="app-main">
-        {children}
-      </section>
-    </main>
+        <section className="app-main">{children}</section>
+      </main>
+    </div>
   );
 }

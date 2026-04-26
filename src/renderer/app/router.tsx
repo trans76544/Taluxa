@@ -9,7 +9,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
-import { fetchItems, fetchItemsByIds, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
+import { fetchItems, fetchItemsByIds, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
   fetchPlaybackStreamSource,
   reportPlaybackProgress,
@@ -34,6 +34,7 @@ import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
 import { isValidCustomProxyUrl } from '@shared/network/proxy';
 import { Layout } from '@renderer/components/Layout';
+import { AppTitleBar } from '@renderer/components/AppTitleBar';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { HomePage } from '@renderer/features/home/HomePage';
@@ -46,6 +47,11 @@ import type { ProxyMode } from '@shared/models/settings';
 interface PlayerLocationState {
   title?: string;
   serverPositionTicks?: number | null;
+}
+
+interface PlaybackSelection {
+  mediaSourceId?: string | null;
+  audioStreamIndex?: number | null;
 }
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
@@ -124,6 +130,16 @@ function SettingsGate() {
   }
 
   return session ? <SettingsRoute /> : <Navigate to="/login" replace />;
+}
+
+function SearchGate() {
+  const { isHydrated, session } = useAuth();
+
+  if (!isHydrated) {
+    return null;
+  }
+
+  return session ? <SearchRoute /> : <Navigate to="/login" replace />;
 }
 
 function ItemDetailsRoute() {
@@ -209,7 +225,11 @@ function ItemDetailsRoute() {
     return () => { cancelled = true; };
   }, [selectedSeasonId, itemId, serverUrl, session, details?.type]);
 
-  async function handlePlay(playItemId: string, resumeTicks?: number | null) {
+  async function handlePlay(
+    playItemId: string,
+    resumeTicks?: number | null,
+    selection?: PlaybackSelection
+  ) {
     if (!session) return;
     setPlaybackErrorMessage('');
     setPlaybackSource(null);
@@ -218,7 +238,14 @@ function ItemDetailsRoute() {
     try {
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
-        fetchPlaybackStreamSource({ serverUrl, userId: session.userId, itemId: playItemId, accessToken: session.accessToken })
+        fetchPlaybackStreamSource({
+          serverUrl,
+          userId: session.userId,
+          itemId: playItemId,
+          accessToken: session.accessToken,
+          mediaSourceId: selection?.mediaSourceId,
+          audioStreamIndex: selection?.audioStreamIndex,
+        })
       ]);
       await window.embyDesktop.player.preflight(nextSource);
       
@@ -307,17 +334,15 @@ function ItemDetailsRoute() {
         />
       ) : null}
 
-      {!playbackSource && (
-        <ItemDetailsPage 
-          details={details} 
-          similarItems={similarItems}
-          seasons={seasons}
-          episodes={episodes}
-          selectedSeasonId={selectedSeasonId}
-          onSelectSeason={setSelectedSeasonId}
-          onPlay={handlePlay}
-        />
-      )}
+      <ItemDetailsPage
+        details={details}
+        similarItems={similarItems}
+        seasons={seasons}
+        episodes={episodes}
+        selectedSeasonId={selectedSeasonId}
+        onSelectSeason={setSelectedSeasonId}
+        onPlay={handlePlay}
+      />
     </AuthenticatedLayout>
   );
 }
@@ -381,10 +406,15 @@ function LoginRoute() {
   }
 
   return (
-    <>
-      <LoginPage onSubmit={handleSubmit} hasRememberedAccounts={accounts.length > 0} />
-      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
-    </>
+    <div className="desktop-shell">
+      <AppTitleBar title="Taluxa" />
+      <main className="app-layout app-layout--no-sidebar">
+        <section className="app-main">
+          <LoginPage onSubmit={handleSubmit} hasRememberedAccounts={accounts.length > 0} />
+          {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+        </section>
+      </main>
+    </div>
   );
 }
 
@@ -517,7 +547,7 @@ function LibrariesRoute() {
                     : 'Ready to play',
                 posterUrl: item.posterUrl,
                 imageCandidates: item.imageCandidates,
-                href: `/player/${item.id}`,
+                href: `/item/${item.id}`,
                 state: {
                   title: item.name,
                   serverPositionTicks: item.serverPositionTicks,
@@ -641,6 +671,64 @@ function LibraryItemsRoute() {
   );
 }
 
+function SearchRoute() {
+  const { serverUrl, session, settings } = useAuth();
+  const location = useLocation();
+  const query = new URLSearchParams(location.search).get('q')?.trim() ?? '';
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!session || !query) {
+      setItems([]);
+      setIsLoading(false);
+      setErrorMessage('');
+      return;
+    }
+
+    let cancelled = false;
+
+    setIsLoading(true);
+    setErrorMessage('');
+
+    fetchSearchItems(serverUrl, session.userId, query, session.accessToken)
+      .then((nextItems) => {
+        if (!cancelled) {
+          setItems(nextItems);
+          setIsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setItems([]);
+          setErrorMessage('搜索失败，请稍后再试。');
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [query, serverUrl, session]);
+
+  return (
+    <AuthenticatedLayout title="搜索">
+      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+      {!query ? <p className="search-empty">请输入关键词开始搜索。</p> : null}
+      {query && isLoading ? <p>正在搜索...</p> : null}
+      {query && !isLoading && !errorMessage ? (
+        <LibraryItemsPage
+          libraryName={`搜索：${query}`}
+          sortMode={settings.librarySortMode}
+          onSortModeChange={() => undefined}
+          items={items}
+        />
+      ) : null}
+    </AuthenticatedLayout>
+  );
+}
+
 function SettingsRoute() {
   const navigate = useNavigate();
   const { clearAuthState, getServerDisplayName, serverUrl, session, settings, updateSettings } =
@@ -714,6 +802,7 @@ export function AppRouter() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/libraries" element={<LibrariesGate />} />
       <Route path="/libraries/:viewId" element={<LibraryItemsGate />} />
+      <Route path="/search" element={<SearchGate />} />
       <Route path="/item/:itemId" element={<ItemDetailsGate />} />
       <Route path="/settings" element={<SettingsGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />

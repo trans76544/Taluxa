@@ -124,6 +124,47 @@ describe('playback api', () => {
     });
   });
 
+  it('passes selected media source and audio stream into PlaybackInfo and stream urls', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          PlaySessionId: 'play-session-selected',
+          MediaSources: [
+            {
+              Id: 'source-2',
+              TranscodingUrl: '/Videos/item-1/master.m3u8?TranscodingContainer=ts',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    );
+
+    await expect(
+      fetchPlaybackStreamSource(
+        createInput({
+          mediaSourceId: 'source-2',
+          audioStreamIndex: 5,
+        } as Partial<FetchPlaybackStreamSourceInput>)
+      )
+    ).resolves.toEqual({
+      streamUrl:
+        'https://demo.emby.local/Videos/item-1/master.m3u8?TranscodingContainer=ts&PlaySessionId=play-session-selected&DeviceId=emby-player-desktop&MediaSourceId=source-2&AudioStreamIndex=5',
+      httpHeaders: {
+        'X-Emby-Token': 'token-123',
+      },
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] ?? [];
+    expect(requestInit?.body).toContain('"MediaSourceId":"source-2"');
+    expect(requestInit?.body).toContain('"AudioStreamIndex":5');
+  });
+
   it('falls back to the static stream url when PlaybackInfo does not include a playable source', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(

@@ -1,5 +1,17 @@
+import { useEffect, useMemo, useState } from 'react';
 import { PosterCard } from '@renderer/components/PosterCard';
-import type { LibraryItem, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
+import type {
+  LibraryEpisode,
+  LibraryItem,
+  LibraryItemDetails,
+  LibraryItemMediaSource,
+  LibrarySeason,
+} from '@shared/models/library';
+
+interface PlaybackSelection {
+  mediaSourceId?: string | null;
+  audioStreamIndex?: number | null;
+}
 
 interface ItemDetailsPageProps {
   details: LibraryItemDetails;
@@ -8,7 +20,7 @@ interface ItemDetailsPageProps {
   episodes: LibraryEpisode[];
   selectedSeasonId: string;
   onSelectSeason: (seasonId: string) => void;
-  onPlay: (itemId: string, resumeTicks?: number | null) => void;
+  onPlay: (itemId: string, resumeTicks?: number | null, selection?: PlaybackSelection) => void;
 }
 
 function formatRuntime(runtimeTicks: number | null) {
@@ -17,6 +29,94 @@ function formatRuntime(runtimeTicks: number | null) {
   }
   const runtimeMinutes = Math.round(runtimeTicks / 600000000);
   return `${runtimeMinutes} 分钟`;
+}
+
+function getFileName(path: string | null | undefined) {
+  return path?.split('\\').pop()?.split('/').pop() || 'Unknown file';
+}
+
+function formatBytes(size: number | null | undefined) {
+  if (typeof size !== 'number' || size <= 0) {
+    return null;
+  }
+
+  const gibibytes = size / 1024 / 1024 / 1024;
+  return `${gibibytes.toFixed(gibibytes >= 10 ? 1 : 2)} GB`;
+}
+
+function formatBitrate(bitrate: number | null | undefined) {
+  if (typeof bitrate !== 'number' || bitrate <= 0) {
+    return null;
+  }
+
+  return `${(bitrate / 1000000).toFixed(1)} Mbps`;
+}
+
+function formatResolution(source: LibraryItemMediaSource) {
+  const height = source.videoStream?.Height;
+
+  if (typeof height === 'number' && height > 0) {
+    return `${height}p`;
+  }
+
+  const width = source.videoStream?.Width;
+  if (typeof width === 'number' && width > 0) {
+    return `${width}w`;
+  }
+
+  return null;
+}
+
+function formatFrameRate(source: LibraryItemMediaSource) {
+  const frameRate = source.videoStream?.RealFrameRate;
+
+  if (typeof frameRate !== 'number' || frameRate <= 0) {
+    return null;
+  }
+
+  return `${Math.round(frameRate)}Hz`;
+}
+
+function formatVersionOption(source: LibraryItemMediaSource) {
+  const fileName = getFileName(source.path);
+  const details = [
+    formatResolution(source),
+    source.videoStream?.Codec || source.videoCodec || null,
+    formatBytes(source.size),
+    formatBitrate(source.bitrate),
+    formatFrameRate(source),
+  ].filter(Boolean);
+
+  return details.length > 0 ? `${fileName} - ${details.join(' / ')}` : fileName;
+}
+
+function formatAudioOption(audio: LibraryItemMediaSource['audioStreams'][number]) {
+  const base =
+    audio.DisplayTitle?.trim() ||
+    [audio.Language, audio.Codec, audio.ChannelLayout || audio.Channels]
+      .filter(Boolean)
+      .join(' ') ||
+    'Unknown audio';
+
+  return audio.IsDefault ? `${base} (默认)` : base;
+}
+
+function getAudioValue(
+  audio: LibraryItemMediaSource['audioStreams'][number],
+  fallbackIndex: number
+) {
+  return String(typeof audio.Index === 'number' ? audio.Index : fallbackIndex);
+}
+
+function getDefaultAudioValue(source: LibraryItemMediaSource | undefined) {
+  if (!source?.audioStreams.length) {
+    return '';
+  }
+
+  const defaultAudioIndex = source.audioStreams.findIndex((audio) => audio.IsDefault);
+  const selectedIndex = defaultAudioIndex >= 0 ? defaultAudioIndex : 0;
+
+  return getAudioValue(source.audioStreams[selectedIndex], selectedIndex);
 }
 
 export function ItemDetailsPage({
@@ -30,9 +130,40 @@ export function ItemDetailsPage({
 }: ItemDetailsPageProps) {
   const isSeries = details.type === 'Series';
   const runtimeLabel = formatRuntime(details.runtimeTicks);
+  const [selectedMediaSourceId, setSelectedMediaSourceId] = useState(
+    details.mediaSources[0]?.id ?? ''
+  );
+  const selectedMediaSource = useMemo(
+    () =>
+      details.mediaSources.find((source) => source.id === selectedMediaSourceId) ??
+      details.mediaSources[0],
+    [details.mediaSources, selectedMediaSourceId]
+  );
+  const [selectedAudioValue, setSelectedAudioValue] = useState(
+    getDefaultAudioValue(selectedMediaSource)
+  );
+
+  useEffect(() => {
+    const firstMediaSource = details.mediaSources[0];
+    setSelectedMediaSourceId(firstMediaSource?.id ?? '');
+  }, [details.id, details.mediaSources]);
+
+  useEffect(() => {
+    setSelectedAudioValue(getDefaultAudioValue(selectedMediaSource));
+  }, [selectedMediaSource]);
 
   // For series, determine next up
   const activeEpisode = episodes.find(e => e.serverPositionTicks !== null && e.serverPositionTicks > 0) || episodes[0];
+  const selectedAudioStreamIndex =
+    selectedAudioValue.trim() === '' ? null : Number(selectedAudioValue);
+  const playbackSelection = selectedMediaSource
+    ? {
+        mediaSourceId: selectedMediaSource.id,
+        audioStreamIndex: selectedAudioStreamIndex !== null && Number.isFinite(selectedAudioStreamIndex)
+          ? selectedAudioStreamIndex
+          : null,
+      }
+    : undefined;
 
   return (
     <div className="item-details-page">
@@ -60,7 +191,7 @@ export function ItemDetailsPage({
             {!isSeries ? (
               <button 
                 className="btn-play" 
-                onClick={() => onPlay(details.id, details.serverPositionTicks)}
+                onClick={() => onPlay(details.id, details.serverPositionTicks, playbackSelection)}
               >
                 <span className="btn-icon">▶</span> 播放
               </button>
@@ -86,24 +217,42 @@ export function ItemDetailsPage({
               <button className="icon-btn">✓</button>
             </div>
           </div>
-          
-          {/* Media Info embedded in Hero Bottom Right */}
-          {details.mediaSources.length > 0 && !isSeries && (
-            <div className="item-hero__media-badge">
-              <div className="media-badge-row">
-                <span className="media-badge-label">版本:</span>
-                <span className="media-badge-value">{details.mediaSources[0].path?.split('\\').pop()?.split('/').pop() || 'Unknown File'}</span>
-              </div>
-              <div className="media-badge-row">
-                <span className="media-badge-label">音频:</span>
-                <span className="media-badge-value">
-                  {details.mediaSources[0].audioStreams[0]?.Codec || 'Unknown'} 
-                  {details.mediaSources[0].audioStreams[0]?.ChannelLayout ? ` ${details.mediaSources[0].audioStreams[0].ChannelLayout}` : ''}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
+
+        {details.mediaSources.length > 0 && !isSeries && (
+          <div className="item-hero__media-badge">
+            <label className="media-select">
+              <span className="media-select__label">版本</span>
+              <select
+                value={selectedMediaSource?.id ?? ''}
+                onChange={(event) => setSelectedMediaSourceId(event.target.value)}
+              >
+                {details.mediaSources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {formatVersionOption(source)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="media-select">
+              <span className="media-select__label">音频</span>
+              <select
+                value={selectedAudioValue}
+                onChange={(event) => setSelectedAudioValue(event.target.value)}
+                disabled={!selectedMediaSource?.audioStreams.length}
+              >
+                {(selectedMediaSource?.audioStreams ?? []).map((audio, index) => (
+                  <option key={getAudioValue(audio, index)} value={getAudioValue(audio, index)}>
+                    {formatAudioOption(audio)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedMediaSource ? (
+              <p className="media-select__summary">{formatVersionOption(selectedMediaSource)}</p>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <div className="item-details-body">

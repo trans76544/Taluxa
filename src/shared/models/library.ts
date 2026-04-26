@@ -42,9 +42,24 @@ export interface LibraryItemMediaSource {
   id: string;
   container: string;
   path: string;
+  size: number | null;
+  bitrate: number | null;
   videoCodec: string;
-  videoStream: any;
-  audioStreams: any[];
+  videoStream: {
+    Codec?: string | null;
+    Width?: number | null;
+    Height?: number | null;
+    RealFrameRate?: number | null;
+  } | null;
+  audioStreams: Array<{
+    Index?: number | null;
+    DisplayTitle?: string | null;
+    Language?: string | null;
+    Codec?: string | null;
+    Channels?: number | null;
+    ChannelLayout?: string | null;
+    IsDefault?: boolean | null;
+  }>;
 }
 
 export interface LibraryItemDetails extends LibraryItem {

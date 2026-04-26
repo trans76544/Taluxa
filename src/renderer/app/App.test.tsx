@@ -14,6 +14,11 @@ const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
+const fetchSearchItemsMock = vi.hoisted(() => vi.fn());
+const fetchItemDetailsMock = vi.hoisted(() => vi.fn());
+const fetchSimilarItemsMock = vi.hoisted(() => vi.fn());
+const fetchSeasonsMock = vi.hoisted(() => vi.fn());
+const fetchEpisodesMock = vi.hoisted(() => vi.fn());
 const fetchPlaybackStreamSourceMock = vi.hoisted(() => vi.fn());
 const reportPlaybackProgressMock = vi.hoisted(() => vi.fn());
 const fetchServerInfoMock = vi.hoisted(() => vi.fn());
@@ -30,6 +35,11 @@ vi.mock('@shared/api/emby/library', () => ({
   fetchViews: fetchViewsMock,
   fetchItems: fetchItemsMock,
   fetchItemsByIds: fetchItemsByIdsMock,
+  fetchSearchItems: fetchSearchItemsMock,
+  fetchItemDetails: fetchItemDetailsMock,
+  fetchSimilarItems: fetchSimilarItemsMock,
+  fetchSeasons: fetchSeasonsMock,
+  fetchEpisodes: fetchEpisodesMock,
 }));
 
 vi.mock('@shared/api/emby/playback', async () => {
@@ -87,6 +97,11 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   const clearSession = vi.fn();
 
   window.embyDesktop = {
+    windowControls: {
+      minimize: vi.fn(),
+      maximize: vi.fn(),
+      close: vi.fn(),
+    },
     player: {
       launch,
       preflight,
@@ -213,6 +228,28 @@ describe('App', () => {
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
+    fetchItemDetailsMock.mockImplementation(async (_serverUrl: string, _userId: string, itemId: string) => ({
+      id: itemId,
+      name: 'Movie 1',
+      posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+      imageCandidates: [],
+      runtimeTicks: 600000000,
+      serverPositionTicks: null,
+      communityRating: null,
+      productionYear: 2026,
+      type: 'Movie',
+      overview: 'A test movie.',
+      genres: [],
+      officialRating: '',
+      people: [],
+      studios: [],
+      externalUrls: [],
+      mediaSources: [],
+      backdropUrl: null,
+    }));
+    fetchSimilarItemsMock.mockResolvedValue([]);
+    fetchSeasonsMock.mockResolvedValue([]);
+    fetchEpisodesMock.mockResolvedValue([]);
     fetchPlaybackStreamSourceMock.mockImplementation(
       async ({
         serverUrl,
@@ -734,6 +771,95 @@ describe('App', () => {
       ['doc-item'],
       'token-123'
     );
+  });
+
+  it('opens item details when a featured home item is clicked', async () => {
+    const account = createSavedAccount();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsByIdsMock.mockResolvedValue([]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'movie-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+        communityRating: null,
+        productionYear: 2026,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+
+    await waitFor(() => {
+      expect(fetchItemDetailsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'movie-1',
+        'token-123'
+      );
+    });
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+  });
+
+  it('keeps item details visible after starting desktop playback from the details page', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+    fetchPlaybackStreamSourceMock.mockResolvedValue({
+      streamUrl:
+        'https://demo.emby.local/Videos/movie-1/master.m3u8?MediaSourceId=source-1&api_key=token-123',
+      httpHeaders: {},
+    });
+
+    window.location.hash = '#/item/movie-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'movie-1',
+          title: 'Movie 1',
+        })
+      );
+    });
+    expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
   });
 
   it('requests release-date sorting and persists it when the user switches sort mode on the home screen', async () => {

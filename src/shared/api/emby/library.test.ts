@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchItems, mapItemsResponse, mapViewsResponse } from './library';
+import { fetchItems, fetchSearchItems, mapItemsResponse, mapViewsResponse } from './library';
 
 const fetchMock = vi.fn();
 
@@ -87,6 +87,8 @@ describe('mapItemsResponse', () => {
           },
         ],
         runtimeTicks: 600000000,
+        communityRating: null,
+        productionYear: null,
         serverPositionTicks: 42000000,
       },
     ]);
@@ -111,6 +113,8 @@ describe('mapItemsResponse', () => {
         name: 'Movie 2',
         posterUrl: 'https://demo.emby.local/Items/item-2/Images/Primary',
         runtimeTicks: null,
+        communityRating: null,
+        productionYear: null,
         serverPositionTicks: null,
         imageCandidates: [
           {
@@ -166,5 +170,64 @@ describe('fetchItems', () => {
     const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestUrl.searchParams.get('SortBy')).toBe('PremiereDate,ProductionYear,SortName');
     expect(requestUrl.searchParams.get('SortOrder')).toBe('Descending,Descending,Ascending');
+  });
+});
+
+describe('fetchSearchItems', () => {
+  it('queries Emby items by search term', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        Items: [
+          {
+            Id: 'dream-of-red-chamber',
+            Name: '红楼梦',
+          },
+        ],
+      }),
+    });
+
+    await fetchSearchItems('https://demo.emby.local', 'user-1', '红楼梦', 'token-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.pathname).toBe('/Users/user-1/Items');
+    expect(requestUrl.searchParams.get('SearchTerm')).toBe('红楼梦');
+    expect(requestUrl.searchParams.get('Recursive')).toBe('true');
+    expect(requestUrl.searchParams.get('IncludeItemTypes')).toBe('Movie,Series');
+  });
+
+  it('falls back to local title matching when Emby search returns no items', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ Items: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          Items: [
+            {
+              Id: 'future-boy-conan',
+              Name: '未来少年柯南',
+            },
+            {
+              Id: 'other-item',
+              Name: '红楼梦',
+            },
+          ],
+        }),
+      });
+
+    const items = await fetchSearchItems('https://demo.emby.local', 'user-1', '柯南', 'token-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const fallbackUrl = new URL(fetchMock.mock.calls[1][0] as string);
+    expect(fallbackUrl.searchParams.has('SearchTerm')).toBe(false);
+    expect(items).toHaveLength(1);
+    expect(items[0].name).toBe('未来少年柯南');
   });
 });

@@ -32,6 +32,8 @@ export interface FetchPlaybackStreamSourceInput {
   userId: string;
   itemId: string;
   accessToken: string;
+  mediaSourceId?: string | null;
+  audioStreamIndex?: number | null;
 }
 
 export interface PlaybackStreamSource {
@@ -77,7 +79,8 @@ function buildMediaSourceHlsUrl(
   itemId: string,
   accessToken: string,
   playSessionId?: string | null,
-  mediaSourceId?: string | null
+  mediaSourceId?: string | null,
+  audioStreamIndex?: number | null
 ): string {
   const streamUrl = new URL(
     `/Videos/${encodeURIComponent(itemId)}/master.m3u8`,
@@ -96,6 +99,10 @@ function buildMediaSourceHlsUrl(
     streamUrl.searchParams.set('MediaSourceId', mediaSourceId.trim());
   }
 
+  if (typeof audioStreamIndex === 'number') {
+    streamUrl.searchParams.set('AudioStreamIndex', String(audioStreamIndex));
+  }
+
   streamUrl.searchParams.set('Container', 'ts');
   streamUrl.searchParams.set('EnableAutoStreamCopy', 'false');
 
@@ -107,7 +114,8 @@ function buildMediaSourceDirectUrl(
   itemId: string,
   accessToken: string,
   playSessionId?: string | null,
-  mediaSourceId?: string | null
+  mediaSourceId?: string | null,
+  audioStreamIndex?: number | null
 ): string {
   const streamUrl = new URL(
     `/Videos/${encodeURIComponent(itemId)}/stream`,
@@ -127,6 +135,10 @@ function buildMediaSourceDirectUrl(
     streamUrl.searchParams.set('MediaSourceId', mediaSourceId.trim());
   }
 
+  if (typeof audioStreamIndex === 'number') {
+    streamUrl.searchParams.set('AudioStreamIndex', String(audioStreamIndex));
+  }
+
   return streamUrl.toString();
 }
 
@@ -136,7 +148,8 @@ function buildPlaybackInfoStreamUrl(
   accessToken: string,
   addApiKeyToDirectStreamUrl: boolean,
   playSessionId?: string | null,
-  mediaSourceId?: string | null
+  mediaSourceId?: string | null,
+  audioStreamIndex?: number | null
 ): string {
   const streamUrl = new URL(
     streamPath,
@@ -159,6 +172,10 @@ function buildPlaybackInfoStreamUrl(
     streamUrl.searchParams.set('MediaSourceId', mediaSourceId.trim());
   }
 
+  if (typeof audioStreamIndex === 'number' && !streamUrl.searchParams.has('AudioStreamIndex')) {
+    streamUrl.searchParams.set('AudioStreamIndex', String(audioStreamIndex));
+  }
+
   return streamUrl.toString();
 }
 
@@ -167,10 +184,20 @@ function isHlsStreamPath(streamPath: string | null | undefined): boolean {
 }
 
 function pickPreferredMediaSource(
-  mediaSources: PlaybackMediaSource[] | undefined
+  mediaSources: PlaybackMediaSource[] | undefined,
+  preferredMediaSourceId?: string | null
 ): PlaybackMediaSource | null {
   if (!mediaSources?.length) {
     return null;
+  }
+
+  const preferredId = preferredMediaSourceId?.trim();
+  const selectedMediaSource = preferredId
+    ? mediaSources.find((candidate) => candidate.Id?.trim() === preferredId)
+    : null;
+
+  if (selectedMediaSource) {
+    return selectedMediaSource;
   }
 
   return (
@@ -261,7 +288,30 @@ export async function fetchPlaybackStreamSource({
   userId,
   itemId,
   accessToken,
+  mediaSourceId,
+  audioStreamIndex,
 }: FetchPlaybackStreamSourceInput): Promise<PlaybackStreamSource> {
+  const selectedMediaSourceId = mediaSourceId?.trim() || null;
+  const selectedAudioStreamIndex =
+    typeof audioStreamIndex === 'number' ? audioStreamIndex : null;
+  const requestBody: Record<string, unknown> = {
+    UserId: userId,
+    IsPlayback: true,
+    AutoOpenLiveStream: true,
+    DeviceProfile: EMBY_HLS_DEVICE_PROFILE,
+    EnableDirectPlay: false,
+    EnableDirectStream: false,
+    EnableTranscoding: true,
+  };
+
+  if (selectedMediaSourceId) {
+    requestBody.MediaSourceId = selectedMediaSourceId;
+  }
+
+  if (selectedAudioStreamIndex !== null) {
+    requestBody.AudioStreamIndex = selectedAudioStreamIndex;
+  }
+
   const response = await createEmbyRequest(
     serverUrl,
     `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
@@ -271,15 +321,7 @@ export async function fetchPlaybackStreamSource({
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        UserId: userId,
-        IsPlayback: true,
-        AutoOpenLiveStream: true,
-        DeviceProfile: EMBY_HLS_DEVICE_PROFILE,
-        EnableDirectPlay: false,
-        EnableDirectStream: false,
-        EnableTranscoding: true,
-      }),
+      body: JSON.stringify(requestBody),
     }
   );
 
@@ -288,7 +330,7 @@ export async function fetchPlaybackStreamSource({
   }
 
   const payload = (await response.json()) as PlaybackInfoResponse;
-  const mediaSource = pickPreferredMediaSource(payload.MediaSources);
+  const mediaSource = pickPreferredMediaSource(payload.MediaSources, selectedMediaSourceId);
   const streamPath = pickPreferredStreamPath(mediaSource);
 
   if (!streamPath) {
@@ -300,7 +342,8 @@ export async function fetchPlaybackStreamSource({
             itemId,
             accessToken,
             payload.PlaySessionId,
-            mediaSource.Id
+            mediaSource.Id,
+            selectedAudioStreamIndex
           ),
           httpHeaders: {
             ...(mediaSource.RequiredHttpHeaders ?? {}),
@@ -314,7 +357,8 @@ export async function fetchPlaybackStreamSource({
           itemId,
           accessToken,
           payload.PlaySessionId,
-          mediaSource.Id
+          mediaSource.Id,
+          selectedAudioStreamIndex
         ),
         httpHeaders: buildHlsHttpHeaders(accessToken, mediaSource.RequiredHttpHeaders),
       };
@@ -333,7 +377,8 @@ export async function fetchPlaybackStreamSource({
       accessToken,
       mediaSource?.AddApiKeyToDirectStreamUrl === true,
       payload.PlaySessionId,
-      mediaSource?.Id
+      mediaSource?.Id,
+      selectedAudioStreamIndex
     ),
     httpHeaders: isHlsStreamPath(streamPath)
       ? buildHlsHttpHeaders(accessToken, mediaSource?.RequiredHttpHeaders)

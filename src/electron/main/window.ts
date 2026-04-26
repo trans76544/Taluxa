@@ -9,6 +9,8 @@ export function createMainWindow() {
     title: 'Taluxa',
     width: 1280,
     height: 800,
+    frame: false,
+    autoHideMenuBar: true,
     backgroundColor: '#0b1020',
     icon: join(__dirname, '../../sources/icon.png'),
     webPreferences: {

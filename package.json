@@ -7,9 +7,10 @@
   "type": "module",
   "main": "dist-electron/main/index.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:dev-port": "node scripts/devServerPort.check.mjs",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {

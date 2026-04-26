@@ -46,7 +46,12 @@ describe('SettingsPage', () => {
   it('shows the saved server url, lets you rename the active server, and keeps the logout action', async () => {
     const { onLogout, onServerDisplayNameSave } = renderSettingsPage();
 
-    expect(screen.getByText('Active account').nextElementSibling).toHaveTextContent('Alice');
+    expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '通用' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '网络与账户' })).toBeInTheDocument();
+    expect(screen.queryByText('Hills Lite Pro')).not.toBeInTheDocument();
+    expect(screen.getByText('当前账户')).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText('https://demo.emby.local')).toBeInTheDocument();
     expect(screen.getByText('80%')).toBeInTheDocument();
 

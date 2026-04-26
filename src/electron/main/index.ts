@@ -37,6 +37,31 @@ async function prepareLaunchInput(input: LaunchMpvInput): Promise<LaunchMpvInput
   };
 }
 
+function registerWindowControlIpc() {
+  ipcMain.on('window:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.on('window:maximize', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+
+    if (!window) {
+      return;
+    }
+
+    if (window.isMaximized()) {
+      window.unmaximize();
+      return;
+    }
+
+    window.maximize();
+  });
+
+  ipcMain.on('window:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+}
+
 app.whenReady().then(() => {
   app.setName('Taluxa');
 
@@ -48,6 +73,7 @@ app.whenReady().then(() => {
         onSettingsChanged: (settings) =>
           applyProxySettings(session.defaultSession, settings.proxy),
       });
+      registerWindowControlIpc();
       ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) =>
         mpvController.launch(await prepareLaunchInput(input), readPersistedState().settings.proxy)
       );
