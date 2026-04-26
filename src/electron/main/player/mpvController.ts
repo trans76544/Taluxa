@@ -1,5 +1,5 @@
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -83,11 +83,382 @@ interface ActiveSession {
 const IPC_CONNECTED_READY_FALLBACK_MS = 1500;
 const MAX_STDERR_LINES = 8;
 const MAX_LOG_LINES = 8;
+const DEFAULT_CACHE_SECONDS = 120;
+
+function createMpvInputConfig(): string {
+  return [
+    '# Taluxa mpv controls',
+    'F6 cycle-values speed 0.5 0.75 1 1.25 1.5 2 3 4 5 ; show-text "Speed: ${speed}x"',
+    'F7 cycle-values speed 5 4 3 2 1.5 1.25 1 0.75 0.5 ; show-text "Speed: ${speed}x"',
+    'F8 set speed 1 ; show-text "Speed: 1x"',
+    'F9 add cache-secs -30 ; show-text "Cache target: ${cache-secs}s"',
+    'F10 add cache-secs 30 ; show-text "Cache target: ${cache-secs}s"',
+    '',
+  ].join('\n');
+}
+
+function escapeAssText(value: string): string {
+  return value.replace(/[\\{}]/gu, (match) => `\\${match}`).replace(/\r?\n/gu, ' ');
+}
+
+function toLuaLongString(value: string): string {
+  let delimiterSize = 1;
+
+  while (value.includes(`]${'='.repeat(delimiterSize)}]`)) {
+    delimiterSize += 1;
+  }
+
+  const delimiter = '='.repeat(delimiterSize);
+  return `[${delimiter}[${value}]${delimiter}]`;
+}
+
+function splitPlaybackTitle(title: string): { displayTitle: string; displaySubtitle: string } {
+  const parts = title
+    .split(' - ')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 3 && /^S\d+\s*:\s*E\d+/iu.test(parts[1])) {
+    return {
+      displayTitle: parts[0],
+      displaySubtitle: parts.slice(1).join(' - '),
+    };
+  }
+
+  return {
+    displayTitle: title.trim() || 'Taluxa',
+    displaySubtitle: '',
+  };
+}
+
+function createMpvUiScript(title: string): string {
+  const { displayTitle, displaySubtitle } = splitPlaybackTitle(title);
+
+  return String.raw`
+local mp = require 'mp'
+local overlay = mp.create_osd_overlay('ass-events')
+
+local UI_WIDTH = 1920
+local UI_HEIGHT = 1080
+local BUTTON_SCALE = 2
+local display_title = ${toLuaLongString(escapeAssText(displayTitle))}
+local display_subtitle = ${toLuaLongString(escapeAssText(displaySubtitle))}
+local SPEED_OPTIONS = {'0.5', '0.75', '1', '1.25', '1.5', '2', '3', '4', '5'}
+local audio_tracks = {}
+local buttons = {}
+local cache_speed = 0
+local duration = 0
+local menu_open = nil
+local muted = false
+local paused = false
+local playback_speed = 1
+local position = 0
+local volume = 100
+
+local function clamp(value, min_value, max_value)
+  value = tonumber(value) or min_value
+  if value < min_value then return min_value end
+  if value > max_value then return max_value end
+  return value
+end
+
+local function format_clock(value)
+  value = math.max(0, math.floor(tonumber(value) or 0))
+  local hours = math.floor(value / 3600)
+  local minutes = math.floor((value % 3600) / 60)
+  local seconds = value % 60
+  if hours > 0 then
+    return string.format('%d:%02d:%02d', hours, minutes, seconds)
+  end
+  return string.format('%d:%02d', minutes, seconds)
+end
+
+local function format_speed(value)
+  value = tonumber(value) or 0
+  local units = {'B/s', 'KB/s', 'MB/s', 'GB/s'}
+  local unit = 1
+  while value >= 1024 and unit < #units do
+    value = value / 1024
+    unit = unit + 1
+  end
+  if unit == 1 then
+    return string.format('%d %s', value, units[unit])
+  end
+  return string.format('%.1f %s', value, units[unit])
+end
+
+local function append_box(out, x1, y1, x2, y2, color, alpha)
+  out[#out + 1] = string.format(
+    '{\\an7\\pos(0,0)\\bord0\\shad0\\alpha&H%02X&\\c&H%s&\\p1}m %d %d l %d %d l %d %d l %d %d{\\p0}',
+    alpha, color, x1, y1, x2, y1, x2, y2, x1, y2
+  )
+end
+
+local function append_text(out, x, y, align, size, text, color, alpha, bold)
+  local weight = bold and '\\b1' or '\\b0'
+  text = tostring(text or ''):gsub('\\', '\\\\'):gsub('{', '\\{'):gsub('}', '\\}')
+  out[#out + 1] = string.format(
+    '{\\an%d\\pos(%d,%d)\\fs%d%s\\alpha&H%02X&\\c&H%s&\\3c&H000000&\\bord1.1\\shad0}%s',
+    align, x, y, size, weight, alpha, color, text
+  )
+end
+
+local function add_button(out, id, x, y, width, height, label, size, value)
+  buttons[#buttons + 1] = { id = id, x1 = x, y1 = y, x2 = x + width, y2 = y + height, value = value }
+  append_text(out, x + math.floor(width / 2), y + math.floor(height / 2) + 1, 5, size or 22, label, 'FFFFFF', 0, false)
+end
+
+local function add_range_button(id, x1, y1, x2, y2)
+  buttons[#buttons + 1] = { id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+end
+
+local function update_audio_tracks(value)
+  audio_tracks = {}
+  for _, track in ipairs(value or {}) do
+    if track.type == 'audio' then
+      local label = track.title or track.lang or ('Audio ' .. tostring(track.id))
+      audio_tracks[#audio_tracks + 1] = { id = track.id, label = label }
+    end
+  end
+  if #audio_tracks == 0 then
+    audio_tracks[1] = { id = 'no', label = 'No audio' }
+  end
+end
+
+local function normalize_mouse_pos(pos)
+  if not pos then return nil end
+  local raw_width = mp.get_property_number('osd-width', UI_WIDTH)
+  local raw_height = mp.get_property_number('osd-height', UI_HEIGHT)
+  return {
+    x = (pos.x or 0) * UI_WIDTH / math.max(1, raw_width),
+    y = (pos.y or 0) * UI_HEIGHT / math.max(1, raw_height),
+  }
+end
+
+local function draw_options_menu(out)
+  if not menu_open then return end
+
+  local width = UI_WIDTH
+  local height = UI_HEIGHT
+  local item_height = 46
+  local menu_width = menu_open == 'audio' and 260 or 112
+  local right = width - 640
+  local anchor_x = menu_open == 'audio' and (right + 122) or right
+  local options = {}
+
+  if menu_open == 'speed' then
+    for _, value in ipairs(SPEED_OPTIONS) do
+      options[#options + 1] = { id = 'speed-option', value = value, label = value .. 'x' }
+    end
+  elseif menu_open == 'audio' then
+    for _, track in ipairs(audio_tracks) do
+      options[#options + 1] = { id = 'audio-option', value = track.id, label = track.label }
+    end
+  end
+
+  local menu_height = math.max(item_height, #options * item_height)
+  local x = math.min(width - menu_width - 28, anchor_x)
+  local y = height - 128 - menu_height
+  append_box(out, x, y, x + menu_width, y + menu_height, '101010', 35)
+
+  for index, option in ipairs(options) do
+    local item_y = y + (index - 1) * item_height
+    local label = option.label
+    add_button(out, option.id, x, item_y, menu_width, item_height, label, 24, option.value)
+  end
+end
+
+local function draw_controls()
+  local width = UI_WIDTH
+  local height = UI_HEIGHT
+  local out = {}
+  buttons = {}
+  overlay.res_x = width
+  overlay.res_y = height
+
+  local progress = 0
+  if duration > 0 then
+    progress = clamp(position / duration, 0, 1)
+  end
+  local remaining = math.max(0, duration - position)
+  local bottom = height
+  local bar_y = height - 78
+  local title_y = height - 126
+  local subtitle_y = height - 98
+  local controls_y = height - 42
+  local bar_left = 74
+  local bar_right = width - 90
+  local bar_width = math.max(1, bar_right - bar_left)
+  local progress_x = bar_left + math.floor(bar_width * progress)
+
+  append_box(out, 0, height - 210, width, bottom, '000000', 130)
+
+  append_text(out, 24, title_y, 1, 30, display_title, 'FFFFFF', 0, true)
+  if display_subtitle ~= '' then
+    append_text(out, 24, subtitle_y, 1, 18, display_subtitle, 'E6E6E6', 0, false)
+  end
+
+  append_text(out, 24, bar_y + 5, 4, 16, format_clock(position), 'FFFFFF', 0, false)
+  append_text(out, width - 24, bar_y + 5, 6, 16, format_clock(remaining), 'FFFFFF', 0, false)
+  append_box(out, bar_left, bar_y - 1, bar_right, bar_y + 1, 'CFCFCF', 80)
+  append_box(out, bar_left, bar_y - 2, progress_x, bar_y + 2, 'B35CFF', 0)
+  append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, 'B35CFF', 0)
+  add_range_button('seek', bar_left, bar_y - 12, bar_right, bar_y + 12)
+
+  local button_height = 36 * BUTTON_SCALE
+  local icon_button = 36 * BUTTON_SCALE
+  local button_y = controls_y - math.floor(button_height / 2)
+  add_button(out, 'prev', 24, button_y, icon_button, button_height, '|<', 42)
+  add_button(out, 'play', 104, button_y, icon_button, button_height, paused and '\226\150\182' or 'II', 43)
+  add_button(out, 'next', 184, button_y, icon_button, button_height, '>|', 42)
+  add_button(out, 'mute', 286, button_y, icon_button, button_height, muted and 'x' or '\226\153\170', 42)
+  append_box(out, 374, controls_y - 3, 526, controls_y + 3, 'D0D0D0', 115)
+  append_box(out, 374, controls_y - 4, 374 + math.floor(152 * clamp(volume / 100, 0, 1)), controls_y + 4, 'B35CFF', 0)
+  append_box(out, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) - 8, controls_y - 9, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) + 8, controls_y + 9, 'B35CFF', 0)
+  add_range_button('volume', 360, controls_y - 18, 540, controls_y + 18)
+
+  local right = width - 640
+  add_button(out, 'speed', right, button_y, 96, button_height, string.format('%.1fx', playback_speed), 28)
+  add_button(out, 'audio', right + 122, button_y, icon_button, button_height, '\226\153\170', 42)
+  add_button(out, 'sub', right + 204, button_y, icon_button, button_height, 'CC', 28)
+  add_button(out, 'danmaku', right + 286, button_y, icon_button, button_height, 'DM', 28)
+  add_button(out, 'settings', right + 368, button_y, icon_button, button_height, '\226\154\153', 40)
+  add_button(out, 'fullscreen', right + 532, button_y, icon_button, button_height, '[ ]', 30)
+
+  draw_options_menu(out)
+
+  append_text(out, width - 18, 46, 3, 14, format_speed(cache_speed), 'FFFFFF', 0, false)
+  add_button(out, 'pin', width - 146, 8, 28, 24, '*', 17)
+  add_button(out, 'minimize', width - 110, 8, 28, 24, '-', 18)
+  add_button(out, 'maximize', width - 74, 8, 28, 24, '[]', 17)
+  add_button(out, 'close', width - 38, 8, 28, 24, 'x', 20)
+
+  overlay.data = table.concat(out, '\n')
+  overlay:update()
+end
+
+local function button_at(x, y)
+  for _, button in ipairs(buttons) do
+    if x >= button.x1 and x <= button.x2 and y >= button.y1 and y <= button.y2 then
+      return button.id, button
+    end
+  end
+  return nil, nil
+end
+
+local function handle_click()
+  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
+  if not pos then return end
+  local id, button = button_at(pos.x or 0, pos.y or 0)
+  if not id then
+    if menu_open then
+      menu_open = nil
+      draw_controls()
+    end
+    return
+  end
+
+  if id == 'seek' and duration > 0 then
+    menu_open = nil
+    local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)
+    mp.commandv('set', 'time-pos', duration * ratio)
+  elseif id == 'volume' then
+    menu_open = nil
+    local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)
+    mp.commandv('set', 'volume', math.floor(ratio * 100))
+  elseif id == 'speed-option' then
+    mp.commandv('set', 'speed', tostring(button.value))
+    menu_open = nil
+  elseif id == 'audio-option' then
+    if button.value ~= 'no' then
+      mp.commandv('set', 'aid', tostring(button.value))
+    end
+    menu_open = nil
+  elseif id == 'prev' then
+    menu_open = nil
+    mp.commandv('playlist-prev')
+  elseif id == 'play' then
+    menu_open = nil
+    mp.commandv('cycle', 'pause')
+  elseif id == 'next' then
+    menu_open = nil
+    mp.commandv('playlist-next')
+  elseif id == 'mute' then
+    menu_open = nil
+    mp.commandv('cycle', 'mute')
+  elseif id == 'speed' then
+    if menu_open == 'speed' then
+      menu_open = nil
+    else
+      menu_open = 'speed'
+    end
+  elseif id == 'audio' then
+    if menu_open == 'audio' then
+      menu_open = nil
+    else
+      menu_open = 'audio'
+    end
+  elseif id == 'sub' then
+    menu_open = nil
+    mp.commandv('cycle', 'sid')
+  elseif id == 'danmaku' then
+    menu_open = nil
+    mp.commandv('show-text', 'Danmaku is not available yet', '1500')
+  elseif id == 'settings' then
+    menu_open = nil
+    mp.commandv('show-text', 'F6/F7 speed  F9/F10 cache', '2500')
+  elseif id == 'fullscreen' then
+    menu_open = nil
+    mp.commandv('cycle', 'fullscreen')
+  elseif id == 'minimize' then
+    menu_open = nil
+    mp.commandv('set', 'window-minimized', 'yes')
+  elseif id == 'maximize' then
+    menu_open = nil
+    mp.commandv('cycle', 'window-maximized')
+  elseif id == 'close' then
+    mp.commandv('quit')
+  end
+  draw_controls()
+end
+
+local function handle_wheel(delta)
+  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
+  if pos then
+    local id = button_at(pos.x or 0, pos.y or 0)
+    if id == 'speed' then
+      mp.commandv('add', 'speed', delta > 0 and '0.25' or '-0.25')
+      return
+    end
+  end
+  mp.commandv('add', 'volume', delta > 0 and '5' or '-5')
+end
+
+mp.observe_property('cache-speed', 'native', function(_, value) cache_speed = value or 0; draw_controls() end)
+mp.observe_property('duration', 'number', function(_, value) duration = value or 0; draw_controls() end)
+mp.observe_property('time-pos', 'number', function(_, value) position = value or 0; draw_controls() end)
+mp.observe_property('pause', 'bool', function(_, value) paused = value or false; draw_controls() end)
+mp.observe_property('speed', 'number', function(_, value) playback_speed = value or 1; draw_controls() end)
+mp.observe_property('volume', 'number', function(_, value) volume = value or 0; draw_controls() end)
+mp.observe_property('mute', 'bool', function(_, value) muted = value or false; draw_controls() end)
+mp.observe_property('track-list', 'native', function(_, value) update_audio_tracks(value); draw_controls() end)
+mp.observe_property('osd-width', 'native', draw_controls)
+mp.observe_property('osd-height', 'native', draw_controls)
+mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_click)
+mp.add_forced_key_binding('WHEEL_UP', 'taluxa-wheel-up', function() handle_wheel(1) end)
+mp.add_forced_key_binding('WHEEL_DOWN', 'taluxa-wheel-down', function() handle_wheel(-1) end)
+mp.add_periodic_timer(1, draw_controls)
+update_audio_tracks(mp.get_property_native('track-list'))
+draw_controls()
+`.trimStart();
+}
 
 export interface MpvControllerOptions {
   connectIpc?: ConnectIpc;
   connectRetryDelayMs?: number;
   connectTimeoutMs?: number;
+  createInputConfigFilePath?: (sessionId: number) => string;
+  createUiScriptFilePath?: (sessionId: number) => string;
   createLogFilePath?: (sessionId: number) => string;
   createIpcEndpoint?: () => string;
   fileExists?: (targetPath: string) => boolean;
@@ -98,6 +469,7 @@ export interface MpvControllerOptions {
   readTextFile?: (targetPath: string) => string;
   resourcesPath?: string;
   spawnProcess?: SpawnProcess;
+  writeTextFile?: (targetPath: string, content: string) => void;
 }
 
 function findWorkspaceRoot(startDir: string, fileExists: (targetPath: string) => boolean): string | null {
@@ -234,6 +606,10 @@ export class MpvController {
 
   private readonly createIpcEndpoint: () => string;
 
+  private readonly createInputConfigFilePath: (sessionId: number) => string;
+
+  private readonly createUiScriptFilePath: (sessionId: number) => string;
+
   private readonly createLogFilePath: (sessionId: number) => string;
 
   private readonly fileExists: (targetPath: string) => boolean;
@@ -256,12 +632,22 @@ export class MpvController {
 
   private readonly spawnProcess: SpawnProcess;
 
+  private readonly writeTextFile: (targetPath: string, content: string) => void;
+
   constructor(options: MpvControllerOptions = {}) {
     this.connectIpc = options.connectIpc ?? ((ipcServerPath) => createConnection(ipcServerPath));
     this.connectRetryDelayMs = options.connectRetryDelayMs ?? 100;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5000;
     this.createIpcEndpoint =
       options.createIpcEndpoint ?? (() => this.createDefaultIpcEndpoint());
+    this.createInputConfigFilePath =
+      options.createInputConfigFilePath ??
+      ((sessionId) =>
+        path.join(os.tmpdir(), `emby-player-mpv-input-${process.pid}-${sessionId}.conf`));
+    this.createUiScriptFilePath =
+      options.createUiScriptFilePath ??
+      ((sessionId) =>
+        path.join(os.tmpdir(), `emby-player-mpv-ui-${process.pid}-${sessionId}.lua`));
     this.createLogFilePath =
       options.createLogFilePath ??
       ((sessionId) => path.join(os.tmpdir(), `emby-player-mpv-${process.pid}-${sessionId}.log`));
@@ -275,6 +661,8 @@ export class MpvController {
     this.resourcesPath = options.resourcesPath ?? process.resourcesPath;
     this.spawnProcess = options.spawnProcess ?? ((command, args, spawnOptions) =>
       spawn(command, args, spawnOptions));
+    this.writeTextFile =
+      options.writeTextFile ?? ((targetPath, content) => writeFileSync(targetPath, content, 'utf8'));
   }
 
   getExecutablePath(): string {
@@ -293,12 +681,24 @@ export class MpvController {
     const executablePath = this.getExecutablePath();
     const ipcServerPath = this.createIpcEndpoint();
     const sessionId = ++this.sessionCounter;
+    const inputConfigFilePath = this.createInputConfigFilePath(sessionId);
+    const uiScriptFilePath = this.createUiScriptFilePath(sessionId);
     const logFilePath = this.createLogFilePath(sessionId);
+    this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
+    this.writeTextFile(uiScriptFilePath, createMpvUiScript(input.title));
     const args = [
       '--force-window=yes',
+      '--border=no',
+      '--osc=no',
       `--input-ipc-server=${ipcServerPath}`,
+      `--input-conf=${inputConfigFilePath}`,
+      `--script=${uiScriptFilePath}`,
       `--title=${input.title}`,
       `--start=${normalizeStartSeconds(input.startSeconds)}`,
+      '--osd-font=Microsoft YaHei UI',
+      '--osd-duration=1500',
+      '--cache=yes',
+      `--cache-secs=${DEFAULT_CACHE_SECONDS}`,
       '--msg-level=all=v',
       `--log-file=${logFilePath}`,
       '--ytdl=no',
@@ -639,7 +1039,11 @@ export class MpvController {
     requestId: number,
     propertyName: 'duration' | 'time-pos'
   ): void {
-    client.write(`${JSON.stringify({ command: ['observe_property', requestId, propertyName] })}\n`);
+    this.writeCommand(client, ['observe_property', requestId, propertyName]);
+  }
+
+  private writeCommand(client: MpvIpcClient, command: unknown[]): void {
+    client.write(`${JSON.stringify({ command })}\n`);
   }
 
   private startSession({

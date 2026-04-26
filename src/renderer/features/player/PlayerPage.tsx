@@ -22,13 +22,11 @@ export function PlayerPage({
   onProgress,
 }: PlayerPageProps) {
   const [launchError, setLaunchError] = useState('');
-  const [hasLaunched, setHasLaunched] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     setLaunchError('');
-    setHasLaunched(false);
 
     window.embyDesktop.player
       .launch({
@@ -39,9 +37,7 @@ export function PlayerPage({
         startSeconds: initialPositionSeconds,
       })
       .then(() => {
-        if (!cancelled) {
-          setHasLaunched(true);
-        }
+        return undefined;
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -68,9 +64,15 @@ export function PlayerPage({
     });
   }, [itemId, onProgress]);
 
-  return (
-    <div style={{ display: 'none' }} data-testid="player-page">
-      {launchError && <p className="player-error">{launchError}</p>}
-    </div>
-  );
+  if (launchError) {
+    return (
+      <div data-testid="player-page">
+        <p className="player-error" role="alert">
+          {launchError}
+        </p>
+      </div>
+    );
+  }
+
+  return <div style={{ display: 'none' }} data-testid="player-page" />;
 }

@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe('PlayerPage', () => {
-  it('renders the selected playback title', () => {
+  it('keeps the launcher bridge hidden while playback starts', () => {
     mockPlayerBridge();
 
     render(
@@ -67,8 +67,9 @@ describe('PlayerPage', () => {
       />
     );
 
-    expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    expect(screen.getByText('Desktop playback')).toBeInTheDocument();
+    expect(screen.getByTestId('player-page')).toHaveStyle({ display: 'none' });
+    expect(screen.queryByText('Movie 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Desktop playback')).not.toBeInTheDocument();
   });
 
   it('launches mpv with the resolved resume position and playback headers', async () => {
@@ -101,7 +102,7 @@ describe('PlayerPage', () => {
     });
   });
 
-  it('shows a ready state after mpv launch resolves', async () => {
+  it('stays hidden after mpv launch resolves', async () => {
     const deferred = createDeferred<void>();
     const { launch } = mockPlayerBridge();
     launch.mockReturnValueOnce(deferred.promise);
@@ -117,13 +118,17 @@ describe('PlayerPage', () => {
       />
     );
 
-    expect(screen.getByText('Launching mpv...')).toBeInTheDocument();
+    expect(screen.getByTestId('player-page')).toHaveStyle({ display: 'none' });
+    expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
 
     deferred.resolve();
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
+    });
 
     expect(
-      await screen.findByText('mpv window opened. Keep this page open to sync progress.')
-    ).toBeInTheDocument();
+      screen.queryByText('mpv window opened. Keep this page open to sync progress.')
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
   });
 

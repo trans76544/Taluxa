@@ -30,6 +30,8 @@ class FakeIpcClient extends EventEmitter {
 describe('MpvController', () => {
   const repoRoot = path.join('G:', 'JSProject', 'Emby_Player', '.worktrees', 'mpv-ui-sort-fallback');
   const devModuleDir = path.join(repoRoot, 'src', 'electron', 'main', 'player');
+  const inputConfigPath = path.join(repoRoot, 'mpv-input.conf');
+  const uiScriptPath = path.join(repoRoot, 'mpv-taluxa-ui.lua');
   const logFilePath = path.join(repoRoot, 'mpv.log');
   const packagedResourcesPath = path.join('C:', 'Program Files', 'Taluxa', 'resources');
   const ipcServerPath = String.raw`\\.\pipe\emby-player-session-1`;
@@ -46,8 +48,11 @@ describe('MpvController', () => {
 
   function createController(overrides: Partial<ConstructorParameters<typeof MpvController>[0]> = {}) {
     return new MpvController({
+      createInputConfigFilePath: () => inputConfigPath,
+      createUiScriptFilePath: () => uiScriptPath,
       createLogFilePath: () => logFilePath,
       fileExists: (targetPath) => existingPaths.has(targetPath),
+      writeTextFile: () => undefined,
       ...overrides,
     });
   }
@@ -130,9 +135,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=0',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -144,6 +157,115 @@ describe('MpvController', () => {
       }
     );
     expect(child.unref).toHaveBeenCalledTimes(1);
+  });
+
+  it('launches mpv with the custom Taluxa in-player control layer', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const inputConfigPath = path.join(repoRoot, 'mpv-input.conf');
+    const uiScriptPath = path.join(repoRoot, 'mpv-taluxa-ui.lua');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createInputConfigFilePath: () => inputConfigPath,
+      createUiScriptFilePath: () => uiScriptPath,
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput({ title: 'Bocchi the Rock! - S1:E1 - Lonely Turn' }),
+      createProxySettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(writeTextFile).toHaveBeenCalledWith(
+      inputConfigPath,
+      expect.stringContaining('F6 cycle-values speed 0.5 0.75 1 1.25 1.5 2 3 4 5')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      inputConfigPath,
+      expect.stringContaining('F10 add cache-secs 30')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('[=[Bocchi the Rock!]=]')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('[=[S1:E1 - Lonely Turn]=]')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("mp.observe_property('cache-speed'")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('local function draw_controls()')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('local function handle_click()')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("mp.add_forced_key_binding('MBTN_LEFT'")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('local UI_WIDTH = 1920')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('local function normalize_mouse_pos(pos)')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("append_box(out, 0, height - 210, width, bottom, '000000', 130)")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.not.stringContaining("append_box(out, 0, height - 148")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('local BUTTON_SCALE = 2')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("local function draw_options_menu(out)")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("menu_open = 'speed'")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("menu_open = 'audio'")
+    );
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      expect.arrayContaining([
+        '--border=no',
+        '--osc=no',
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
+        '--cache=yes',
+        '--cache-secs=120',
+      ]),
+      expect.any(Object)
+    );
   });
 
   it('passes playback http headers through to mpv', async () => {
@@ -180,9 +302,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -223,9 +353,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -267,9 +405,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -315,9 +461,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -365,9 +519,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -413,9 +575,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
@@ -460,9 +630,17 @@ describe('MpvController', () => {
       expectedPath,
       [
         '--force-window=yes',
+        '--border=no',
+        '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
+        `--input-conf=${inputConfigPath}`,
+        `--script=${uiScriptPath}`,
         '--title=Episode 1',
         '--start=12',
+        '--osd-font=Microsoft YaHei UI',
+        '--osd-duration=1500',
+        '--cache=yes',
+        '--cache-secs=120',
         '--msg-level=all=v',
         `--log-file=${logFilePath}`,
         '--ytdl=no',
