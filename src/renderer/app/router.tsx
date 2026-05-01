@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -38,6 +38,11 @@ import { AppTitleBar } from '@renderer/components/AppTitleBar';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { HomePage } from '@renderer/features/home/HomePage';
+import {
+  AggregateViewPage,
+  type AggregatePosterItem,
+  type AggregatePosterRow,
+} from '@renderer/features/home/AggregateViewPage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { ItemDetailsPage } from '@renderer/features/library/ItemDetailsPage';
@@ -103,6 +108,16 @@ function LibrariesGate() {
   }
 
   return session ? <LibrariesRoute /> : <Navigate to="/login" replace />;
+}
+
+function AggregateGate() {
+  const { accounts, isHydrated } = useAuth();
+
+  if (!isHydrated) {
+    return null;
+  }
+
+  return accounts.length > 0 ? <AggregateRoute /> : <Navigate to="/login" replace />;
 }
 
 function LibraryItemsGate() {
@@ -677,6 +692,129 @@ function LibraryItemsRoute() {
   );
 }
 
+interface LoadedAggregatePosterRow extends AggregatePosterRow {
+  serverUrl: string;
+}
+
+function AggregateRoute() {
+  const { accounts, activeAccountId, getServerDisplayName, setActiveAccountId } = useAuth();
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<LoadedAggregatePosterRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (accounts.length === 0) {
+      setRows([]);
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    setIsLoading(true);
+    setErrorMessage('');
+
+    window.embyDesktop.storage
+      .read()
+      .then(async (persistedState) => {
+        const nextRows = await Promise.all(
+          accounts.map(async (account): Promise<LoadedAggregatePosterRow> => {
+            const progressByItemId = getPersistedProgressByItemIdForAccount(
+              persistedState.progressByItemId,
+              account.id
+            );
+            const continueWatchingIds = Object.values(progressByItemId)
+              .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+              .slice(0, 8)
+              .map((progress) => progress.itemId);
+
+            const continueWatchingItems =
+              continueWatchingIds.length > 0
+                ? await fetchItemsByIds(
+                    account.serverUrl,
+                    account.userId,
+                    continueWatchingIds,
+                    account.accessToken
+                  ).catch(() => [])
+                : [];
+            const itemsById: Record<string, LibraryItem> = {};
+
+            for (const item of continueWatchingItems) {
+              itemsById[item.id] = item;
+            }
+
+            return {
+              id: account.id,
+              serverUrl: account.serverUrl,
+              title: account.serverUrl,
+              items: buildContinueWatchingItems({
+                progressByItemId,
+                itemsById,
+              }).map((item): AggregatePosterItem => ({
+                ...item,
+                accountId: account.id,
+              })),
+            };
+          })
+        );
+
+        if (!cancelled) {
+          setRows(nextRows);
+          setIsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRows([]);
+          setErrorMessage('Could not load aggregate view. Check your saved servers and try again.');
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accounts]);
+
+  async function handleOpenItem(
+    item: AggregatePosterItem,
+    event: MouseEvent<HTMLAnchorElement>
+  ) {
+    event.preventDefault();
+
+    if (item.accountId !== activeAccountId) {
+      try {
+        await window.embyDesktop.storage.write({
+          activeAccountId: item.accountId,
+        });
+      } catch {
+        // Persisting the selection is best-effort; the in-memory account switch is enough to open.
+      }
+
+      setActiveAccountId(item.accountId);
+    }
+
+    navigate(item.href, { state: item.state });
+  }
+
+  const displayRows = rows.map((row) => ({
+    ...row,
+    title: getServerDisplayName(row.serverUrl),
+  }));
+
+  return (
+    <AuthenticatedLayout title="聚合视界">
+      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+      {isLoading ? (
+        <p>Loading aggregate view...</p>
+      ) : !errorMessage ? (
+        <AggregateViewPage rows={displayRows} onOpenItem={handleOpenItem} />
+      ) : null}
+    </AuthenticatedLayout>
+  );
+}
+
 function SearchRoute() {
   const { serverUrl, session, settings } = useAuth();
   const location = useLocation();
@@ -804,6 +942,7 @@ export function AppRouter() {
       <Route path="/" element={<HomeGate />} />
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/libraries" element={<LibrariesGate />} />
+      <Route path="/aggregate" element={<AggregateGate />} />
       <Route path="/libraries/:viewId" element={<LibraryItemsGate />} />
       <Route path="/search" element={<SearchGate />} />
       <Route path="/item/:itemId" element={<ItemDetailsGate />} />

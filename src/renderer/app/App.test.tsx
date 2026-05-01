@@ -773,6 +773,98 @@ describe('App', () => {
     );
   });
 
+  it('loads aggregate continue watching rows for every saved account', async () => {
+    const aliceAccount = createSavedAccount();
+    const bobAccount = createSavedAccount({
+      id: 'https://backup.emby.local::user-2',
+      serverUrl: 'https://backup.emby.local',
+      userId: 'user-2',
+      userName: 'Bob',
+      accessToken: 'token-456',
+      lastUsedAt: '2026-04-21T01:00:00.000Z',
+    });
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [aliceAccount, bobAccount],
+        activeAccountId: aliceAccount.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(aliceAccount.id, 'alice-item')]: {
+            itemId: 'alice-item',
+            positionSeconds: 120,
+            durationSeconds: 1800,
+            updatedAt: '2026-04-22T10:00:00.000Z',
+          },
+          [createAccountScopedProgressKey(bobAccount.id, 'bob-item')]: {
+            itemId: 'bob-item',
+            positionSeconds: 240,
+            durationSeconds: 2400,
+            updatedAt: '2026-04-22T11:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    fetchServerInfoMock.mockImplementation(async (serverUrl: string) => ({
+      serverName:
+        serverUrl === aliceAccount.serverUrl ? 'Shrek' : 'OkEmby',
+    }));
+    fetchItemsByIdsMock.mockImplementation(async (serverUrl: string) =>
+      serverUrl === aliceAccount.serverUrl
+        ? [
+            {
+              id: 'alice-item',
+              name: '黑夜告白',
+              posterUrl: 'https://demo.emby.local/Items/alice-item/Images/Primary',
+              imageCandidates: [],
+              runtimeTicks: 18000000000,
+              serverPositionTicks: 1200000000,
+              communityRating: null,
+              productionYear: 2026,
+            },
+          ]
+        : [
+            {
+              id: 'bob-item',
+              name: '怪奇物语',
+              posterUrl: 'https://backup.emby.local/Items/bob-item/Images/Primary',
+              imageCandidates: [],
+              runtimeTicks: 24000000000,
+              serverPositionTicks: 2400000000,
+              communityRating: null,
+              productionYear: 2016,
+            },
+          ]
+    );
+
+    window.location.hash = '#/aggregate';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('navigation', { name: '聚合视界' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Shrek' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'OkEmby' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /黑夜告白/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /怪奇物语/ })).toBeInTheDocument();
+
+    expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
+      aliceAccount.serverUrl,
+      aliceAccount.userId,
+      ['alice-item'],
+      aliceAccount.accessToken
+    );
+    expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
+      bobAccount.serverUrl,
+      bobAccount.userId,
+      ['bob-item'],
+      bobAccount.accessToken
+    );
+  });
+
   it('opens item details when a featured home item is clicked', async () => {
     const account = createSavedAccount();
 

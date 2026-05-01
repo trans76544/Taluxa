@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { SavedAccount } from '@shared/models/session';
 import logoUrl from '../../../sources/logo.png';
 
@@ -30,6 +30,7 @@ export function AccountSidebar({
   onSelectAccount,
   onServerDisplayNameSave,
 }: AccountSidebarProps) {
+  const location = useLocation();
   const [serverContextMenu, setServerContextMenu] = useState<ServerContextMenuState | null>(null);
   const [serverEditor, setServerEditor] = useState<ServerEditorState | null>(null);
   const [serverDisplayNameDraft, setServerDisplayNameDraft] = useState('');
@@ -40,6 +41,16 @@ export function AccountSidebar({
     setServerEditor(server);
     setServerDisplayNameDraft(server.displayName);
     setServerDisplayNameSaveError('');
+  }
+
+  function getNavItemClass(path: string) {
+    return `nav-item ${location.pathname === path ? 'is-active' : ''}`;
+  }
+
+  function getHomeNavItemClass() {
+    return `nav-item ${
+      location.pathname === '/' || location.pathname.startsWith('/libraries') ? 'is-active' : ''
+    }`;
   }
 
   async function handleServerDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
@@ -67,7 +78,7 @@ export function AccountSidebar({
       </div>
 
       <nav className="account-sidebar__main-nav">
-        <Link to="/" className="nav-item is-active">
+        <Link to="/libraries" className={getHomeNavItemClass()}>
           <span className="nav-icon">🏠</span>
           <span>首页</span>
         </Link>
@@ -75,7 +86,7 @@ export function AccountSidebar({
           <span className="nav-icon">❤️</span>
           <span>收藏</span>
         </Link>
-        <Link to="/libraries" className="nav-item">
+        <Link to="/aggregate" className={getNavItemClass('/aggregate')}>
           <span className="nav-icon">♾️</span>
           <span>聚合视界</span>
         </Link>

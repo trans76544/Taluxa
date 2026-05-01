@@ -13,11 +13,6 @@ interface HomePageProps {
   onSortModeChange: (nextSortMode: LibrarySortMode) => void;
 }
 
-const SORT_OPTIONS: Array<{ label: string; value: LibrarySortMode }> = [
-  { label: 'Recently Added', value: 'latest_added' },
-  { label: 'Release Date', value: 'release_date' },
-];
-
 export function HomePage({
   accountLabel,
   continueWatching,
@@ -26,18 +21,31 @@ export function HomePage({
   sortMode,
   onSortModeChange,
 }: HomePageProps) {
+  void sortMode;
+  void onSortModeChange;
+
   return (
     <section className="home-screen">
+      <div className="home-screen__intro">
+        <h1 className="home-screen__title">{accountLabel}</h1>
+      </div>
+
       {continueWatching && continueWatching.length > 0 && (
         <ContinueWatchingRow title="继续观看" items={continueWatching} />
       )}
-      
+
       {libraries && libraries.length > 0 && (
         <LibraryCardRow title="媒体库" items={libraries} />
       )}
 
       {featuredRows.filter((row) => row.items.length > 0).map((row) => (
-        <PosterRow key={row.id} title={row.title} href={row.href} state={row.state} items={row.items} />
+        <PosterRow
+          key={row.id}
+          title={row.title}
+          href={row.href}
+          state={row.state}
+          items={row.items}
+        />
       ))}
     </section>
   );

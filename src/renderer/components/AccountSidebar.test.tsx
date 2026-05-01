@@ -82,8 +82,25 @@ describe('AccountSidebar', () => {
     expect(activeButton).toHaveClass('server-item', 'is-active');
 
     expect(screen.getByRole('link', { name: /收藏/ })).toHaveAttribute('href', '/libraries');
+    expect(screen.getByRole('link', { name: /聚合视界/ })).toHaveAttribute('href', '/aggregate');
     expect(screen.getByRole('link', { name: /添加服务器/ })).toHaveAttribute('href', '/login');
     expect(screen.getByRole('link', { name: /设置/ })).toHaveAttribute('href', '/settings');
+  });
+
+  it('highlights the home nav item for the libraries home route', () => {
+    render(
+      <MemoryRouter initialEntries={['/libraries']}>
+        <AccountSidebar
+          accounts={[createAccount()]}
+          activeAccountId="https://demo.emby.local::user-1"
+          serverDisplayNamesByUrl={{}}
+          onSelectAccount={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('link', { name: /首页/ })).toHaveClass('is-active');
+    expect(screen.getByRole('link', { name: /收藏/ })).not.toHaveClass('is-active');
   });
 
   it('falls back to the raw server url when no friendly display name exists', () => {

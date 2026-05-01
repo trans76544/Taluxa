@@ -381,6 +381,15 @@ a {
   line-height: 1.4;
 }
 
+.home-screen__title {
+  margin: 0;
+  color: #fff;
+  font-size: 1.38rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
 .home-section {
   display: flex;
   flex-direction: column;
@@ -1620,9 +1629,6 @@ a {
 }
 
 .aggregate-tabs {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   align-items: center;
   gap: 26px;

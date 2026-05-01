@@ -61,7 +61,7 @@ describe('HomePage', () => {
     expect(screen.getByRole('link', { name: /Feature 1/ })).toBeInTheDocument();
   });
 
-  it('renders the aggregate view chrome from the reference layout', () => {
+  it('does not render aggregate tabs on the normal home screen', () => {
     render(
       <MemoryRouter>
         <HomePage
@@ -100,19 +100,9 @@ describe('HomePage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('navigation', { name: '\u805a\u5408\u89c6\u754c' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '\u7ee7\u7eed\u64ad\u653e' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
-    expect(screen.getByRole('button', { name: '\u6536\u85cf' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '\u5a92\u4f53\u5e93' })).toHaveAttribute(
-      'href',
-      '/libraries'
-    );
+    expect(screen.queryByRole('navigation', { name: '\u805a\u5408\u89c6\u754c' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Shrek' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'OkEmby' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Feature 1/ })).toHaveClass('poster-card--landscape');
   });
 
   it('does not render a featured row when the library has no preview items', () => {
