@@ -6,6 +6,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ProxySettings } from '@shared/models/settings';
 import { isCustomProxyConfigured } from '@shared/network/proxy';
+import {
+  fetchDandanplayDanmaku,
+  toAssSubtitle,
+  type DanmakuComment,
+} from './danmaku';
+import type { DanmakuServerSettings } from '@shared/models/settings';
 
 export interface LaunchMpvInput {
   httpHeaders?: Record<string, string>;
@@ -58,6 +64,10 @@ type SpawnProcess = (
 ) => SpawnedMpvProcess;
 
 type ConnectIpc = (ipcServerPath: string) => MpvIpcClient;
+type FetchDanmaku = (
+  input: Pick<LaunchMpvInput, 'itemId' | 'title'>,
+  servers: DanmakuServerSettings[]
+) => Promise<DanmakuComment[]>;
 
 interface ActiveSession {
   buffer: string;
@@ -327,11 +337,13 @@ local function draw_controls()
 
   draw_options_menu(out)
 
-  append_text(out, width - 18, 46, 3, 14, format_speed(cache_speed), 'FFFFFF', 0, false)
-  add_button(out, 'pin', width - 146, 8, 28, 24, '*', 17)
-  add_button(out, 'minimize', width - 110, 8, 28, 24, '-', 18)
-  add_button(out, 'maximize', width - 74, 8, 28, 24, '[]', 17)
-  add_button(out, 'close', width - 38, 8, 28, 24, 'x', 20)
+  append_text(out, width - 20, 68, 3, 14, format_speed(cache_speed), 'FFFFFF', 0, false)
+  local window_button_width = 28 * BUTTON_SCALE
+  local window_button_height = 24 * BUTTON_SCALE
+  add_button(out, 'pin', width - 268, 8, window_button_width, window_button_height, '*', 34)
+  add_button(out, 'minimize', width - 204, 8, window_button_width, window_button_height, '-', 36)
+  add_button(out, 'maximize', width - 140, 8, window_button_width, window_button_height, '[]', 34)
+  add_button(out, 'close', width - 76, 8, window_button_width, window_button_height, 'x', 40)
 
   overlay.data = table.concat(out, '\n')
   overlay:update()
@@ -403,7 +415,8 @@ local function handle_click()
     mp.commandv('cycle', 'sid')
   elseif id == 'danmaku' then
     menu_open = nil
-    mp.commandv('show-text', 'Danmaku is not available yet', '1500')
+    mp.commandv('cycle', 'sid')
+    mp.commandv('show-text', 'Danmaku/subtitles toggled', '1200')
   elseif id == 'settings' then
     menu_open = nil
     mp.commandv('show-text', 'F6/F7 speed  F9/F10 cache', '2500')
@@ -458,10 +471,12 @@ export interface MpvControllerOptions {
   connectRetryDelayMs?: number;
   connectTimeoutMs?: number;
   createInputConfigFilePath?: (sessionId: number) => string;
+  createDanmakuFilePath?: (sessionId: number) => string;
   createUiScriptFilePath?: (sessionId: number) => string;
   createLogFilePath?: (sessionId: number) => string;
   createIpcEndpoint?: () => string;
   fileExists?: (targetPath: string) => boolean;
+  fetchDanmaku?: FetchDanmaku;
   isPackaged?: boolean;
   maxConnectAttempts?: number;
   moduleDir?: string;
@@ -608,11 +623,15 @@ export class MpvController {
 
   private readonly createInputConfigFilePath: (sessionId: number) => string;
 
+  private readonly createDanmakuFilePath: (sessionId: number) => string;
+
   private readonly createUiScriptFilePath: (sessionId: number) => string;
 
   private readonly createLogFilePath: (sessionId: number) => string;
 
   private readonly fileExists: (targetPath: string) => boolean;
+
+  private readonly fetchDanmaku: FetchDanmaku;
 
   private ipcEndpointCounter = 0;
 
@@ -644,6 +663,10 @@ export class MpvController {
       options.createInputConfigFilePath ??
       ((sessionId) =>
         path.join(os.tmpdir(), `emby-player-mpv-input-${process.pid}-${sessionId}.conf`));
+    this.createDanmakuFilePath =
+      options.createDanmakuFilePath ??
+      ((sessionId) =>
+        path.join(os.tmpdir(), `emby-player-mpv-danmaku-${process.pid}-${sessionId}.ass`));
     this.createUiScriptFilePath =
       options.createUiScriptFilePath ??
       ((sessionId) =>
@@ -652,6 +675,8 @@ export class MpvController {
       options.createLogFilePath ??
       ((sessionId) => path.join(os.tmpdir(), `emby-player-mpv-${process.pid}-${sessionId}.log`));
     this.fileExists = options.fileExists ?? existsSync;
+    this.fetchDanmaku =
+      options.fetchDanmaku ?? ((nextInput, servers) => fetchDandanplayDanmaku(nextInput, servers));
     this.isPackaged = options.isPackaged ?? process.env.NODE_ENV === 'production';
     this.maxConnectAttempts = options.maxConnectAttempts ?? 20;
     this.moduleDir = options.moduleDir ?? path.dirname(fileURLToPath(import.meta.url));
@@ -677,15 +702,24 @@ export class MpvController {
     return executablePath;
   }
 
-  async launch(input: LaunchMpvInput, proxy: ProxySettings): Promise<void> {
+  async launch(
+    input: LaunchMpvInput,
+    proxy: ProxySettings,
+    danmakuServers: DanmakuServerSettings[] = []
+  ): Promise<void> {
     const executablePath = this.getExecutablePath();
     const ipcServerPath = this.createIpcEndpoint();
     const sessionId = ++this.sessionCounter;
     const inputConfigFilePath = this.createInputConfigFilePath(sessionId);
     const uiScriptFilePath = this.createUiScriptFilePath(sessionId);
+    const danmakuFilePath = this.createDanmakuFilePath(sessionId);
     const logFilePath = this.createLogFilePath(sessionId);
     this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
     this.writeTextFile(uiScriptFilePath, createMpvUiScript(input.title));
+    const danmakuArgs =
+      danmakuServers.length > 0
+        ? await this.createDanmakuArgs(input, danmakuServers, danmakuFilePath)
+        : [];
     const args = [
       '--force-window=yes',
       '--border=no',
@@ -702,6 +736,7 @@ export class MpvController {
       '--msg-level=all=v',
       `--log-file=${logFilePath}`,
       '--ytdl=no',
+      ...danmakuArgs,
       ...getHttpHeaderArgs(input.httpHeaders),
       ...getPlaybackProxyArgs(input.streamUrl, proxy),
       input.streamUrl,
@@ -818,6 +853,35 @@ export class MpvController {
     session.client?.destroy();
     session.child.kill?.();
     this.activeSession = null;
+  }
+
+  private async createDanmakuArgs(
+    input: LaunchMpvInput,
+    danmakuServers: DanmakuServerSettings[],
+    danmakuFilePath: string
+  ): Promise<string[]> {
+    if (danmakuServers.length === 0) {
+      return [];
+    }
+
+    try {
+      const comments = await this.fetchDanmaku(
+        {
+          itemId: input.itemId,
+          title: input.title,
+        },
+        danmakuServers
+      );
+
+      if (comments.length === 0) {
+        return [];
+      }
+
+      this.writeTextFile(danmakuFilePath, toAssSubtitle(comments));
+      return [`--sub-file=${danmakuFilePath}`];
+    } catch {
+      return [];
+    }
   }
 
   private replaceActiveSession(): void {

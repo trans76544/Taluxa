@@ -6,6 +6,15 @@ export interface ProxySettings {
   customProxyUrl: string;
 }
 
+export interface DanmakuServerSettings {
+  id: string;
+  name: string;
+  url: string;
+  appId?: string;
+  appSecret?: string;
+  enabled: boolean;
+}
+
 export interface ServerPreferences {
   displayNameOverride?: string;
 }
@@ -15,6 +24,7 @@ export interface Settings {
   defaultVolume: number;
   librarySortMode: LibrarySortMode;
   proxy: ProxySettings;
+  danmakuServers: DanmakuServerSettings[];
   serverPreferencesByUrl: Record<string, ServerPreferences>;
 }
 
@@ -27,6 +37,7 @@ export function createDefaultSettings(): Settings {
       mode: 'system',
       customProxyUrl: '',
     },
+    danmakuServers: [],
     serverPreferencesByUrl: {},
   };
 }

@@ -32,6 +32,7 @@ describe('MpvController', () => {
   const devModuleDir = path.join(repoRoot, 'src', 'electron', 'main', 'player');
   const inputConfigPath = path.join(repoRoot, 'mpv-input.conf');
   const uiScriptPath = path.join(repoRoot, 'mpv-taluxa-ui.lua');
+  const danmakuAssPath = path.join(repoRoot, 'mpv-danmaku.ass');
   const logFilePath = path.join(repoRoot, 'mpv.log');
   const packagedResourcesPath = path.join('C:', 'Program Files', 'Taluxa', 'resources');
   const ipcServerPath = String.raw`\\.\pipe\emby-player-session-1`;
@@ -159,6 +160,58 @@ describe('MpvController', () => {
     expect(child.unref).toHaveBeenCalledTimes(1);
   });
 
+  it('loads a generated ASS danmaku subtitle file when comments are available', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createDanmakuFilePath: () => danmakuAssPath,
+      fetchDanmaku: vi.fn().mockResolvedValue([
+        { color: 16777215, mode: 'scroll', text: 'hello', timeSeconds: 12 },
+      ]),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings(),
+      [
+        {
+          id: 'official',
+          name: 'Official',
+          url: 'https://api.dandanplay.net',
+          enabled: true,
+        },
+      ]
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(writeTextFile).toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.stringContaining('Dialogue: 0,0:00:12.00')
+    );
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      expect.arrayContaining([`--sub-file=${danmakuAssPath}`]),
+      expect.any(Object)
+    );
+  });
+
   it('launches mpv with the custom Taluxa in-player control layer', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const inputConfigPath = path.join(repoRoot, 'mpv-input.conf');
@@ -244,6 +297,14 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
+      expect.stringContaining('local window_button_width = 28 * BUTTON_SCALE')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("add_button(out, 'close', width - 76, 8, window_button_width")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
       expect.stringContaining("local function draw_options_menu(out)")
     );
     expect(writeTextFile).toHaveBeenCalledWith(
@@ -253,6 +314,10 @@ describe('MpvController', () => {
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
       expect.stringContaining("menu_open = 'audio'")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('Danmaku/subtitles toggled')
     );
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,

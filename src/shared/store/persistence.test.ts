@@ -24,6 +24,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -44,6 +45,14 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -76,6 +85,14 @@ describe('persistence', () => {
           mode: 'custom',
           customProxyUrl: 'http://127.0.0.1:8080',
         },
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -134,6 +151,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {},
       },
       progressByItemId: {
@@ -170,6 +188,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -250,6 +269,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -294,6 +314,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -326,6 +347,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -362,6 +384,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -403,6 +426,7 @@ describe('persistence', () => {
               mode: 'system',
               customProxyUrl: '',
             },
+            danmakuServers: [],
             serverPreferencesByUrl: {},
           },
           progressByItemId: {
@@ -435,6 +459,7 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        danmakuServers: [],
         serverPreferencesByUrl: {},
       },
       progressByItemId: {

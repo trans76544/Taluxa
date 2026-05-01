@@ -1,3 +1,4 @@
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { SavedAccount } from '@shared/models/session';
 import logoUrl from '../../../sources/logo.png';
@@ -7,23 +8,19 @@ interface AccountSidebarProps {
   activeAccountId: string | null;
   serverDisplayNamesByUrl: Record<string, string>;
   onSelectAccount: (accountId: string) => void | Promise<void>;
+  onServerDisplayNameSave?: (serverUrl: string, nextName: string) => void | Promise<void>;
 }
 
-function groupAccountsByServer(accounts: SavedAccount[]) {
-  const accountsByServer = new Map<string, SavedAccount[]>();
+interface ServerContextMenuState {
+  displayName: string;
+  serverUrl: string;
+  x: number;
+  y: number;
+}
 
-  for (const account of accounts) {
-    const serverAccounts = accountsByServer.get(account.serverUrl);
-
-    if (serverAccounts) {
-      serverAccounts.push(account);
-      continue;
-    }
-
-    accountsByServer.set(account.serverUrl, [account]);
-  }
-
-  return Array.from(accountsByServer.entries());
+interface ServerEditorState {
+  displayName: string;
+  serverUrl: string;
 }
 
 export function AccountSidebar({
@@ -31,11 +28,38 @@ export function AccountSidebar({
   activeAccountId,
   serverDisplayNamesByUrl,
   onSelectAccount,
+  onServerDisplayNameSave,
 }: AccountSidebarProps) {
-  const groupedAccounts = groupAccountsByServer(accounts);
+  const [serverContextMenu, setServerContextMenu] = useState<ServerContextMenuState | null>(null);
+  const [serverEditor, setServerEditor] = useState<ServerEditorState | null>(null);
+  const [serverDisplayNameDraft, setServerDisplayNameDraft] = useState('');
+  const [serverDisplayNameSaveError, setServerDisplayNameSaveError] = useState('');
+
+  function openServerEditor(server: ServerEditorState) {
+    setServerContextMenu(null);
+    setServerEditor(server);
+    setServerDisplayNameDraft(server.displayName);
+    setServerDisplayNameSaveError('');
+  }
+
+  async function handleServerDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!serverEditor || !onServerDisplayNameSave) {
+      return;
+    }
+
+    try {
+      await onServerDisplayNameSave(serverEditor.serverUrl, serverDisplayNameDraft.trim());
+      setServerEditor(null);
+      setServerDisplayNameSaveError('');
+    } catch {
+      setServerDisplayNameSaveError('无法保存服务器备注，请稍后重试。');
+    }
+  }
 
   return (
-    <div className="account-sidebar">
+    <div className="account-sidebar" onClick={() => setServerContextMenu(null)}>
       <div className="account-sidebar__brand">
         <div className="brand-lockup">
           <img className="brand-logo" src={logoUrl} alt="Taluxa" />
@@ -71,6 +95,19 @@ export function AccountSidebar({
                 type="button"
                 aria-pressed={isActive}
                 onClick={() => onSelectAccount(account.id)}
+                onContextMenu={(event) => {
+                  if (!onServerDisplayNameSave) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  setServerContextMenu({
+                    displayName: serverDisplayName,
+                    serverUrl: account.serverUrl,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
               >
                 <div className="server-item__icon">
                   <span className="play-icon">▶</span>
@@ -87,6 +124,74 @@ export function AccountSidebar({
           })}
         </div>
       </div>
+
+      {serverContextMenu ? (
+        <div
+          className="server-context-menu"
+          role="menu"
+          style={{
+            left: serverContextMenu.x,
+            top: serverContextMenu.y,
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openServerEditor(serverContextMenu)}
+          >
+            <span aria-hidden="true">✎</span>
+            <span>修改备注</span>
+          </button>
+        </div>
+      ) : null}
+
+      {serverEditor ? (
+        <div className="server-editor-backdrop" onClick={() => setServerEditor(null)}>
+          <form
+            className="server-editor-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="server-editor-title"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => void handleServerDisplayNameSubmit(event)}
+          >
+            <div className="server-editor-dialog__header">
+              <h3 id="server-editor-title">修改服务器备注</h3>
+              <button
+                type="button"
+                aria-label="关闭服务器备注编辑"
+                onClick={() => setServerEditor(null)}
+              >
+                ×
+              </button>
+            </div>
+            <label>
+              <span>服务器备注</span>
+              <input
+                type="text"
+                value={serverDisplayNameDraft}
+                onChange={(event) => {
+                  setServerDisplayNameDraft(event.target.value);
+                  setServerDisplayNameSaveError('');
+                }}
+              />
+            </label>
+            <p className="server-editor-dialog__url">{serverEditor.serverUrl}</p>
+            <div className="server-editor-dialog__actions">
+              <button type="button" onClick={() => setServerEditor(null)}>
+                取消
+              </button>
+              <button type="submit" aria-label="保存服务器备注">
+                保存
+              </button>
+            </div>
+            {serverDisplayNameSaveError ? (
+              <p role="alert">{serverDisplayNameSaveError}</p>
+            ) : null}
+          </form>
+        </div>
+      ) : null}
 
       <div className="account-sidebar__footer">
         <Link to="/login" className="footer-item">

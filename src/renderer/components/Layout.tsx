@@ -12,7 +12,7 @@ interface LayoutProps {
 
 export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   const navigate = useNavigate();
-  const { accounts, activeAccountId, getServerDisplayName, session, setActiveAccountId } =
+  const { accounts, activeAccountId, getServerDisplayName, session, setActiveAccountId, updateSettings } =
     useAuth();
 
   async function handleSelectAccount(nextAccountId: string) {
@@ -35,6 +35,25 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
     navigate('/libraries', { replace: true });
   }
 
+  async function handleServerDisplayNameSave(serverUrl: string, nextName: string) {
+    if (!serverUrl) {
+      return;
+    }
+
+    const settingsPatch = {
+      serverPreferencesByUrl: {
+        [serverUrl]: {
+          displayNameOverride: nextName,
+        },
+      },
+    };
+
+    await window.embyDesktop?.storage?.write?.({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   const serverDisplayNamesByUrl: Record<string, string> = {};
 
   for (const account of accounts) {
@@ -42,15 +61,17 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   }
 
   const resolvedSidebar =
-    sidebar ??
-    (session && accounts.length > 0 ? (
+    sidebar !== undefined
+      ? sidebar
+      : session && accounts.length > 0 ? (
       <AccountSidebar
         accounts={accounts}
         activeAccountId={activeAccountId}
         serverDisplayNamesByUrl={serverDisplayNamesByUrl}
         onSelectAccount={handleSelectAccount}
+        onServerDisplayNameSave={handleServerDisplayNameSave}
       />
-    ) : null);
+      ) : null;
 
   if (!resolvedSidebar) {
     return (

@@ -7,6 +7,7 @@ import {
   type MpvProgressSnapshot,
 } from './player/mpvController';
 import { HlsProxyServer } from './player/hlsProxy';
+import { fetchDandanplayDanmaku } from './player/danmaku';
 import { createMainWindow } from './window';
 import { preflightPlaybackStreamSource } from '@shared/api/emby/playback';
 
@@ -18,6 +19,10 @@ function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
 
 const mpvController = new MpvController({
   isPackaged: app.isPackaged,
+  fetchDanmaku: (input, servers) =>
+    fetchDandanplayDanmaku(input, servers, {
+      fetcher: (url, init) => session.defaultSession.fetch(url, init),
+    }),
   onProgress: sendPlayerProgress,
 });
 const hlsProxyServer = new HlsProxyServer((url, init) => session.defaultSession.fetch(url, init));
@@ -74,9 +79,15 @@ app.whenReady().then(() => {
           applyProxySettings(session.defaultSession, settings.proxy),
       });
       registerWindowControlIpc();
-      ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) =>
-        mpvController.launch(await prepareLaunchInput(input), readPersistedState().settings.proxy)
-      );
+      ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) => {
+        const settings = readPersistedState().settings;
+
+        return mpvController.launch(
+          await prepareLaunchInput(input),
+          settings.proxy,
+          settings.danmakuServers
+        );
+      });
       ipcMain.handle(
         'player:preflight',
         (_event, input: Pick<LaunchMpvInput, 'httpHeaders' | 'streamUrl'>) =>

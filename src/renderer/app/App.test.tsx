@@ -1724,7 +1724,7 @@ describe('App', () => {
     );
   });
 
-  it('persists a manual server display name override from settings', async () => {
+  it('persists a manual server display name override from the server context menu', async () => {
     fetchServerInfoMock.mockResolvedValue({ serverName: 'Living Room Server' });
     const storage = mockStorageRead(
       createPersistedState({
@@ -1742,13 +1742,14 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    expect(await screen.findByDisplayValue('Living Room Server')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Server display name'), {
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /Living Room Server/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '修改备注' }));
+    fireEvent.change(screen.getByLabelText('服务器备注'), {
       target: { value: 'Projector Server' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save server name' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存服务器备注' }));
 
     await waitFor(() => {
       expect(storage.write).toHaveBeenCalledWith({
@@ -1761,7 +1762,7 @@ describe('App', () => {
         },
       });
     });
-    expect(await screen.findByRole('heading', { name: 'Projector Server' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Projector Server/ })).toBeInTheDocument();
     expect(screen.getAllByText('https://demo.emby.local').length).toBeGreaterThan(0);
   });
 
@@ -1860,15 +1861,17 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Server display name'), {
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /https:\/\/demo\.emby\.local/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '修改备注' }));
+    fireEvent.change(screen.getByLabelText('服务器备注'), {
       target: { value: 'Projector Server' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save server name' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存服务器备注' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not save the server name. Try again.'
+      '无法保存服务器备注，请稍后重试。'
     );
   });
 });

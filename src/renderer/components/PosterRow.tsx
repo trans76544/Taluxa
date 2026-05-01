@@ -10,9 +10,10 @@ interface PosterRowProps {
     libraryName: string;
   };
   items: HomePosterItem[];
+  landscape?: boolean;
 }
 
-export function PosterRow({ title, href, state, items }: PosterRowProps) {
+export function PosterRow({ title, href, state, items, landscape = false }: PosterRowProps) {
   return (
     <section className="home-section">
       <div className="home-section__header">
@@ -33,6 +34,7 @@ export function PosterRow({ title, href, state, items }: PosterRowProps) {
               imageCandidates={item.imageCandidates}
               href={item.href}
               state={item.state}
+              landscape={landscape}
             />
           ))}
         </div>

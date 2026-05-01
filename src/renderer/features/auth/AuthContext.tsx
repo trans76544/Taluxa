@@ -66,6 +66,10 @@ function mergeSettings(currentSettings: Settings, nextSettings?: Partial<Setting
   return {
     ...currentSettings,
     ...nextSettings,
+    proxy: {
+      ...currentSettings.proxy,
+      ...nextSettings?.proxy,
+    },
     serverPreferencesByUrl: {
       ...currentSettings.serverPreferencesByUrl,
       ...nextSettings?.serverPreferencesByUrl,

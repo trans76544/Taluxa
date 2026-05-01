@@ -163,6 +163,7 @@ function mergeSettings(
       ...currentSettings.proxy,
       ...nextSettings?.proxy,
     },
+    danmakuServers: nextSettings?.danmakuServers ?? currentSettings.danmakuServers,
     serverPreferencesByUrl: {
       ...currentSettings.serverPreferencesByUrl,
       ...nextSettings?.serverPreferencesByUrl,

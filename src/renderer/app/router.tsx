@@ -42,7 +42,7 @@ import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { ItemDetailsPage } from '@renderer/features/library/ItemDetailsPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
-import type { ProxyMode } from '@shared/models/settings';
+import type { DanmakuServerSettings, ProxyMode } from '@shared/models/settings';
 
 interface PlayerLocationState {
   title?: string;
@@ -71,13 +71,15 @@ function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedA
 
 function AuthenticatedLayout({
   children,
+  sidebar,
   title,
 }: {
   children: ReactNode;
+  sidebar?: ReactNode;
   title?: string;
 }) {
   return (
-    <Layout title={title}>
+    <Layout sidebar={sidebar} title={title}>
       {children}
     </Layout>
   );
@@ -423,7 +425,7 @@ function LoginRoute() {
 }
 
 function LibrariesRoute() {
-  const { activeAccountId, serverUrl, session, settings, updateSettings } = useAuth();
+  const { activeAccountId, getServerDisplayName, serverUrl, session, settings, updateSettings } = useAuth();
   const [continueWatching, setContinueWatching] = useState<
     ReturnType<typeof buildContinueWatchingItems>
   >([]);
@@ -584,7 +586,7 @@ function LibrariesRoute() {
         <p>Loading home screen...</p>
       ) : !errorMessage ? (
         <HomePage
-          accountLabel={`${serverUrl} / ${session?.userName ?? 'Unknown user'}`}
+          accountLabel={getServerDisplayName(serverUrl)}
           continueWatching={continueWatching}
           libraries={libraries}
           featuredRows={featuredRows}
@@ -735,32 +737,12 @@ function SearchRoute() {
 
 function SettingsRoute() {
   const navigate = useNavigate();
-  const { clearAuthState, getServerDisplayName, serverUrl, session, settings, updateSettings } =
-    useAuth();
+  const { clearAuthState, serverUrl, session, settings, updateSettings } = useAuth();
 
   async function handleLogout() {
     await window.embyDesktop.storage.clearSession();
     clearAuthState();
     navigate('/login');
-  }
-
-  async function handleServerDisplayNameSave(nextName: string) {
-    if (!serverUrl) {
-      return;
-    }
-
-    const settingsPatch = {
-      serverPreferencesByUrl: {
-        [serverUrl]: {
-          displayNameOverride: nextName,
-        },
-      },
-    };
-
-    await window.embyDesktop.storage.write({
-      settings: settingsPatch,
-    });
-    updateSettings(settingsPatch);
   }
 
   async function handleProxySettingsSave(next: {
@@ -784,16 +766,33 @@ function SettingsRoute() {
     updateSettings(settingsPatch);
   }
 
+  async function handleDanmakuServersSave(next: DanmakuServerSettings[]) {
+    for (const server of next) {
+      if (!isValidCustomProxyUrl(server.url)) {
+        throw new Error('invalid danmaku server');
+      }
+    }
+
+    const settingsPatch = {
+      danmakuServers: next,
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   return (
     <SettingsPage
       userName={session?.userName ?? 'Unknown user'}
       serverUrl={serverUrl}
-      serverDisplayName={getServerDisplayName(serverUrl)}
       defaultVolume={settings.defaultVolume}
       proxyMode={settings.proxy.mode}
       customProxyUrl={settings.proxy.customProxyUrl}
+      danmakuServers={settings.danmakuServers}
+      onDanmakuServersSave={handleDanmakuServersSave}
       onProxySettingsSave={handleProxySettingsSave}
-      onServerDisplayNameSave={handleServerDisplayNameSave}
       onLogout={handleLogout}
     />
   );

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { AccountSidebar } from './AccountSidebar';
@@ -126,5 +126,38 @@ describe('AccountSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: /Bob/ }));
 
     expect(onSelectAccount).toHaveBeenCalledWith('https://demo.emby.local::user-2');
+  });
+
+  it('opens server configuration from the server context menu', async () => {
+    const onServerDisplayNameSave = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter>
+        <AccountSidebar
+          accounts={[createAccount()]}
+          activeAccountId="https://demo.emby.local::user-1"
+          serverDisplayNamesByUrl={{
+            'https://demo.emby.local': 'Living Room Server',
+          }}
+          onSelectAccount={vi.fn()}
+          {...({ onServerDisplayNameSave } as object)}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Living Room Server/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '修改备注' }));
+
+    fireEvent.change(screen.getByLabelText('服务器备注'), {
+      target: { value: 'Projector Server' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '保存服务器备注' }));
+
+    await waitFor(() =>
+      expect(onServerDisplayNameSave).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'Projector Server'
+      )
+    );
   });
 });
