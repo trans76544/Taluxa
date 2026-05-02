@@ -28,6 +28,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     });
     expect('serverUrl' in state).toBe(false);
     expect('session' in state).toBe(false);
@@ -60,6 +61,7 @@ describe('persistence', () => {
         },
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     };
 
     expect(
@@ -100,7 +102,42 @@ describe('persistence', () => {
         },
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     });
+  });
+
+  it('merges home cache entries by key', () => {
+    const current = mergePersistedState({
+      homeCacheByKey: {
+        'home-cache::account-1::latest_added': {
+          cachedAt: '2026-05-02T00:00:00.000Z',
+          accountLabel: 'Server',
+          continueWatching: [],
+          libraries: [],
+          featuredRows: [],
+        },
+      },
+    });
+
+    const next = mergePersistedState(
+      {
+        homeCacheByKey: {
+          'home-cache::account-1::release_date': {
+            cachedAt: '2026-05-02T00:10:00.000Z',
+            accountLabel: 'Server',
+            continueWatching: [],
+            libraries: [],
+            featuredRows: [],
+          },
+        },
+      },
+      current
+    );
+
+    expect(Object.keys(next.homeCacheByKey)).toEqual([
+      'home-cache::account-1::latest_added',
+      'home-cache::account-1::release_date',
+    ]);
   });
 
   it('creates a durable account id from server url and user id', () => {
@@ -162,6 +199,7 @@ describe('persistence', () => {
           updatedAt: '2026-04-21T03:00:00.000Z',
         },
       },
+      homeCacheByKey: {},
     });
     expect('serverUrl' in state).toBe(false);
     expect('session' in state).toBe(false);
@@ -203,6 +241,7 @@ describe('persistence', () => {
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
       },
+      homeCacheByKey: {},
     };
 
     expect(
@@ -290,6 +329,7 @@ describe('persistence', () => {
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
       },
+      homeCacheByKey: {},
     });
   });
 
@@ -318,6 +358,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     };
 
     expect(
@@ -351,6 +392,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     });
   });
 
@@ -388,6 +430,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     });
   });
 
@@ -437,6 +480,7 @@ describe('persistence', () => {
               updatedAt: '2026-04-20T00:00:00.000Z',
             },
           },
+          homeCacheByKey: {},
         }
       )
     ).toEqual({
@@ -476,6 +520,7 @@ describe('persistence', () => {
           updatedAt: '2026-04-22T08:00:00.000Z',
         },
       },
+      homeCacheByKey: {},
     });
   });
 

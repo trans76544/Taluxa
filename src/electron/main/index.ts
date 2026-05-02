@@ -1,5 +1,9 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
+import { join } from 'node:path';
 import { readPersistedState, registerStorageIpc } from './ipc/storage';
+import { registerImageCacheIpc } from './ipc/imageCache';
+import { ImageCache, IMAGE_CACHE_PROTOCOL } from './image/imageCache';
+import { registerImageCacheProtocol } from './image/protocol';
 import { applyProxySettings, applyProxySettingsWithFallback } from './network/proxy';
 import {
   MpvController,
@@ -10,6 +14,17 @@ import { HlsProxyServer } from './player/hlsProxy';
 import { fetchDandanplayDanmaku } from './player/danmaku';
 import { createMainWindow } from './window';
 import { preflightPlaybackStreamSource } from '@shared/api/emby/playback';
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: IMAGE_CACHE_PROTOCOL,
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+    },
+  },
+]);
 
 function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -71,6 +86,10 @@ app.whenReady().then(() => {
   app.setName('Taluxa');
 
   const persistedState = readPersistedState();
+  const imageCache = new ImageCache({
+    cacheDir: join(app.getPath('userData'), 'image-cache'),
+    fetcher: (url) => session.defaultSession.fetch(url),
+  });
 
   return applyProxySettingsWithFallback(session.defaultSession, persistedState.settings.proxy).then(
     () => {
@@ -79,6 +98,8 @@ app.whenReady().then(() => {
           applyProxySettings(session.defaultSession, settings.proxy),
       });
       registerWindowControlIpc();
+      registerImageCacheProtocol(imageCache);
+      registerImageCacheIpc(imageCache);
       ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) => {
         const settings = readPersistedState().settings;
 

@@ -1,9 +1,45 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { PosterCard } from './PosterCard';
 
 describe('PosterCard', () => {
+  afterEach(() => {
+    delete (window as Partial<Window>).embyDesktop;
+  });
+
+  it('uses the desktop image cache when it resolves a poster url', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      url: 'taluxa-image-cache://poster-hash',
+      fromCache: true,
+    });
+    window.embyDesktop = {
+      imageCache: {
+        resolve,
+      },
+    } as unknown as Window['embyDesktop'];
+
+    render(
+      <MemoryRouter>
+        <PosterCard
+          title="Movie 1"
+          subtitle="2026"
+          posterUrl="https://demo.local/poster.jpg"
+          imageCandidates={[]}
+          href="/player/item-1"
+        />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute(
+        'src',
+        'taluxa-image-cache://poster-hash'
+      );
+    });
+    expect(resolve).toHaveBeenCalledWith('https://demo.local/poster.jpg');
+  });
+
   it('falls back from the primary image to thumb before showing a placeholder', () => {
     render(
       <MemoryRouter>
@@ -28,6 +64,8 @@ describe('PosterCard', () => {
 
     const image = screen.getByRole('img', { name: 'Movie 1' });
     expect(image).toHaveAttribute('src', 'https://demo.local/poster.jpg');
+    expect(image).toHaveAttribute('loading', 'lazy');
+    expect(image).toHaveAttribute('decoding', 'async');
 
     fireEvent.error(image);
     expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute(

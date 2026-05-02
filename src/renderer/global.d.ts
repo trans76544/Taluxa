@@ -6,6 +6,7 @@ import type {
   PlayerLaunchInput,
   PlayerProgressEvent,
 } from '../electron/preload/index';
+import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
 
 export {};
 
@@ -21,6 +22,9 @@ declare global {
         launch: (input: PlayerLaunchInput) => Promise<void>;
         preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;
         onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
+      };
+      imageCache: {
+        resolve: (sourceUrl: string) => Promise<ImageCacheResolveResult>;
       };
       storage: {
         read: () => Promise<PersistedState>;

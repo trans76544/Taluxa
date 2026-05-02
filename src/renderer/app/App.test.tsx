@@ -6,7 +6,7 @@ import { AppProviders } from './providers';
 import { AuthProvider, useAuth } from '@renderer/features/auth/AuthContext';
 
 import { createDefaultSettings } from '@shared/models/settings';
-import type { PersistedState } from '@shared/store/persistence';
+import type { PersistedHomeCacheEntry, PersistedState } from '@shared/store/persistence';
 import type { SavedAccount } from '@shared/models/session';
 import { createAccountScopedProgressKey } from '@shared/store/persistence';
 
@@ -95,6 +95,12 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   const read = vi.fn().mockResolvedValue(state);
   const write = vi.fn();
   const clearSession = vi.fn();
+  const resolveImage = vi.fn(async (sourceUrl: string) => ({
+    cacheKey: 'test-image-cache-key',
+    filePath: '',
+    fromCache: true,
+    url: sourceUrl,
+  }));
 
   window.embyDesktop = {
     windowControls: {
@@ -112,6 +118,9 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       write,
       clearSession,
     },
+    imageCache: {
+      resolve: resolveImage,
+    },
   } as Window['embyDesktop'];
 
   return {
@@ -121,6 +130,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     read,
     write,
     clearSession,
+    resolveImage,
     emitProgress(event: PlayerProgressEvent) {
       for (const listener of progressListeners) {
         listener(event);
@@ -134,6 +144,7 @@ type PersistedStateOverrides = {
   activeAccountId?: string | null | undefined;
   settings?: PersistedState['settings'];
   progressByItemId?: PersistedState['progressByItemId'];
+  homeCacheByKey?: PersistedState['homeCacheByKey'];
 };
 
 function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
@@ -162,6 +173,7 @@ function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPe
     accounts: overrides.accounts ?? [],
     settings: overrides.settings ?? createDefaultSettings(),
     progressByItemId: overrides.progressByItemId ?? {},
+    homeCacheByKey: overrides.homeCacheByKey ?? {},
   };
 
   if (Object.prototype.hasOwnProperty.call(overrides, 'activeAccountId')) {
@@ -169,6 +181,53 @@ function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPe
   }
 
   return state;
+}
+
+function createCachedHomeEntry(
+  overrides: Partial<PersistedHomeCacheEntry> = {}
+): PersistedHomeCacheEntry {
+  return {
+    cachedAt: '2026-04-22T08:00:00.000Z',
+    accountLabel: 'Cached Server',
+    continueWatching: [],
+    libraries: [
+      {
+        id: 'cached-library',
+        title: 'Cached Library',
+        posterUrl: 'https://demo.emby.local/Items/cached-library/Images/Primary',
+        imageCandidates: [],
+        href: '/libraries/cached-library',
+        state: {
+          libraryName: 'Cached Library',
+        },
+      },
+    ],
+    featuredRows: [
+      {
+        id: 'cached-row',
+        title: 'Cached Movies',
+        href: '/libraries/cached-library',
+        state: {
+          libraryName: 'Cached Movies',
+        },
+        items: [
+          {
+            id: 'cached-movie',
+            title: 'Cached Movie',
+            subtitle: '88 min',
+            posterUrl: 'https://demo.emby.local/Items/cached-movie/Images/Primary',
+            imageCandidates: [],
+            href: '/item/cached-movie',
+            state: {
+              title: 'Cached Movie',
+              serverPositionTicks: null,
+            },
+          },
+        ],
+      },
+    ],
+    ...overrides,
+  };
 }
 
 function AuthHarness() {
@@ -286,6 +345,7 @@ describe('App', () => {
       activeAccountId: 'https://demo.emby.local::user-1',
       settings: createSettings(),
       progressByItemId: {},
+      homeCacheByKey: {},
     });
 
     expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
@@ -771,6 +831,382 @@ describe('App', () => {
       ['doc-item'],
       'token-123'
     );
+  });
+
+  it('renders cached home data before delayed network refresh resolves', async () => {
+    const account = createSavedAccount();
+    const homeCacheKey = `home-cache::${account.id}::latest_added`;
+    const viewsDeferred = createDeferred<
+      Array<{ id: string; name: string; collectionType: string }>
+    >();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        homeCacheByKey: {
+          [homeCacheKey]: createCachedHomeEntry(),
+        },
+      })
+    );
+    fetchViewsMock.mockReturnValue(viewsDeferred.promise);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'fresh-movie',
+        name: 'Fresh Movie',
+        posterUrl: 'https://demo.emby.local/Items/fresh-movie/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Cached Server' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Cached Movie/ })).toBeInTheDocument();
+    expect(screen.queryByText('Loading home screen...')).not.toBeInTheDocument();
+    expect(fetchItemsMock).not.toHaveBeenCalled();
+
+    viewsDeferred.resolve([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(fetchItemsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'movies',
+        'token-123',
+        {
+          limit: 8,
+          sortMode: 'latest_added',
+        }
+      );
+    });
+  });
+
+  it('replaces cached home label when a friendly server name becomes available', async () => {
+    const account = createSavedAccount();
+    const homeCacheKey = `home-cache::${account.id}::latest_added`;
+    const serverInfoDeferred = createDeferred<{ serverName: string | null }>();
+
+    fetchServerInfoMock.mockReturnValue(serverInfoDeferred.promise);
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        homeCacheByKey: {
+          [homeCacheKey]: createCachedHomeEntry({
+            cachedAt: new Date(Date.now()).toISOString(),
+          }),
+        },
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Cached Server' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Cached Movie/ })).toBeInTheDocument();
+    expect(fetchViewsMock).not.toHaveBeenCalled();
+
+    serverInfoDeferred.resolve({ serverName: 'Living Room Server' });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Living Room Server' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Cached Server' })).not.toBeInTheDocument();
+  });
+
+  it('does not restart home refresh when a friendly server name becomes available', async () => {
+    const account = createSavedAccount();
+    const serverInfoDeferred = createDeferred<{ serverName: string | null }>();
+    const viewsDeferred = createDeferred<
+      Array<{ id: string; name: string; collectionType: string }>
+    >();
+
+    fetchServerInfoMock.mockReturnValue(serverInfoDeferred.promise);
+    fetchViewsMock.mockReturnValue(viewsDeferred.promise);
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    await waitFor(() => {
+      expect(fetchViewsMock).toHaveBeenCalledTimes(1);
+    });
+
+    serverInfoDeferred.resolve({ serverName: 'Living Room Server' });
+
+    expect(await screen.findByRole('button', { name: /Living Room Server/ })).toBeInTheDocument();
+    await flushAsyncQueue();
+
+    expect(fetchViewsMock).toHaveBeenCalledTimes(1);
+
+    viewsDeferred.resolve([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+  });
+
+  it('writes a home cache snapshot after refreshing absent cached data', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        homeCacheByKey: {
+          [`home-cache::${account.id}::latest_added`]: expect.objectContaining({
+            accountLabel: 'https://demo.emby.local',
+            cachedAt: expect.any(String),
+            continueWatching: [],
+            libraries: [
+              expect.objectContaining({
+                id: 'movies',
+                title: 'Movies',
+              }),
+            ],
+            featuredRows: [
+              expect.objectContaining({
+                id: 'movies',
+                title: 'Movies',
+                items: [
+                  expect.objectContaining({
+                    id: 'item-1',
+                    title: 'Movie 1',
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+      });
+    });
+  });
+
+  it('keeps refreshed home content visible when cache snapshot write throws synchronously', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+    storage.write.mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        homeCacheByKey: {
+          [`home-cache::${account.id}::latest_added`]: expect.any(Object),
+        },
+      });
+    });
+    await flushAsyncQueue();
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+  });
+
+  it('refreshes incomplete home cache entries and writes a repaired snapshot', async () => {
+    const account = createSavedAccount();
+    const homeCacheKey = `home-cache::${account.id}::latest_added`;
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        homeCacheByKey: {
+          [homeCacheKey]: createCachedHomeEntry({
+            accountLabel: '',
+            cachedAt: new Date(Date.now()).toISOString(),
+          }),
+        },
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchViewsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'token-123'
+      );
+    });
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        homeCacheByKey: {
+          [homeCacheKey]: expect.objectContaining({
+            accountLabel: 'https://demo.emby.local',
+            cachedAt: expect.any(String),
+            libraries: [
+              expect.objectContaining({
+                id: 'movies',
+                title: 'Movies',
+              }),
+            ],
+            featuredRows: [
+              expect.objectContaining({
+                id: 'movies',
+                title: 'Movies',
+                items: [
+                  expect.objectContaining({
+                    id: 'item-1',
+                    title: 'Movie 1',
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+      });
+    });
+  });
+
+  it('keeps cached home content visible when background refresh fails', async () => {
+    const account = createSavedAccount();
+    const homeCacheKey = `home-cache::${account.id}::latest_added`;
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        homeCacheByKey: {
+          [homeCacheKey]: createCachedHomeEntry(),
+        },
+      })
+    );
+    fetchViewsMock.mockRejectedValue(new Error('offline'));
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Cached Movie/ })).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not refresh home data. Showing saved content.'
+    );
+    expect(screen.getByRole('link', { name: /Cached Movie/ })).toBeInTheDocument();
   });
 
   it('loads aggregate continue watching rows for every saved account', async () => {

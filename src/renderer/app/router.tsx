@@ -29,6 +29,8 @@ import {
   createAccountId,
   createAccountScopedProgressKey,
   getPersistedProgressByItemIdForAccount,
+  type PersistedHomeCacheEntry,
+  type PersistedState,
 } from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
@@ -38,6 +40,11 @@ import { AppTitleBar } from '@renderer/components/AppTitleBar';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { HomePage } from '@renderer/features/home/HomePage';
+import {
+  createHomeCacheEntry,
+  createHomeCacheKey,
+  isHomeCacheFresh,
+} from '@renderer/features/home/homeCache';
 import {
   AggregateViewPage,
   type AggregatePosterItem,
@@ -61,6 +68,30 @@ interface PlaybackSelection {
 }
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
+
+interface HomeRouteData {
+  accountLabel: string;
+  continueWatching: ReturnType<typeof buildContinueWatchingItems>;
+  libraries: HomeLibraryCard[];
+  featuredRows: HomePosterRow[];
+}
+
+function isCompleteHomeCacheEntry(
+  cacheEntry: PersistedHomeCacheEntry | undefined
+): cacheEntry is PersistedHomeCacheEntry {
+  const cachedAtMs =
+    typeof cacheEntry?.cachedAt === 'string' ? Date.parse(cacheEntry.cachedAt) : Number.NaN;
+
+  return Boolean(
+    cacheEntry &&
+      typeof cacheEntry.accountLabel === 'string' &&
+      cacheEntry.accountLabel.trim().length > 0 &&
+      Number.isFinite(cachedAtMs) &&
+      Array.isArray(cacheEntry.continueWatching) &&
+      Array.isArray(cacheEntry.libraries) &&
+      Array.isArray(cacheEntry.featuredRows)
+  );
+}
 
 function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedAccount) {
   const accountsById = new Map<string, SavedAccount>();
@@ -441,15 +472,22 @@ function LoginRoute() {
 
 function LibrariesRoute() {
   const { activeAccountId, getServerDisplayName, serverUrl, session, settings, updateSettings } = useAuth();
+  const sessionUserId = session?.userId ?? null;
+  const sessionAccessToken = session?.accessToken ?? null;
   const [continueWatching, setContinueWatching] = useState<
     ReturnType<typeof buildContinueWatchingItems>
   >([]);
   const [libraries, setLibraries] = useState<HomeLibraryCard[]>([]);
   const [featuredRows, setFeaturedRows] = useState<HomePosterRow[]>([]);
+  const [homeAccountLabel, setHomeAccountLabel] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [hasRenderedHomeSnapshot, setHasRenderedHomeSnapshot] = useState(false);
   const resolvedActiveAccountId =
-    activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
+    activeAccountId ?? (sessionUserId ? createAccountId(serverUrl, sessionUserId) : null);
+  const currentHomeAccountLabel = getServerDisplayName(serverUrl);
+  const currentHomeAccountLabelRef = useRef(currentHomeAccountLabel);
+  currentHomeAccountLabelRef.current = currentHomeAccountLabel;
 
   async function handleSortModeChange(nextSortMode: LibrarySortMode) {
     if (nextSortMode === settings.librarySortMode) {
@@ -471,137 +509,230 @@ function LibrariesRoute() {
   }
 
   useEffect(() => {
-    if (!session) {
+    const currentUserId = sessionUserId;
+    const currentAccessToken = sessionAccessToken;
+
+    if (!currentUserId || !currentAccessToken) {
       setContinueWatching([]);
       setLibraries([]);
       setFeaturedRows([]);
+      setHomeAccountLabel('');
+      setHasRenderedHomeSnapshot(false);
       setIsLoading(false);
       return;
     }
+    const userId = currentUserId;
+    const accessToken = currentAccessToken;
 
     let cancelled = false;
 
     setIsLoading(true);
     setErrorMessage('');
+    setHasRenderedHomeSnapshot(false);
 
-    Promise.all([
-      window.embyDesktop.storage.read(),
-      fetchViews(serverUrl, session.userId, session.accessToken),
-    ])
-      .then(async ([persistedState, nextViews]) => {
-        if (!cancelled) {
-          const progressByItemId = getPersistedProgressByItemIdForAccount(
-            persistedState.progressByItemId,
-            resolvedActiveAccountId
-          );
-          const featuredViews = pickFeaturedViews(nextViews);
-          const continueWatchingIds = Object.values(progressByItemId)
-            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-            .slice(0, 8)
-            .map((progress) => progress.itemId);
-          const [continueWatchingItems, previewEntries] = await Promise.all([
-            fetchItemsByIds(serverUrl, session.userId, continueWatchingIds, session.accessToken),
-            Promise.all(
-              nextViews.map(
-                async (view): Promise<[string, LibraryItem[]]> => [
-                  view.id,
-                  await fetchItems(serverUrl, session.userId, view.id, session.accessToken, {
-                    limit: 8,
-                    sortMode: settings.librarySortMode,
-                  }),
-                ]
-              )
-            ),
-          ]);
+    async function refreshHomeData(persistedState: PersistedState): Promise<HomeRouteData> {
+      const nextViews = await fetchViews(serverUrl, userId, accessToken);
+      const progressByItemId = getPersistedProgressByItemIdForAccount(
+        persistedState.progressByItemId,
+        resolvedActiveAccountId
+      );
+      const featuredViews = pickFeaturedViews(nextViews);
+      const continueWatchingIds = Object.values(progressByItemId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .slice(0, 8)
+        .map((progress) => progress.itemId);
+      const [continueWatchingItems, previewEntries] = await Promise.all([
+        fetchItemsByIds(serverUrl, userId, continueWatchingIds, accessToken),
+        Promise.all(
+          nextViews.map(
+            async (view): Promise<[string, LibraryItem[]]> => [
+              view.id,
+              await fetchItems(serverUrl, userId, view.id, accessToken, {
+                limit: 8,
+                sortMode: settings.librarySortMode,
+              }),
+            ]
+          )
+        ),
+      ]);
+      const previewItemsByViewId = new Map(
+        previewEntries.map(([viewId, items]) => [viewId, items.slice(0, 8)])
+      );
+      const itemsById: Record<string, LibraryItem> = {};
 
-          if (cancelled) {
-            return;
-          }
+      for (const items of previewItemsByViewId.values()) {
+        for (const item of items) {
+          itemsById[item.id] = item;
+        }
+      }
 
-          const previewItemsByViewId = new Map(
-            previewEntries.map(([viewId, items]) => [viewId, items.slice(0, 8)])
-          );
-          const itemsById: Record<string, LibraryItem> = {};
+      for (const item of continueWatchingItems) {
+        itemsById[item.id] = item;
+      }
 
-          for (const items of previewItemsByViewId.values()) {
-            for (const item of items) {
-              itemsById[item.id] = item;
-            }
-          }
+      return {
+        accountLabel: currentHomeAccountLabelRef.current,
+        continueWatching: buildContinueWatchingItems({
+          progressByItemId,
+          itemsById,
+        }),
+        libraries: nextViews.map((view) => ({
+          id: view.id,
+          title: view.name,
+          posterUrl: previewItemsByViewId.get(view.id)?.[0]?.posterUrl ?? '',
+          imageCandidates: previewItemsByViewId.get(view.id)?.[0]?.imageCandidates ?? [],
+          href: `/libraries/${view.id}`,
+          state: {
+            libraryName: view.name,
+          },
+        })),
+        featuredRows: featuredViews.map((view) => ({
+          id: view.id,
+          title: view.name,
+          href: `/libraries/${view.id}`,
+          state: {
+            libraryName: view.name,
+          },
+          items: (previewItemsByViewId.get(view.id) ?? []).map((item: LibraryItem) => ({
+            id: item.id,
+            title: item.name,
+            subtitle:
+              typeof item.runtimeTicks === 'number' && item.runtimeTicks > 0
+                ? `${Math.round(item.runtimeTicks / 600000000)} min`
+                : 'Ready to play',
+            posterUrl: item.posterUrl,
+            imageCandidates: item.imageCandidates,
+            href: `/item/${item.id}`,
+            state: {
+              title: item.name,
+              serverPositionTicks: item.serverPositionTicks,
+            },
+          })),
+        })),
+      };
+    }
 
-          for (const item of continueWatchingItems) {
-            itemsById[item.id] = item;
-          }
+    function renderHomeData(nextHomeData: HomeRouteData) {
+      setHomeAccountLabel(nextHomeData.accountLabel);
+      setContinueWatching(nextHomeData.continueWatching);
+      setLibraries(nextHomeData.libraries);
+      setFeaturedRows(nextHomeData.featuredRows);
+      setHasRenderedHomeSnapshot(true);
+      setIsLoading(false);
+    }
 
-          setContinueWatching(
-            buildContinueWatchingItems({
-              progressByItemId,
-              itemsById,
-            })
-          );
-          setLibraries(
-            nextViews.map((view) => ({
-              id: view.id,
-              title: view.name,
-              posterUrl: previewItemsByViewId.get(view.id)?.[0]?.posterUrl ?? '',
-              imageCandidates: previewItemsByViewId.get(view.id)?.[0]?.imageCandidates ?? [],
-              href: `/libraries/${view.id}`,
-              state: {
-                libraryName: view.name,
-              },
-            }))
-          );
-          setFeaturedRows(
-            featuredViews.map((view) => ({
-              id: view.id,
-              title: view.name,
-              href: `/libraries/${view.id}`,
-              state: {
-                libraryName: view.name,
-              },
-              items: (previewItemsByViewId.get(view.id) ?? []).map((item: LibraryItem) => ({
-                id: item.id,
-                title: item.name,
-                subtitle:
-                  typeof item.runtimeTicks === 'number' && item.runtimeTicks > 0
-                    ? `${Math.round(item.runtimeTicks / 600000000)} min`
-                    : 'Ready to play',
-                posterUrl: item.posterUrl,
-                imageCandidates: item.imageCandidates,
-                href: `/item/${item.id}`,
-                state: {
-                  title: item.name,
-                  serverPositionTicks: item.serverPositionTicks,
+    async function loadHomeData() {
+      let renderedCache = false;
+
+      try {
+        const persistedState = await window.embyDesktop.storage.read();
+
+        if (cancelled) {
+          return;
+        }
+
+        const cacheKey = resolvedActiveAccountId
+          ? createHomeCacheKey(resolvedActiveAccountId, settings.librarySortMode)
+          : null;
+        const cacheEntry = cacheKey ? persistedState.homeCacheByKey?.[cacheKey] : undefined;
+        const hasCompleteCacheEntry = isCompleteHomeCacheEntry(cacheEntry);
+
+        if (cacheEntry) {
+          renderHomeData({
+            accountLabel: cacheEntry.accountLabel,
+            continueWatching: Array.isArray(cacheEntry.continueWatching)
+              ? cacheEntry.continueWatching
+              : [],
+            libraries: Array.isArray(cacheEntry.libraries) ? cacheEntry.libraries : [],
+            featuredRows: Array.isArray(cacheEntry.featuredRows) ? cacheEntry.featuredRows : [],
+          });
+          renderedCache = true;
+        }
+
+        if (
+          cacheEntry &&
+          hasCompleteCacheEntry &&
+          isHomeCacheFresh(cacheEntry.cachedAt)
+        ) {
+          return;
+        }
+
+        const nextHomeData = await refreshHomeData(persistedState);
+
+        if (cancelled) {
+          return;
+        }
+
+        renderHomeData(nextHomeData);
+        setErrorMessage('');
+
+        if (cacheKey) {
+          const nextEntry = createHomeCacheEntry({
+            accountLabel: nextHomeData.accountLabel,
+            continueWatching: nextHomeData.continueWatching,
+            libraries: nextHomeData.libraries,
+            featuredRows: nextHomeData.featuredRows,
+            now: Date.now(),
+          });
+
+          void Promise.resolve()
+            .then(() =>
+              window.embyDesktop.storage.write({
+                homeCacheByKey: {
+                  [cacheKey]: nextEntry,
                 },
-              })),
-            }))
-          );
-          setIsLoading(false);
+              })
+            )
+            .catch(() => undefined);
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setContinueWatching([]);
-          setLibraries([]);
-          setFeaturedRows([]);
-          setErrorMessage('Could not load this account. Check the server and try again.');
-          setIsLoading(false);
+      } catch {
+        if (cancelled) {
+          return;
         }
-      });
+
+        if (renderedCache) {
+          setErrorMessage('Could not refresh home data. Showing saved content.');
+          setIsLoading(false);
+          return;
+        }
+
+        setContinueWatching([]);
+        setLibraries([]);
+        setFeaturedRows([]);
+        setHomeAccountLabel('');
+        setHasRenderedHomeSnapshot(false);
+        setErrorMessage('Could not load this account. Check the server and try again.');
+        setIsLoading(false);
+      }
+    }
+
+    void loadHomeData();
 
     return () => {
       cancelled = true;
     };
-  }, [resolvedActiveAccountId, serverUrl, session, settings.librarySortMode]);
+  }, [
+    resolvedActiveAccountId,
+    serverUrl,
+    sessionAccessToken,
+    sessionUserId,
+    settings.librarySortMode,
+  ]);
+
+  const shouldShowHomePage = !isLoading && (!errorMessage || hasRenderedHomeSnapshot);
+  const displayHomeAccountLabel =
+    currentHomeAccountLabel !== serverUrl
+      ? currentHomeAccountLabel
+      : homeAccountLabel || currentHomeAccountLabel;
 
   return (
     <AuthenticatedLayout>
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
       {isLoading ? (
         <p>Loading home screen...</p>
-      ) : !errorMessage ? (
+      ) : shouldShowHomePage ? (
         <HomePage
-          accountLabel={getServerDisplayName(serverUrl)}
+          accountLabel={displayHomeAccountLabel}
           continueWatching={continueWatching}
           libraries={libraries}
           featuredRows={featuredRows}

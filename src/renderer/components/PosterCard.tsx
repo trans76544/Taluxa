@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { LibraryImageCandidate } from '@shared/models/library';
+import { useCachedImageUrl } from './useCachedImageUrl';
 
 interface PosterCardProps {
   title: string;
@@ -60,6 +61,7 @@ export function PosterCard({
   }, [posterUrl, imageCandidates]);
 
   const activePosterUrl = candidates[candidateIndex] ?? null;
+  const resolvedPosterUrl = useCachedImageUrl(activePosterUrl);
 
   return (
     <Link className={`poster-card ${landscape ? 'poster-card--landscape' : ''} ${className}`} to={href} state={state} onClick={onClick}>
@@ -68,7 +70,9 @@ export function PosterCard({
           <img
             className={`poster-card__image ${landscape ? 'poster-card__image--landscape' : ''}`}
             alt={title}
-            src={activePosterUrl}
+            src={resolvedPosterUrl ?? activePosterUrl}
+            loading="lazy"
+            decoding="async"
             onError={() => {
               setCandidateIndex((currentIndex) => currentIndex + 1);
             }}

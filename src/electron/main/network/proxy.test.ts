@@ -262,6 +262,7 @@ describe('writePersistedStatePatch', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     });
   });
 
@@ -348,6 +349,7 @@ describe('writePersistedStatePatch', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      homeCacheByKey: {},
     });
   });
 });

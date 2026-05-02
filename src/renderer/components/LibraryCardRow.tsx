@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { HomeLibraryCard } from '@shared/api/emby/home';
+import { useCachedImageUrl } from './useCachedImageUrl';
 
 interface LibraryCardRowProps {
   title: string;
@@ -34,6 +35,7 @@ function LibraryCard({ item }: { item: HomeLibraryCard }) {
   }, [item.posterUrl, item.imageCandidates]);
 
   const activePosterUrl = candidates[candidateIndex] ?? null;
+  const resolvedPosterUrl = useCachedImageUrl(activePosterUrl);
 
   return (
     <Link className="library-card" to={item.href} state={item.state}>
@@ -41,7 +43,9 @@ function LibraryCard({ item }: { item: HomeLibraryCard }) {
         <img
           className="library-card__image"
           alt={item.title}
-          src={activePosterUrl}
+          src={resolvedPosterUrl ?? activePosterUrl}
+          loading="lazy"
+          decoding="async"
           onError={() => {
             setCandidateIndex((currentIndex) => currentIndex + 1);
           }}

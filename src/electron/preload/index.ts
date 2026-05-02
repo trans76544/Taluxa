@@ -3,6 +3,7 @@ import type {
   PersistedState,
   PersistedStatePatch,
 } from '../../shared/store/persistence';
+import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 
 export interface PlayerLaunchInput {
   httpHeaders?: Record<string, string>;
@@ -40,6 +41,10 @@ contextBridge.exposeInMainWorld('embyDesktop', {
         ipcRenderer.removeListener('player:progress', handleProgress);
       };
     },
+  },
+  imageCache: {
+    resolve: (sourceUrl: string) =>
+      ipcRenderer.invoke('image-cache:resolve', sourceUrl) as Promise<ImageCacheResolveResult>,
   },
   storage: {
     read: () => ipcRenderer.invoke('storage:read') as Promise<PersistedState>,

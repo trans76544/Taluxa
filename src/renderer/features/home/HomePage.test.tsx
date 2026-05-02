@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HomePage } from './HomePage';
 
 describe('HomePage', () => {
+  afterEach(() => {
+    delete (window as Partial<Window>).embyDesktop;
+  });
+
   it('renders continue watching, libraries, and featured rows', () => {
     const libraries = [
       {
@@ -181,6 +185,8 @@ describe('HomePage', () => {
 
     const image = screen.getByRole('img', { name: 'Library 1' });
     expect(image).toHaveAttribute('src', 'https://demo.local/lib-primary.jpg');
+    expect(image).toHaveAttribute('loading', 'lazy');
+    expect(image).toHaveAttribute('decoding', 'async');
 
     fireEvent.error(image);
 
@@ -188,6 +194,47 @@ describe('HomePage', () => {
       'src',
       'https://demo.local/lib-thumb.jpg'
     );
+  });
+
+  it('uses the desktop image cache for library card images', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      url: 'taluxa-image-cache://library-hash',
+      fromCache: true,
+    });
+    window.embyDesktop = {
+      imageCache: {
+        resolve,
+      },
+    } as unknown as Window['embyDesktop'];
+
+    render(
+      <MemoryRouter>
+        <HomePage
+          accountLabel="ShrekMedia / trans"
+          continueWatching={[]}
+          libraries={[
+            {
+              id: 'library-1',
+              title: 'Library 1',
+              posterUrl: 'https://demo.local/lib-primary.jpg',
+              imageCandidates: [],
+              href: '/libraries/library-1',
+            },
+          ]}
+          featuredRows={[]}
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Library 1' })).toHaveAttribute(
+        'src',
+        'taluxa-image-cache://library-hash'
+      );
+    });
+    expect(resolve).toHaveBeenCalledWith('https://demo.local/lib-primary.jpg');
   });
 
   it('styles the library row as a horizontal sliding window', () => {

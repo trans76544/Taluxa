@@ -1,12 +1,22 @@
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount, Session } from '@shared/models/session';
 import { createDefaultSettings, type Settings } from '../models/settings';
+import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '../api/emby/home';
+
+export interface PersistedHomeCacheEntry {
+  cachedAt: string;
+  accountLabel: string;
+  continueWatching: HomePosterItem[];
+  libraries: HomeLibraryCard[];
+  featuredRows: HomePosterRow[];
+}
 
 export interface PersistedState {
   accounts: SavedAccount[];
   activeAccountId: string | null;
   settings: Settings;
   progressByItemId: Record<string, PlaybackProgress>;
+  homeCacheByKey: Record<string, PersistedHomeCacheEntry>;
 }
 
 const ACCOUNT_SCOPED_PROGRESS_PREFIX = 'account-progress::';
@@ -16,13 +26,17 @@ export interface LegacyPersistedState {
   session?: Session | null;
   settings?: Partial<Settings>;
   progressByItemId?: Partial<Record<string, PlaybackProgress>>;
+  homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
   accounts?: SavedAccount[];
   activeAccountId?: string | null;
 }
 
-export type PersistedStatePatch = Partial<Omit<PersistedState, 'settings' | 'progressByItemId'>> & {
+export type PersistedStatePatch = Partial<
+  Omit<PersistedState, 'settings' | 'progressByItemId' | 'homeCacheByKey'>
+> & {
   settings?: Partial<Settings>;
   progressByItemId?: Partial<Record<string, PlaybackProgress>>;
+  homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
   serverUrl?: string;
   session?: Session | null;
 };
@@ -93,6 +107,7 @@ export function createEmptyPersistedState(): PersistedState {
     activeAccountId: null,
     settings: createDefaultSettings(),
     progressByItemId: {},
+    homeCacheByKey: {},
   };
 }
 
@@ -196,6 +211,7 @@ export function mergePersistedState(
     fallbackActiveAccountId
   );
   const progressByItemId = { ...currentState.progressByItemId };
+  const homeCacheByKey = { ...currentState.homeCacheByKey };
 
   for (const [itemId, progress] of Object.entries(
     createScopedProgressPatch(partial.progressByItemId ?? {}, activeAccountId)
@@ -205,11 +221,18 @@ export function mergePersistedState(
     }
   }
 
+  for (const [cacheKey, cacheEntry] of Object.entries(partial.homeCacheByKey ?? {})) {
+    if (cacheEntry) {
+      homeCacheByKey[cacheKey] = cacheEntry;
+    }
+  }
+
   return {
     accounts,
     activeAccountId,
     settings: mergeSettings(currentState.settings, partial.settings),
     progressByItemId,
+    homeCacheByKey,
   };
 }
 
@@ -222,6 +245,7 @@ export function migrateLegacyPersistedState(
       activeAccountId: legacy.activeAccountId,
       settings: legacy.settings,
       progressByItemId: legacy.progressByItemId,
+      homeCacheByKey: legacy.homeCacheByKey,
       serverUrl: 'serverUrl' in legacy ? legacy.serverUrl : undefined,
       session: 'session' in legacy ? legacy.session : undefined,
     },
