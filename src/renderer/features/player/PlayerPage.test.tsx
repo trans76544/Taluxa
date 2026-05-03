@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayerPage } from './PlayerPage';
@@ -99,6 +100,46 @@ describe('PlayerPage', () => {
           'https://demo.emby.local/Videos/item-1/stream.mkv?MediaSourceId=source-1&api_key=token-123',
         startSeconds: 42,
       });
+    });
+  });
+
+  it('does not launch mpv twice for the same playback input', async () => {
+    const { launch } = mockPlayerBridge();
+    const props = {
+      httpHeaders: {},
+      itemId: 'item-1',
+      title: 'Movie 1',
+      streamUrl: 'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
+      initialPositionSeconds: 42,
+      onProgress: vi.fn(),
+    };
+
+    const { rerender } = render(<PlayerPage {...props} />);
+    rerender(<PlayerPage {...props} />);
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not double launch when React StrictMode replays effects', async () => {
+    const { launch } = mockPlayerBridge();
+
+    render(
+      <StrictMode>
+        <PlayerPage
+          httpHeaders={{}}
+          itemId="item-1"
+          title="Movie 1"
+          streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
+          initialPositionSeconds={42}
+          onProgress={vi.fn()}
+        />
+      </StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -13,6 +13,45 @@ export interface PlayerPageProps {
   }) => void | Promise<void>;
 }
 
+type PlayerLaunch = Window['embyDesktop']['player']['launch'];
+
+const pendingLaunchKeysByBridge = new WeakMap<PlayerLaunch, Set<string>>();
+
+function createLaunchKey({
+  httpHeaders,
+  initialPositionSeconds,
+  itemId,
+  streamUrl,
+  title,
+}: {
+  httpHeaders: Record<string, string>;
+  initialPositionSeconds: number;
+  itemId: string;
+  streamUrl: string;
+  title: string;
+}): string {
+  return JSON.stringify({
+    httpHeaders,
+    initialPositionSeconds,
+    itemId,
+    streamUrl,
+    title,
+  });
+}
+
+function getPendingLaunchKeys(launch: PlayerLaunch): Set<string> {
+  const existingKeys = pendingLaunchKeysByBridge.get(launch);
+
+  if (existingKeys) {
+    return existingKeys;
+  }
+
+  const nextKeys = new Set<string>();
+  pendingLaunchKeysByBridge.set(launch, nextKeys);
+
+  return nextKeys;
+}
+
 export function PlayerPage({
   httpHeaders = {},
   itemId,
@@ -27,9 +66,25 @@ export function PlayerPage({
     let cancelled = false;
 
     setLaunchError('');
+    const launch = window.embyDesktop.player.launch;
+    const launchKey = createLaunchKey({
+      httpHeaders,
+      initialPositionSeconds,
+      itemId,
+      streamUrl,
+      title,
+    });
+    const pendingLaunchKeys = getPendingLaunchKeys(launch);
 
-    window.embyDesktop.player
-      .launch({
+    if (pendingLaunchKeys.has(launchKey)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    pendingLaunchKeys.add(launchKey);
+
+    launch({
         httpHeaders,
         itemId,
         title,
@@ -47,6 +102,9 @@ export function PlayerPage({
               : 'Could not start desktop playback. Restart the app and try again.';
           setLaunchError(message);
         }
+      })
+      .finally(() => {
+        pendingLaunchKeys.delete(launchKey);
       });
 
     return () => {

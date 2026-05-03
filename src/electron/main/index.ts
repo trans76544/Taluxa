@@ -38,6 +38,7 @@ const mpvController = new MpvController({
   fetchDanmaku: (input, servers) =>
     fetchDandanplayDanmaku(input, servers, {
       fetcher: (url, init) => session.defaultSession.fetch(url, init),
+      logger: (message) => console.info(message),
     }),
   onProgress: sendPlayerProgress,
 });
@@ -143,7 +144,8 @@ app.whenReady().then(() => {
         return mpvController.launch(
           await prepareLaunchInput(input),
           settings.proxy,
-          settings.danmakuServers
+          settings.danmakuServers,
+          settings.danmaku
         );
       });
       ipcMain.handle(

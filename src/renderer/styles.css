@@ -902,6 +902,38 @@ a {
   font-weight: 650;
 }
 
+.settings-range {
+  justify-self: end;
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(48px, auto);
+  align-items: center;
+  gap: 14px;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.settings-range input[type='range'] {
+  width: 100%;
+  accent-color: #a980db;
+}
+
+.settings-range strong {
+  min-width: 48px;
+  font-size: 0.92rem;
+  font-weight: 650;
+  text-align: right;
+}
+
+.settings-textarea {
+  width: min(520px, 52vw);
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: #3b3b3b;
+  color: #fff;
+  resize: vertical;
+}
+
 .settings-switch {
   justify-self: end;
   position: relative;

@@ -63,14 +63,29 @@ function mergeAccounts(
 }
 
 function mergeSettings(currentSettings: Settings, nextSettings?: Partial<Settings>): Settings {
+  const defaultSettings = createDefaultSettings();
+
   return {
+    ...defaultSettings,
     ...currentSettings,
     ...nextSettings,
     proxy: {
+      ...defaultSettings.proxy,
       ...currentSettings.proxy,
       ...nextSettings?.proxy,
     },
+    danmaku: {
+      ...defaultSettings.danmaku,
+      ...currentSettings.danmaku,
+      ...nextSettings?.danmaku,
+    },
+    cache: {
+      ...defaultSettings.cache,
+      ...currentSettings.cache,
+      ...nextSettings?.cache,
+    },
     serverPreferencesByUrl: {
+      ...defaultSettings.serverPreferencesByUrl,
       ...currentSettings.serverPreferencesByUrl,
       ...nextSettings?.serverPreferencesByUrl,
     },
@@ -133,7 +148,7 @@ function normalizeAuthState(initialState?: Partial<AuthState>): AuthState {
   return {
     accounts,
     activeAccountId: normalizeActiveAccountId(accounts, initialState?.activeAccountId),
-    settings: initialState?.settings ?? createDefaultSettings(),
+    settings: mergeSettings(createDefaultSettings(), initialState?.settings),
   };
 }
 

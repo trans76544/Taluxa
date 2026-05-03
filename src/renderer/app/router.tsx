@@ -18,7 +18,12 @@ import {
 import type { LibraryItem, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
-import type { CacheSettings, ImageCacheResolution, LibrarySortMode } from '@shared/models/settings';
+import type {
+  CacheSettings,
+  DanmakuSettings,
+  ImageCacheResolution,
+  LibrarySortMode,
+} from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
   pickFeaturedViews,
@@ -1094,6 +1099,17 @@ function SettingsRoute() {
     updateSettings(settingsPatch);
   }
 
+  async function handleDanmakuSettingsSave(next: DanmakuSettings) {
+    const settingsPatch = {
+      danmaku: next,
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   async function handleCacheSettingsSave(next: CacheSettings) {
     const imageCacheResolutionChanged =
       next.imageCacheResolution !== settings.cache.imageCacheResolution;
@@ -1138,6 +1154,7 @@ function SettingsRoute() {
       proxyMode={settings.proxy.mode}
       customProxyUrl={settings.proxy.customProxyUrl}
       danmakuServers={settings.danmakuServers}
+      danmakuSettings={settings.danmaku}
       cacheSettings={settings.cache}
       dataCacheBytes={dataCacheBytes}
       imageCacheBytes={imageCacheBytes}
@@ -1145,6 +1162,7 @@ function SettingsRoute() {
       onClearDataCache={handleClearDataCache}
       onClearImageCache={handleClearImageCache}
       onDanmakuServersSave={handleDanmakuServersSave}
+      onDanmakuSettingsSave={handleDanmakuSettingsSave}
       onProxySettingsSave={handleProxySettingsSave}
       onLogout={handleLogout}
     />

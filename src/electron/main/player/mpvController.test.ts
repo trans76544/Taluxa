@@ -9,7 +9,8 @@ import {
   type MpvProgressSnapshot,
   type SpawnedMpvProcess,
 } from './mpvController';
-import type { ProxySettings } from '@shared/models/settings';
+import type { DanmakuComment } from './danmaku';
+import type { DanmakuSettings, ProxySettings } from '@shared/models/settings';
 
 class FakeSpawnedProcess extends EventEmitter implements SpawnedMpvProcess {
   readonly stderr = new EventEmitter();
@@ -36,6 +37,15 @@ describe('MpvController', () => {
   const logFilePath = path.join(repoRoot, 'mpv.log');
   const packagedResourcesPath = path.join('C:', 'Program Files', 'Taluxa', 'resources');
   const ipcServerPath = String.raw`\\.\pipe\emby-player-session-1`;
+  const danmakuMatchedNotice = '\u5df2\u5339\u914d\u5230\u5f39\u5e55\uff1a1 \u6761\n00:12 hello';
+  const danmakuMatchedNoticeLog =
+    '\\u5df2\\u5339\\u914d\\u5230\\u5f39\\u5e55\\uff1a1 \\u6761\\n00:12 hello';
+  const danmakuNoMatchNotice = '\u672a\u5339\u914d\u5230\u5f39\u5e55';
+  const danmakuNoMatchNoticeLog = '\\u672a\\u5339\\u914d\\u5230\\u5f39\\u5e55';
+  const danmakuSourceErrorNotice =
+    '\u5f39\u5e55\u6e90\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u5f39\u5e55 API \u5730\u5740\u6216\u51ed\u8bc1';
+  const danmakuSourceErrorNoticeLog =
+    '\\u5f39\\u5e55\\u6e90\\u8bf7\\u6c42\\u5931\\u8d25\\uff0c\\u8bf7\\u68c0\\u67e5\\u5f39\\u5e55 API \\u5730\\u5740\\u6216\\u51ed\\u8bc1';
 
   let existingPaths: Set<string>;
 
@@ -45,6 +55,7 @@ describe('MpvController', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   function createController(overrides: Partial<ConstructorParameters<typeof MpvController>[0]> = {}) {
@@ -74,6 +85,40 @@ describe('MpvController', () => {
       customProxyUrl: '',
       ...overrides,
     };
+  }
+
+  function createDanmakuSettings(overrides: Partial<DanmakuSettings> = {}): DanmakuSettings {
+    return {
+      enabled: true,
+      scrollMaxLines: 5,
+      topMaxLines: 3,
+      bottomMaxLines: 3,
+      scale: 1,
+      opacity: 0.5,
+      speed: 1,
+      bold: false,
+      blocklist: [],
+      matchMode: 'fileName',
+      conversionMode: 'off',
+      ...overrides,
+    };
+  }
+
+  function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((nextResolve, nextReject) => {
+      resolve = nextResolve;
+      reject = nextReject;
+    });
+
+    return { promise, reject, resolve };
+  }
+
+  async function flushAsyncQueue() {
+    for (let index = 0; index < 10; index += 1) {
+      await Promise.resolve();
+    }
   }
 
   it('resolves the bundled executable from packaged resources', () => {
@@ -167,6 +212,7 @@ describe('MpvController', () => {
     const spawnProcess = vi.fn(() => child);
     const connectIpc = vi.fn(() => ipcClient);
     const writeTextFile = vi.fn();
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
 
@@ -201,14 +247,330 @@ describe('MpvController', () => {
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
     await expect(launchPromise).resolves.toBeUndefined();
+    await flushAsyncQueue();
     expect(writeTextFile).toHaveBeenCalledWith(
       danmakuAssPath,
       expect.stringContaining('Dialogue: 0,0:00:12.00')
     );
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
-      expect.arrayContaining([`--sub-file=${danmakuAssPath}`]),
+      expect.not.arrayContaining([`--sub-file=${danmakuAssPath}`]),
       expect.any(Object)
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['sub-add', danmakuAssPath, 'select'] })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['show-text', danmakuMatchedNotice, '5000'] })}\n`
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      `[danmaku][session 1] notice=${danmakuMatchedNoticeLog}`
+    );
+  });
+
+  it('starts playback before danmaku lookup finishes then adds matched danmaku with a 5 second notice', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const writeTextFile = vi.fn();
+    const danmakuLookup = createDeferred<DanmakuComment[]>();
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createDanmakuFilePath: () => danmakuAssPath,
+      fetchDanmaku: vi.fn().mockReturnValue(danmakuLookup.promise),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings(),
+      [
+        {
+          id: 'official',
+          name: 'Official',
+          url: 'https://api.dandanplay.net',
+          enabled: true,
+        },
+      ],
+      createDanmakuSettings()
+    );
+    await flushAsyncQueue();
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(writeTextFile).not.toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.stringContaining('Dialogue: 0,0:00:12.00')
+    );
+
+    danmakuLookup.resolve([
+      { color: 16777215, mode: 'scroll', text: 'hello', timeSeconds: 12 },
+    ]);
+    await flushAsyncQueue();
+
+    expect(writeTextFile).toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.stringContaining('Dialogue: 0,0:00:12.00')
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['sub-add', danmakuAssPath, 'select'] })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['show-text', danmakuMatchedNotice, '5000'] })}\n`
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      `[danmaku][session 1] notice=${danmakuMatchedNoticeLog}`
+    );
+  });
+
+  it('shows a 5 second notice without blocking playback when no danmaku comments match', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const writeTextFile = vi.fn();
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createDanmakuFilePath: () => danmakuAssPath,
+      fetchDanmaku: vi.fn().mockResolvedValue([]),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings(),
+      [
+        {
+          id: 'official',
+          name: 'Official',
+          url: 'https://api.dandanplay.net',
+          enabled: true,
+        },
+      ],
+      createDanmakuSettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    await flushAsyncQueue();
+
+    expect(writeTextFile).not.toHaveBeenCalledWith(danmakuAssPath, expect.any(String));
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['show-text', danmakuNoMatchNotice, '5000'] })}\n`
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      `[danmaku][session 1] notice=${danmakuNoMatchNoticeLog}`
+    );
+  });
+
+  it('shows a source error notice when every danmaku source rejects the request', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const writeTextFile = vi.fn();
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createDanmakuFilePath: () => danmakuAssPath,
+      fetchDanmaku: vi.fn().mockRejectedValue(new Error('Danmaku sources failed (403, 402)')),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings(),
+      [
+        {
+          id: 'official',
+          name: 'Official',
+          url: 'https://api.dandanplay.net',
+          enabled: true,
+        },
+      ],
+      createDanmakuSettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    await flushAsyncQueue();
+
+    expect(writeTextFile).not.toHaveBeenCalledWith(danmakuAssPath, expect.any(String));
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['show-text', danmakuSourceErrorNotice, '5000'] })}\n`
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      `[danmaku][session 1] notice=${danmakuSourceErrorNoticeLog}`
+    );
+  });
+
+  it('ignores empty mpv stderr chunks without showing a danmaku miss notice', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    child.stderr.emit('data', Buffer.from('\n'));
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(ipcClient.write).not.toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['show-text', danmakuNoMatchNotice, '5000'] })}\n`
+    );
+  });
+
+  it('skips danmaku fetching when danmaku is disabled', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const fetchDanmaku = vi.fn().mockResolvedValue([
+      { color: 16777215, mode: 'scroll', text: 'hidden', timeSeconds: 12 },
+    ]);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createDanmakuFilePath: () => danmakuAssPath,
+      fetchDanmaku,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings(),
+      [
+        {
+          id: 'official',
+          name: 'Official',
+          url: 'https://api.dandanplay.net',
+          enabled: true,
+        },
+      ],
+      createDanmakuSettings({ enabled: false })
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(fetchDanmaku).not.toHaveBeenCalled();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expectedPath,
+      expect.not.arrayContaining([`--sub-file=${danmakuAssPath}`]),
+      expect.any(Object)
+    );
+  });
+
+  it('passes danmaku display settings into the generated ASS subtitle file', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc,
+      moduleDir: devModuleDir,
+      spawnProcess,
+      createIpcEndpoint: () => ipcServerPath,
+      createDanmakuFilePath: () => danmakuAssPath,
+      fetchDanmaku: vi.fn().mockResolvedValue([
+        { color: 16777215, mode: 'scroll', text: 'visible', timeSeconds: 12 },
+        { color: 16777215, mode: 'scroll', text: 'blocked spoiler', timeSeconds: 13 },
+      ]),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput(),
+      createProxySettings(),
+      [
+        {
+          id: 'official',
+          name: 'Official',
+          url: 'https://api.dandanplay.net',
+          enabled: true,
+        },
+      ],
+      createDanmakuSettings({
+        blocklist: ['spoiler'],
+        bold: true,
+        opacity: 0.25,
+        scale: 1.5,
+        speed: 2,
+      })
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+
+    await expect(launchPromise).resolves.toBeUndefined();
+    expect(writeTextFile).toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.stringContaining('Style: Scroll,Microsoft YaHei UI,51,&HBF00FFFFFF')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.stringContaining('Dialogue: 0,0:00:12.00,0:00:18.00,Scroll')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.not.stringContaining('blocked spoiler')
     );
   });
 

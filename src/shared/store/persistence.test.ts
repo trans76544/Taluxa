@@ -8,6 +8,7 @@ import {
   migrateLegacyPersistedState,
   type PersistedState,
 } from './persistence';
+import type { DanmakuSettings } from '../models/settings';
 
 const DEFAULT_CACHE_SETTINGS = {
   dataCacheEnabled: true,
@@ -16,6 +17,29 @@ const DEFAULT_CACHE_SETTINGS = {
   imageCacheMaxBytes: 524288000,
   imageCacheResolution: 'original',
 } as const;
+
+const DEFAULT_DANMAKU_SETTINGS: DanmakuSettings = {
+  enabled: true,
+  scrollMaxLines: 5,
+  topMaxLines: 3,
+  bottomMaxLines: 3,
+  scale: 1,
+  opacity: 0.5,
+  speed: 1,
+  bold: false,
+  blocklist: [],
+  matchMode: 'fileName',
+  conversionMode: 'off',
+};
+
+const DEFAULT_DANMAKU_SERVERS = [
+  {
+    id: 'dandanplay-official',
+    name: 'DandanPlay',
+    url: 'https://api.dandanplay.net',
+    enabled: true,
+  },
+];
 
 describe('persistence', () => {
   it('creates empty persisted state with multi-account defaults', () => {
@@ -32,7 +56,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
@@ -65,6 +90,51 @@ describe('persistence', () => {
       imageCacheMaxBytes: 104857600,
       imageCacheResolution: 'original',
     });
+  });
+
+  it('merges danmaku settings without losing existing values', () => {
+    const currentState = createEmptyPersistedState();
+
+    const next = mergePersistedState(
+      {
+        settings: {
+          danmaku: {
+            enabled: false,
+            scrollMaxLines: 8,
+            blocklist: ['spoiler', '/bad\\s+word/i'],
+          },
+        },
+      },
+      currentState
+    );
+
+    expect(next.settings.danmaku).toEqual({
+      ...DEFAULT_DANMAKU_SETTINGS,
+      enabled: false,
+      scrollMaxLines: 8,
+      blocklist: ['spoiler', '/bad\\s+word/i'],
+    });
+  });
+
+  it('restores the default danmaku server when persisted settings omit server configuration', () => {
+    const currentState = createEmptyPersistedState();
+
+    const next = mergePersistedState(
+      {
+        settings: {
+          defaultVolume: 0.8,
+        },
+      },
+      {
+        ...currentState,
+        settings: {
+          ...currentState.settings,
+          danmakuServers: [],
+        },
+      }
+    );
+
+    expect(next.settings.danmakuServers).toEqual(DEFAULT_DANMAKU_SERVERS);
   });
 
   it('clears persisted home cache entries when requested', () => {
@@ -103,6 +173,7 @@ describe('persistence', () => {
             enabled: true,
           },
         ],
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
@@ -145,6 +216,7 @@ describe('persistence', () => {
             enabled: true,
           },
         ],
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
@@ -239,7 +311,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
@@ -278,7 +351,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
@@ -361,7 +435,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
@@ -408,7 +483,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
@@ -443,7 +519,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
@@ -482,7 +559,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
@@ -526,7 +604,8 @@ describe('persistence', () => {
               mode: 'system',
               customProxyUrl: '',
             },
-            danmakuServers: [],
+            danmakuServers: DEFAULT_DANMAKU_SERVERS,
+            danmaku: DEFAULT_DANMAKU_SETTINGS,
             cache: DEFAULT_CACHE_SETTINGS,
             serverPreferencesByUrl: {},
           },
@@ -561,7 +640,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
-        danmakuServers: [],
+        danmakuServers: DEFAULT_DANMAKU_SERVERS,
+        danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },

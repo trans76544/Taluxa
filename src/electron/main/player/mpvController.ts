@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url';
 import type { ProxySettings } from '@shared/models/settings';
 import { isCustomProxyConfigured } from '@shared/network/proxy';
 import {
+  DanmakuSourceError,
   fetchDandanplayDanmaku,
+  formatDanmakuDiagnosticText,
   toAssSubtitle,
   type DanmakuComment,
 } from './danmaku';
-import type { DanmakuServerSettings } from '@shared/models/settings';
+import type { DanmakuServerSettings, DanmakuSettings } from '@shared/models/settings';
 
 export interface LaunchMpvInput {
   httpHeaders?: Record<string, string>;
@@ -82,6 +84,7 @@ interface ActiveSession {
   itemId: string;
   onFailure: (error: Error) => void;
   onReady: () => void;
+  pendingCommands: unknown[][];
   positionSeconds: number | null;
   readyFallbackTimeout: NodeJS.Timeout | null;
   retryTimeout: NodeJS.Timeout | null;
@@ -94,6 +97,46 @@ const IPC_CONNECTED_READY_FALLBACK_MS = 1500;
 const MAX_STDERR_LINES = 8;
 const MAX_LOG_LINES = 8;
 const DEFAULT_CACHE_SECONDS = 120;
+const DANMAKU_NO_MATCH_NOTICE = '\u672a\u5339\u914d\u5230\u5f39\u5e55';
+const DANMAKU_SOURCE_ERROR_NOTICE =
+  '\u5f39\u5e55\u6e90\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u5f39\u5e55 API \u5730\u5740\u6216\u51ed\u8bc1';
+
+function formatDanmakuNoticeTime(timeSeconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(timeSeconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function createDanmakuMatchedNotice(comments: DanmakuComment[]): string {
+  const commentCount = comments.length;
+  const baseNotice = `\u5df2\u5339\u914d\u5230\u5f39\u5e55\uff1a${commentCount} \u6761`;
+
+  const sampleComment = comments.find((comment) => comment.text.trim().length > 0);
+
+  if (!sampleComment) {
+    return baseNotice;
+  }
+
+  const sampleText = sampleComment.text.replace(/\s+/gu, ' ').trim();
+  const previewText = sampleText.length > 48 ? `${sampleText.slice(0, 48)}...` : sampleText;
+
+  return `${baseNotice}\n${formatDanmakuNoticeTime(sampleComment.timeSeconds)} ${previewText}`;
+}
+
+function isDanmakuSourceError(error: unknown): boolean {
+  return (
+    error instanceof DanmakuSourceError ||
+    (error instanceof Error &&
+      (error.name === 'DanmakuSourceError' || error.message.startsWith('Danmaku sources failed')))
+  );
+}
 
 function createMpvInputConfig(): string {
   return [
@@ -705,7 +748,8 @@ export class MpvController {
   async launch(
     input: LaunchMpvInput,
     proxy: ProxySettings,
-    danmakuServers: DanmakuServerSettings[] = []
+    danmakuServers: DanmakuServerSettings[] = [],
+    danmakuSettings?: DanmakuSettings
   ): Promise<void> {
     const executablePath = this.getExecutablePath();
     const ipcServerPath = this.createIpcEndpoint();
@@ -716,10 +760,6 @@ export class MpvController {
     const logFilePath = this.createLogFilePath(sessionId);
     this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
     this.writeTextFile(uiScriptFilePath, createMpvUiScript(input.title));
-    const danmakuArgs =
-      danmakuServers.length > 0
-        ? await this.createDanmakuArgs(input, danmakuServers, danmakuFilePath)
-        : [];
     const args = [
       '--force-window=yes',
       '--border=no',
@@ -736,7 +776,6 @@ export class MpvController {
       '--msg-level=all=v',
       `--log-file=${logFilePath}`,
       '--ytdl=no',
-      ...danmakuArgs,
       ...getHttpHeaderArgs(input.httpHeaders),
       ...getPlaybackProxyArgs(input.streamUrl, proxy),
       input.streamUrl,
@@ -801,6 +840,7 @@ export class MpvController {
           },
           stderrLines,
         });
+        this.startDanmakuLookup(sessionId, input, danmakuServers, danmakuFilePath, danmakuSettings);
         child.unref();
       };
       const handleError = (error: Error) => {
@@ -855,32 +895,96 @@ export class MpvController {
     this.activeSession = null;
   }
 
-  private async createDanmakuArgs(
+  private startDanmakuLookup(
+    sessionId: number,
     input: LaunchMpvInput,
     danmakuServers: DanmakuServerSettings[],
-    danmakuFilePath: string
-  ): Promise<string[]> {
-    if (danmakuServers.length === 0) {
-      return [];
+    danmakuFilePath: string,
+    danmakuSettings?: DanmakuSettings
+  ): void {
+    if (danmakuSettings?.enabled === false) {
+      this.logDanmaku(sessionId, 'skipped reason=disabled');
+      return;
     }
 
-    try {
-      const comments = await this.fetchDanmaku(
-        {
-          itemId: input.itemId,
-          title: input.title,
-        },
-        danmakuServers
-      );
+    if (danmakuServers.length === 0) {
+      this.logDanmaku(sessionId, 'skipped reason=no-server');
+      return;
+    }
 
-      if (comments.length === 0) {
-        return [];
+    this.logDanmaku(
+      sessionId,
+      `lookup start itemId=${formatDanmakuDiagnosticText(input.itemId)} title=${formatDanmakuDiagnosticText(
+        input.title
+      )} servers=${danmakuServers.length}`
+    );
+    void (async () => {
+      try {
+        const comments = await this.fetchDanmaku(
+          {
+            itemId: input.itemId,
+            title: input.title,
+          },
+          danmakuServers
+        );
+        this.logDanmaku(sessionId, `lookup finished comments=${comments.length}`);
+
+        if (comments.length === 0) {
+          this.queueDanmakuNotice(sessionId, DANMAKU_NO_MATCH_NOTICE);
+          return;
+        }
+
+        this.writeTextFile(danmakuFilePath, toAssSubtitle(comments, danmakuSettings));
+        this.queueSessionCommand(sessionId, ['sub-add', danmakuFilePath, 'select']);
+        this.queueDanmakuNotice(sessionId, createDanmakuMatchedNotice(comments));
+      } catch (error) {
+        this.logDanmaku(
+          sessionId,
+          `lookup failed error=${formatDanmakuDiagnosticText(
+            error instanceof Error ? error.message : String(error)
+          )}`
+        );
+        this.queueDanmakuNotice(
+          sessionId,
+          isDanmakuSourceError(error) ? DANMAKU_SOURCE_ERROR_NOTICE : DANMAKU_NO_MATCH_NOTICE
+        );
       }
+    })();
+  }
 
-      this.writeTextFile(danmakuFilePath, toAssSubtitle(comments));
-      return [`--sub-file=${danmakuFilePath}`];
-    } catch {
-      return [];
+  private queueDanmakuNotice(sessionId: number, message: string): void {
+    this.logDanmaku(sessionId, `notice=${formatDanmakuDiagnosticText(message)}`);
+    this.queueSessionCommand(sessionId, ['show-text', message, '5000']);
+  }
+
+  private logDanmaku(sessionId: number, message: string): void {
+    console.info(`[danmaku][session ${sessionId}] ${message}`);
+  }
+
+  private queueSessionCommand(sessionId: number, command: unknown[]): void {
+    const session = this.activeSession;
+
+    if (!session || session.sessionId !== sessionId) {
+      return;
+    }
+
+    if (session.client && session.isReady) {
+      this.writeCommand(session.client, command);
+      return;
+    }
+
+    session.pendingCommands.push(command);
+  }
+
+  private flushPendingCommands(session: ActiveSession): void {
+    const client = session.client;
+
+    if (!client) {
+      return;
+    }
+
+    for (const command of session.pendingCommands.splice(0)) {
+      this.writeCommand(client, command);
     }
   }
 
@@ -1096,6 +1200,7 @@ export class MpvController {
       session.readyFallbackTimeout = null;
     }
     session.onReady();
+    this.flushPendingCommands(session);
   }
 
   private observeProperty(
@@ -1143,6 +1248,7 @@ export class MpvController {
       logFilePath,
       onFailure,
       onReady,
+      pendingCommands: [],
       positionSeconds: null,
       readyFallbackTimeout: null,
       retryTimeout: null,

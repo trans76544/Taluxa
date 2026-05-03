@@ -3,6 +3,8 @@ export type ProxyMode = 'system' | 'direct' | 'custom';
 export type DataCacheTtlDays = 1 | 7 | 30 | null;
 export type ImageCacheMaxBytes = 104857600 | 314572800 | 524288000 | 1073741824;
 export type ImageCacheResolution = 'original' | 1080 | 720 | 480;
+export type DanmakuMatchMode = 'fileName' | 'hashAndFileName';
+export type DanmakuConversionMode = 'off' | 'simplified' | 'traditional';
 
 export interface ProxySettings {
   mode: ProxyMode;
@@ -16,6 +18,20 @@ export interface DanmakuServerSettings {
   appId?: string;
   appSecret?: string;
   enabled: boolean;
+}
+
+export interface DanmakuSettings {
+  enabled: boolean;
+  scrollMaxLines: number;
+  topMaxLines: number;
+  bottomMaxLines: number;
+  scale: number;
+  opacity: number;
+  speed: number;
+  bold: boolean;
+  blocklist: string[];
+  matchMode: DanmakuMatchMode;
+  conversionMode: DanmakuConversionMode;
 }
 
 export interface ServerPreferences {
@@ -36,8 +52,20 @@ export interface Settings {
   librarySortMode: LibrarySortMode;
   proxy: ProxySettings;
   danmakuServers: DanmakuServerSettings[];
+  danmaku: DanmakuSettings;
   cache: CacheSettings;
   serverPreferencesByUrl: Record<string, ServerPreferences>;
+}
+
+export function createDefaultDanmakuServers(): DanmakuServerSettings[] {
+  return [
+    {
+      id: 'dandanplay-official',
+      name: 'DandanPlay',
+      url: 'https://api.dandanplay.net',
+      enabled: true,
+    },
+  ];
 }
 
 export function createDefaultSettings(): Settings {
@@ -49,7 +77,20 @@ export function createDefaultSettings(): Settings {
       mode: 'system',
       customProxyUrl: '',
     },
-    danmakuServers: [],
+    danmakuServers: createDefaultDanmakuServers(),
+    danmaku: {
+      enabled: true,
+      scrollMaxLines: 5,
+      topMaxLines: 3,
+      bottomMaxLines: 3,
+      scale: 1,
+      opacity: 0.5,
+      speed: 1,
+      bold: false,
+      blocklist: [],
+      matchMode: 'fileName',
+      conversionMode: 'off',
+    },
     cache: {
       dataCacheEnabled: true,
       dataCacheTtlDays: 30,

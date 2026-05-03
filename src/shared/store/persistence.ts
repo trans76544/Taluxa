@@ -1,6 +1,12 @@
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount, Session } from '@shared/models/session';
-import { createDefaultSettings, type CacheSettings, type Settings } from '../models/settings';
+import {
+  createDefaultDanmakuServers,
+  createDefaultSettings,
+  type CacheSettings,
+  type DanmakuSettings,
+  type Settings,
+} from '../models/settings';
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '../api/emby/home';
 
 export interface PersistedHomeCacheEntry {
@@ -21,8 +27,9 @@ export interface PersistedState {
 
 const ACCOUNT_SCOPED_PROGRESS_PREFIX = 'account-progress::';
 
-type PersistedSettingsPatch = Partial<Omit<Settings, 'cache'>> & {
+type PersistedSettingsPatch = Partial<Omit<Settings, 'cache' | 'danmaku'>> & {
   cache?: Partial<CacheSettings>;
+  danmaku?: Partial<DanmakuSettings>;
 };
 
 export interface LegacyPersistedState {
@@ -185,7 +192,17 @@ function mergeSettings(
       ...currentSettings.proxy,
       ...nextSettings?.proxy,
     },
-    danmakuServers: nextSettings?.danmakuServers ?? currentSettings.danmakuServers,
+    danmakuServers:
+      nextSettings?.danmakuServers && nextSettings.danmakuServers.length > 0
+        ? nextSettings.danmakuServers
+        : currentSettings.danmakuServers.length > 0
+          ? currentSettings.danmakuServers
+          : createDefaultDanmakuServers(),
+    danmaku: {
+      ...defaultSettings.danmaku,
+      ...currentSettings.danmaku,
+      ...nextSettings?.danmaku,
+    },
     cache: {
       ...defaultSettings.cache,
       ...currentSettings.cache,

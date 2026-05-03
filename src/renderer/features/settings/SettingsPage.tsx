@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type {
   CacheSettings,
   DataCacheTtlDays,
+  DanmakuConversionMode,
+  DanmakuMatchMode,
+  DanmakuSettings,
   DanmakuServerSettings,
   ImageCacheMaxBytes,
   ImageCacheResolution,
@@ -17,6 +20,7 @@ interface SettingsPageProps {
   proxyMode: ProxyMode;
   customProxyUrl: string;
   danmakuServers: DanmakuServerSettings[];
+  danmakuSettings: DanmakuSettings;
   cacheSettings: CacheSettings;
   dataCacheBytes: number;
   imageCacheBytes: number;
@@ -24,6 +28,7 @@ interface SettingsPageProps {
   onClearDataCache: () => void | Promise<void>;
   onClearImageCache: () => void | Promise<void>;
   onDanmakuServersSave: (next: DanmakuServerSettings[]) => void | Promise<void>;
+  onDanmakuSettingsSave: (next: DanmakuSettings) => void | Promise<void>;
   onProxySettingsSave: (next: ProxySettings) => void | Promise<void>;
   onLogout: () => void;
 }
@@ -101,6 +106,7 @@ export function SettingsPage({
   proxyMode,
   customProxyUrl,
   danmakuServers,
+  danmakuSettings,
   cacheSettings,
   dataCacheBytes,
   imageCacheBytes,
@@ -108,12 +114,15 @@ export function SettingsPage({
   onClearDataCache,
   onClearImageCache,
   onDanmakuServersSave,
+  onDanmakuSettingsSave,
   onProxySettingsSave,
   onLogout,
 }: SettingsPageProps) {
   const [draftProxyMode, setDraftProxyMode] = useState(proxyMode);
   const [draftCustomProxyUrl, setDraftCustomProxyUrl] = useState(customProxyUrl);
   const [draftDanmakuServers, setDraftDanmakuServers] = useState(danmakuServers);
+  const [isDanmakuServersOpen, setIsDanmakuServersOpen] = useState(false);
+  const [isDanmakuBlocklistOpen, setIsDanmakuBlocklistOpen] = useState(false);
   const [proxySaveError, setProxySaveError] = useState('');
   const [danmakuSaveError, setDanmakuSaveError] = useState('');
   const selectedDataCacheTtlValue =
@@ -123,6 +132,13 @@ export function SettingsPage({
   function saveCacheSettingsPatch(nextPatch: Partial<CacheSettings>) {
     void onCacheSettingsSave({
       ...cacheSettings,
+      ...nextPatch,
+    });
+  }
+
+  function saveDanmakuSettingsPatch(nextPatch: Partial<DanmakuSettings>) {
+    void onDanmakuSettingsSave({
+      ...danmakuSettings,
       ...nextPatch,
     });
   }
@@ -174,6 +190,12 @@ export function SettingsPage({
     );
     setDanmakuSaveError('');
   }
+
+  const primaryDanmakuServer =
+    danmakuServers.find((server) => server.enabled && server.url.trim()) ??
+    danmakuServers.find((server) => server.url.trim());
+  const danmakuServerSummary = primaryDanmakuServer?.url.trim() || '未配置';
+  const blocklistValue = danmakuSettings.blocklist.join('\n');
 
   return (
     <Layout title="Settings">
@@ -390,6 +412,260 @@ export function SettingsPage({
           <h2 id="settings-danmaku-title">弹幕</h2>
 
           <div className="settings-list">
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                DM
+              </span>
+              <div className="settings-row__body">
+                <h3>开启弹幕</h3>
+                <p>数据来源于 DandanPlay API，只支持动漫资源</p>
+              </div>
+              <label className="settings-switch">
+                <input
+                  aria-label="Enable danmaku"
+                  type="checkbox"
+                  checked={danmakuSettings.enabled}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ enabled: event.target.checked })
+                  }
+                />
+                <span />
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">▤</span>
+              <div className="settings-row__body">
+                <h3>滚动弹幕最大行数</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Scrolling danmaku max lines"
+                  type="range"
+                  min="1"
+                  max="12"
+                  value={danmakuSettings.scrollMaxLines}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ scrollMaxLines: Number(event.target.value) })
+                  }
+                />
+                <strong>{danmakuSettings.scrollMaxLines}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">▣</span>
+              <div className="settings-row__body">
+                <h3>顶部弹幕最大行数</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Top danmaku max lines"
+                  type="range"
+                  min="1"
+                  max="12"
+                  value={danmakuSettings.topMaxLines}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ topMaxLines: Number(event.target.value) })
+                  }
+                />
+                <strong>{danmakuSettings.topMaxLines}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">▢</span>
+              <div className="settings-row__body">
+                <h3>底部弹幕最大行数</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Bottom danmaku max lines"
+                  type="range"
+                  min="1"
+                  max="12"
+                  value={danmakuSettings.bottomMaxLines}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ bottomMaxLines: Number(event.target.value) })
+                  }
+                />
+                <strong>{danmakuSettings.bottomMaxLines}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">T</span>
+              <div className="settings-row__body">
+                <h3>弹幕缩放</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Danmaku scale"
+                  type="range"
+                  min="50"
+                  max="200"
+                  step="10"
+                  value={Math.round(danmakuSettings.scale * 100)}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ scale: Number(event.target.value) / 100 })
+                  }
+                />
+                <strong>{danmakuSettings.scale.toFixed(1)}x</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">▦</span>
+              <div className="settings-row__body">
+                <h3>弹幕透明度</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Danmaku opacity"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round(danmakuSettings.opacity * 100)}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ opacity: Number(event.target.value) / 100 })
+                  }
+                />
+                <strong>{Math.round(danmakuSettings.opacity * 100)}%</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">◴</span>
+              <div className="settings-row__body">
+                <h3>弹幕滚动速度</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Danmaku scroll speed"
+                  type="range"
+                  min="50"
+                  max="200"
+                  step="10"
+                  value={Math.round(danmakuSettings.speed * 100)}
+                  onChange={(event) =>
+                    saveDanmakuSettingsPatch({ speed: Number(event.target.value) / 100 })
+                  }
+                />
+                <strong>{danmakuSettings.speed.toFixed(1)}x</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">B</span>
+              <div className="settings-row__body">
+                <h3>粗体</h3>
+              </div>
+              <label className="settings-switch">
+                <input
+                  aria-label="Bold danmaku"
+                  type="checkbox"
+                  checked={danmakuSettings.bold}
+                  onChange={(event) => saveDanmakuSettingsPatch({ bold: event.target.checked })}
+                />
+                <span />
+              </label>
+            </div>
+
+            <div className="settings-row settings-row--stacked settings-row--wide">
+              <span className="settings-row__icon" aria-hidden="true">⊘</span>
+              <div className="settings-row__body">
+                <h3>弹幕屏蔽词</h3>
+                <p>添加屏蔽词，若有多个时使用换行进行分隔，正则以 / 开头以 / 结尾</p>
+              </div>
+              <div className="settings-row__control settings-row__control--wide">
+                <button
+                  type="button"
+                  aria-expanded={isDanmakuBlocklistOpen}
+                  aria-label="Edit danmaku blocklist"
+                  onClick={() => setIsDanmakuBlocklistOpen((current) => !current)}
+                >
+                  {danmakuSettings.blocklist.length > 0
+                    ? `${danmakuSettings.blocklist.length} 项`
+                    : '设置'}
+                </button>
+                {isDanmakuBlocklistOpen ? (
+                  <textarea
+                    aria-label="Danmaku blocklist"
+                    className="settings-textarea"
+                    value={blocklistValue}
+                    onChange={(event) =>
+                      saveDanmakuSettingsPatch({
+                        blocklist: event.target.value
+                          .split(/\r?\n/u)
+                          .map((entry) => entry.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">≋</span>
+              <div className="settings-row__body">
+                <h3>弹幕匹配模式</h3>
+                <p>修改弹幕匹配模式，哈希值通过计算视频文件前16MB数据MD5得到</p>
+              </div>
+              <select
+                aria-label="Danmaku match mode"
+                className="settings-select"
+                value={danmakuSettings.matchMode}
+                onChange={(event) =>
+                  saveDanmakuSettingsPatch({
+                    matchMode: event.target.value as DanmakuMatchMode,
+                  })
+                }
+              >
+                <option value="fileName">仅文件名</option>
+                <option value="hashAndFileName">哈希值与文件名</option>
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">文</span>
+              <div className="settings-row__body">
+                <h3>弹幕简繁体转换</h3>
+                <p>修改弹幕简繁体转换，需弹幕 API 支持</p>
+              </div>
+              <select
+                aria-label="Danmaku conversion mode"
+                className="settings-select"
+                value={danmakuSettings.conversionMode}
+                onChange={(event) =>
+                  saveDanmakuSettingsPatch({
+                    conversionMode: event.target.value as DanmakuConversionMode,
+                  })
+                }
+              >
+                <option value="off">关闭</option>
+                <option value="simplified">转简体</option>
+                <option value="traditional">转繁体</option>
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">API</span>
+              <div className="settings-row__body">
+                <h3>弹幕 API 基础地址</h3>
+                <p>管理弹幕 API URL，按列表顺序作为匹配优先级</p>
+              </div>
+              <button
+                type="button"
+                aria-expanded={isDanmakuServersOpen}
+                aria-label="Edit danmaku API servers"
+                onClick={() => setIsDanmakuServersOpen((current) => !current)}
+              >
+                {danmakuServerSummary}
+              </button>
+            </div>
+
+            {isDanmakuServersOpen ? (
             <form
               className="settings-row settings-row--form settings-row--stacked settings-row--wide"
               onSubmit={(event) => void handleDanmakuServersSubmit(event)}
@@ -509,6 +785,7 @@ export function SettingsPage({
                 {danmakuSaveError ? <p role="alert">{danmakuSaveError}</p> : null}
               </div>
             </form>
+            ) : null}
           </div>
         </section>
 

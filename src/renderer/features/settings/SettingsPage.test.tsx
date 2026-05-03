@@ -1,21 +1,39 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '@renderer/features/auth/AuthContext';
 import { SettingsPage } from './SettingsPage';
-import type { CacheSettings, DanmakuServerSettings } from '@shared/models/settings';
+import type {
+  CacheSettings,
+  DanmakuServerSettings,
+  DanmakuSettings,
+} from '@shared/models/settings';
 
 describe('SettingsPage', () => {
   function renderSettingsPage({
     onLogout = vi.fn(),
     onProxySettingsSave = vi.fn().mockResolvedValue(undefined),
     onDanmakuServersSave = vi.fn().mockResolvedValue(undefined),
+    onDanmakuSettingsSave = vi.fn().mockResolvedValue(undefined),
     onCacheSettingsSave = vi.fn().mockResolvedValue(undefined),
     onClearDataCache = vi.fn().mockResolvedValue(undefined),
     onClearImageCache = vi.fn().mockResolvedValue(undefined),
     proxyMode = 'system',
     customProxyUrl = '',
     danmakuServers = [],
+    danmakuSettings = {
+      enabled: true,
+      scrollMaxLines: 5,
+      topMaxLines: 3,
+      bottomMaxLines: 3,
+      scale: 1,
+      opacity: 0.5,
+      speed: 1,
+      bold: false,
+      blocklist: [],
+      matchMode: 'fileName',
+      conversionMode: 'off',
+    },
     cacheSettings = {
       dataCacheEnabled: true,
       dataCacheTtlDays: 30,
@@ -29,12 +47,14 @@ describe('SettingsPage', () => {
     onLogout?: ReturnType<typeof vi.fn>;
     onProxySettingsSave?: ReturnType<typeof vi.fn>;
     onDanmakuServersSave?: ReturnType<typeof vi.fn>;
+    onDanmakuSettingsSave?: ReturnType<typeof vi.fn>;
     onCacheSettingsSave?: ReturnType<typeof vi.fn>;
     onClearDataCache?: ReturnType<typeof vi.fn>;
     onClearImageCache?: ReturnType<typeof vi.fn>;
     proxyMode?: 'system' | 'direct' | 'custom';
     customProxyUrl?: string;
     danmakuServers?: DanmakuServerSettings[];
+    danmakuSettings?: DanmakuSettings;
     cacheSettings?: CacheSettings;
     dataCacheBytes?: number;
     imageCacheBytes?: number;
@@ -49,6 +69,7 @@ describe('SettingsPage', () => {
             proxyMode={proxyMode}
             customProxyUrl={customProxyUrl}
             danmakuServers={danmakuServers}
+            danmakuSettings={danmakuSettings}
             cacheSettings={cacheSettings}
             dataCacheBytes={dataCacheBytes}
             imageCacheBytes={imageCacheBytes}
@@ -57,6 +78,7 @@ describe('SettingsPage', () => {
             onClearImageCache={onClearImageCache}
             onProxySettingsSave={onProxySettingsSave}
             onDanmakuServersSave={onDanmakuServersSave}
+            onDanmakuSettingsSave={onDanmakuSettingsSave}
             onLogout={onLogout}
           />
         </AuthProvider>
@@ -69,6 +91,7 @@ describe('SettingsPage', () => {
       onClearDataCache,
       onClearImageCache,
       onDanmakuServersSave,
+      onDanmakuSettingsSave,
       onProxySettingsSave,
     };
   }
@@ -140,6 +163,8 @@ describe('SettingsPage', () => {
     });
 
     expect(screen.getByRole('heading', { name: '弹幕' })).toBeInTheDocument();
+    expect(screen.queryByText('记忆手动选择的弹幕')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit danmaku API servers' }));
     expect(screen.getByLabelText('Danmaku server name 1')).toHaveValue('Official');
     expect(screen.getByLabelText('Danmaku server URL 1')).toHaveValue(
       'https://api.dandanplay.net'
@@ -160,7 +185,8 @@ describe('SettingsPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save danmaku servers' }));
 
-    expect(onDanmakuServersSave).toHaveBeenCalledWith([
+    await waitFor(() =>
+      expect(onDanmakuServersSave).toHaveBeenCalledWith([
       {
         id: 'official',
         name: 'Official',
@@ -177,7 +203,52 @@ describe('SettingsPage', () => {
         appSecret: 'secret',
         enabled: true,
       },
-    ]);
+      ])
+    );
+  });
+
+  it('saves compact danmaku display settings from row controls', () => {
+    const onDanmakuSettingsSave = vi.fn().mockResolvedValue(undefined);
+    renderSettingsPage({ onDanmakuSettingsSave });
+
+    fireEvent.click(screen.getByLabelText('Enable danmaku'));
+    expect(onDanmakuSettingsSave).toHaveBeenCalledWith({
+      enabled: false,
+      scrollMaxLines: 5,
+      topMaxLines: 3,
+      bottomMaxLines: 3,
+      scale: 1,
+      opacity: 0.5,
+      speed: 1,
+      bold: false,
+      blocklist: [],
+      matchMode: 'fileName',
+      conversionMode: 'off',
+    });
+
+    fireEvent.change(screen.getByLabelText('Scrolling danmaku max lines'), {
+      target: { value: '8' },
+    });
+    expect(onDanmakuSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ scrollMaxLines: 8 })
+    );
+
+    fireEvent.change(screen.getByLabelText('Danmaku opacity'), {
+      target: { value: '75' },
+    });
+    expect(onDanmakuSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ opacity: 0.75 })
+    );
+
+    fireEvent.click(screen.getByLabelText('Bold danmaku'));
+    expect(onDanmakuSettingsSave).toHaveBeenCalledWith(expect.objectContaining({ bold: true }));
+
+    fireEvent.change(screen.getByLabelText('Danmaku match mode'), {
+      target: { value: 'hashAndFileName' },
+    });
+    expect(onDanmakuSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ matchMode: 'hashAndFileName' })
+    );
   });
 
   it('renders media cache controls and saves cache option changes', () => {
