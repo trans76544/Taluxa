@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -318,5 +319,32 @@ describe('SettingsPage', () => {
 
     expect(onClearDataCache).toHaveBeenCalledTimes(1);
     expect(onClearImageCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the settings page scroll inside the main content pane', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const rootRule = styles.match(/html,\s*[\r\n]+body,\s*[\r\n]+#root\s*\{(?<body>[^}]*)\}/);
+    const desktopShellRule = styles.match(/\.desktop-shell\s*\{(?<body>[^}]*)\}/);
+    const appMainRule = styles.match(/\.app-main\s*\{(?<body>[^}]*)\}/);
+    const wideRowRule = styles.match(/\.settings-row--wide\s*\{(?<body>[^}]*)\}/);
+    const wideFormRowRule = styles.match(
+      /\.settings-row--form\.settings-row--wide\s*\{(?<body>[^}]*)\}/
+    );
+    const wideControlRule = styles.match(/\.settings-row__control--wide\s*\{(?<body>[^}]*)\}/);
+
+    expect(rootRule?.groups?.body).toContain('height: 100%');
+    expect(rootRule?.groups?.body).toContain('overflow: hidden');
+    expect(desktopShellRule?.groups?.body).toContain('width: 100%');
+    expect(desktopShellRule?.groups?.body).not.toContain('width: 100vw');
+    expect(appMainRule?.groups?.body).toContain('overflow-y: auto');
+    expect(appMainRule?.groups?.body).toContain('overflow-x: hidden');
+    expect(appMainRule?.groups?.body).toContain('min-height: 0');
+    expect(wideRowRule?.groups?.body).toContain(
+      'grid-template-columns: 28px minmax(0, 1fr) minmax(180px, auto)'
+    );
+    expect(wideFormRowRule?.groups?.body).toContain(
+      'grid-template-columns: 28px minmax(160px, 260px) minmax(320px, 1fr)'
+    );
+    expect(wideControlRule?.groups?.body).toContain('justify-content: flex-end');
   });
 });
