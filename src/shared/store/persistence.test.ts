@@ -9,6 +9,14 @@ import {
   type PersistedState,
 } from './persistence';
 
+const DEFAULT_CACHE_SETTINGS = {
+  dataCacheEnabled: true,
+  dataCacheTtlDays: 30,
+  imageCacheEnabled: true,
+  imageCacheMaxBytes: 524288000,
+  imageCacheResolution: 'original',
+} as const;
+
 describe('persistence', () => {
   it('creates empty persisted state with multi-account defaults', () => {
     const state = createEmptyPersistedState();
@@ -25,6 +33,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -32,6 +41,46 @@ describe('persistence', () => {
     });
     expect('serverUrl' in state).toBe(false);
     expect('session' in state).toBe(false);
+  });
+
+  it('merges cache settings without losing existing settings', () => {
+    const currentState = createEmptyPersistedState();
+
+    const next = mergePersistedState(
+      {
+        settings: {
+          cache: {
+            imageCacheEnabled: false,
+            imageCacheMaxBytes: 104857600,
+          },
+        },
+      },
+      currentState
+    );
+
+    expect(next.settings.cache).toEqual({
+      dataCacheEnabled: true,
+      dataCacheTtlDays: 30,
+      imageCacheEnabled: false,
+      imageCacheMaxBytes: 104857600,
+      imageCacheResolution: 'original',
+    });
+  });
+
+  it('clears persisted home cache entries when requested', () => {
+    const current = mergePersistedState({
+      homeCacheByKey: {
+        'home-cache::account-1::latest_added': {
+          cachedAt: '2026-05-02T00:00:00.000Z',
+          accountLabel: 'Server',
+          continueWatching: [],
+          libraries: [],
+          featuredRows: [],
+        },
+      },
+    });
+
+    expect(mergePersistedState({ clearHomeCache: true }, current).homeCacheByKey).toEqual({});
   });
 
   it('merges proxy settings without losing existing settings or server preferences', () => {
@@ -54,6 +103,7 @@ describe('persistence', () => {
             enabled: true,
           },
         ],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -95,6 +145,7 @@ describe('persistence', () => {
             enabled: true,
           },
         ],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -189,6 +240,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
       progressByItemId: {
@@ -227,6 +279,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -309,6 +362,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {
           'https://a.local': {
             displayNameOverride: 'Main Server',
@@ -355,6 +409,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -389,6 +444,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -427,6 +483,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
@@ -470,6 +527,7 @@ describe('persistence', () => {
               customProxyUrl: '',
             },
             danmakuServers: [],
+            cache: DEFAULT_CACHE_SETTINGS,
             serverPreferencesByUrl: {},
           },
           progressByItemId: {
@@ -504,6 +562,7 @@ describe('persistence', () => {
           customProxyUrl: '',
         },
         danmakuServers: [],
+        cache: DEFAULT_CACHE_SETTINGS,
         serverPreferencesByUrl: {},
       },
       progressByItemId: {

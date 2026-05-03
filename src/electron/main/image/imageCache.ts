@@ -9,6 +9,19 @@ export interface ImageCacheFetch {
   (url: string): Promise<Response>;
 }
 
+export interface ImageCacheTransformResult {
+  bytes: Buffer;
+  contentType: string;
+}
+
+export interface ImageCacheTransform {
+  (
+    bytes: Buffer,
+    contentType: string,
+    maxDimension: number
+  ): Promise<ImageCacheTransformResult> | ImageCacheTransformResult;
+}
+
 export interface ResolvedImageCacheEntry {
   cacheKey: string;
   filePath: string;
@@ -27,9 +40,12 @@ interface ImageCacheMetadata {
 
 interface ImageCacheOptions {
   cacheDir: string;
+  enabled?: boolean;
   fetcher: ImageCacheFetch;
+  maxDimension?: number | null;
   maxBytes?: number;
   now?: () => Date;
+  transformImage?: ImageCacheTransform;
 }
 
 export interface CachedImageBytes {
@@ -37,12 +53,25 @@ export interface CachedImageBytes {
   contentType: string;
 }
 
+export interface ImageCacheStats {
+  count: number;
+  sizeBytes: number;
+}
+
+export interface ImageCacheConfig {
+  enabled?: boolean;
+  maxDimension?: number | null;
+  maxBytes?: number;
+}
+
 function isCacheKey(cacheKey: string): boolean {
   return /^[a-f0-9]{64}$/.test(cacheKey);
 }
 
-function createCacheKey(sourceUrl: string): string {
-  return createHash('sha256').update(sourceUrl).digest('hex');
+function createCacheKey(sourceUrl: string, maxDimension: number | null): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ sourceUrl, maxDimension }))
+    .digest('hex');
 }
 
 function createProtocolUrl(cacheKey: string): string {
@@ -69,38 +98,53 @@ function isCacheableImageUrl(sourceUrl: string): boolean {
 export class ImageCache {
   private readonly cacheDir: string;
   private readonly fetcher: ImageCacheFetch;
-  private readonly maxBytes: number;
+  private readonly transformImage?: ImageCacheTransform;
+  private enabled: boolean;
+  private maxDimension: number | null;
+  private maxBytes: number;
   private readonly now: () => Date;
-  private readonly inFlightByUrl = new Map<string, Promise<ResolvedImageCacheEntry>>();
+  private readonly inFlightByRequestKey = new Map<string, Promise<ResolvedImageCacheEntry>>();
 
   constructor({
     cacheDir,
     fetcher,
+    enabled = true,
+    maxDimension = null,
     maxBytes = DEFAULT_IMAGE_CACHE_MAX_BYTES,
     now = () => new Date(),
+    transformImage,
   }: ImageCacheOptions) {
     this.cacheDir = cacheDir;
     this.fetcher = fetcher;
+    this.transformImage = transformImage;
+    this.enabled = enabled;
+    this.maxDimension = maxDimension;
     this.maxBytes = maxBytes;
     this.now = now;
   }
 
   async resolve(sourceUrl: string): Promise<ResolvedImageCacheEntry> {
+    if (!this.enabled) {
+      throw new Error('Image cache is disabled');
+    }
+
     if (!isCacheableImageUrl(sourceUrl)) {
       throw new Error('Image URL must be http or https');
     }
 
-    const inFlight = this.inFlightByUrl.get(sourceUrl);
+    const maxDimension = this.maxDimension;
+    const requestKey = createCacheKey(sourceUrl, maxDimension);
+    const inFlight = this.inFlightByRequestKey.get(requestKey);
 
     if (inFlight) {
       return inFlight;
     }
 
-    const nextResolve = this.resolveUnshared(sourceUrl).finally(() => {
-      this.inFlightByUrl.delete(sourceUrl);
+    const nextResolve = this.resolveUnshared(sourceUrl, maxDimension).finally(() => {
+      this.inFlightByRequestKey.delete(requestKey);
     });
 
-    this.inFlightByUrl.set(sourceUrl, nextResolve);
+    this.inFlightByRequestKey.set(requestKey, nextResolve);
     return nextResolve;
   }
 
@@ -118,10 +162,44 @@ export class ImageCache {
     };
   }
 
-  private async resolveUnshared(sourceUrl: string): Promise<ResolvedImageCacheEntry> {
+  configure({ enabled, maxDimension, maxBytes }: ImageCacheConfig) {
+    if (enabled !== undefined) {
+      this.enabled = enabled;
+    }
+
+    if (maxDimension !== undefined) {
+      this.maxDimension = maxDimension;
+    }
+
+    if (maxBytes !== undefined) {
+      this.maxBytes = maxBytes;
+    }
+  }
+
+  async stats(): Promise<ImageCacheStats> {
+    const entries = await this.readAllMetadata();
+
+    return {
+      count: entries.length,
+      sizeBytes: entries.reduce((total, entry) => total + entry.metadata.sizeBytes, 0),
+    };
+  }
+
+  async clear(): Promise<void> {
+    const files = await readdir(this.cacheDir).catch(() => []);
+
+    await Promise.all(
+      files.map((file) => rm(join(this.cacheDir, file), { force: true, recursive: true }))
+    );
+  }
+
+  private async resolveUnshared(
+    sourceUrl: string,
+    maxDimension: number | null
+  ): Promise<ResolvedImageCacheEntry> {
     await mkdir(this.cacheDir, { recursive: true });
 
-    const cacheKey = createCacheKey(sourceUrl);
+    const cacheKey = createCacheKey(sourceUrl, maxDimension);
     const fileName = getImageFileName(cacheKey);
     const filePath = join(this.cacheDir, fileName);
     const metadata = await this.tryReadMetadata(cacheKey);
@@ -151,10 +229,21 @@ export class ImageCache {
       throw new Error(`Failed to download image (${response.status})`);
     }
 
-    const bytes = Buffer.from(await response.arrayBuffer());
+    let bytes = Buffer.from(await response.arrayBuffer());
+    let contentType = response.headers.get('Content-Type')?.split(';')[0]?.trim() || 'image/jpeg';
 
     if (bytes.length === 0) {
       throw new Error('Downloaded image was empty');
+    }
+
+    if (maxDimension && this.transformImage) {
+      try {
+        const transformed = await this.transformImage(bytes, contentType, maxDimension);
+        bytes = Buffer.from(transformed.bytes);
+        contentType = transformed.contentType;
+      } catch {
+        // Keep the original image when resizing fails; cache correctness is more important.
+      }
     }
 
     const now = this.now().toISOString();
@@ -164,7 +253,7 @@ export class ImageCache {
     await rename(tempPath, filePath);
     await this.writeMetadata(cacheKey, {
       cachedAt: now,
-      contentType: response.headers.get('Content-Type')?.split(';')[0]?.trim() || 'image/jpeg',
+      contentType,
       fileName,
       lastAccessedAt: now,
       sizeBytes: bytes.length,

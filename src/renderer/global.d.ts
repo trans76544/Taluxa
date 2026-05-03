@@ -7,6 +7,7 @@ import type {
   PlayerProgressEvent,
 } from '../electron/preload/index';
 import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
+import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/imageCache';
 
 export {};
 
@@ -25,6 +26,9 @@ declare global {
       };
       imageCache: {
         resolve: (sourceUrl: string) => Promise<ImageCacheResolveResult>;
+        stats: () => Promise<ImageCacheStats>;
+        clear: () => Promise<void>;
+        configure: (config: ImageCacheConfig) => Promise<void>;
       };
       storage: {
         read: () => Promise<PersistedState>;

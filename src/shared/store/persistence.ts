@@ -1,6 +1,6 @@
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount, Session } from '@shared/models/session';
-import { createDefaultSettings, type Settings } from '../models/settings';
+import { createDefaultSettings, type CacheSettings, type Settings } from '../models/settings';
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '../api/emby/home';
 
 export interface PersistedHomeCacheEntry {
@@ -21,10 +21,14 @@ export interface PersistedState {
 
 const ACCOUNT_SCOPED_PROGRESS_PREFIX = 'account-progress::';
 
+type PersistedSettingsPatch = Partial<Omit<Settings, 'cache'>> & {
+  cache?: Partial<CacheSettings>;
+};
+
 export interface LegacyPersistedState {
   serverUrl?: string;
   session?: Session | null;
-  settings?: Partial<Settings>;
+  settings?: PersistedSettingsPatch;
   progressByItemId?: Partial<Record<string, PlaybackProgress>>;
   homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
   accounts?: SavedAccount[];
@@ -34,9 +38,10 @@ export interface LegacyPersistedState {
 export type PersistedStatePatch = Partial<
   Omit<PersistedState, 'settings' | 'progressByItemId' | 'homeCacheByKey'>
 > & {
-  settings?: Partial<Settings>;
+  settings?: PersistedSettingsPatch;
   progressByItemId?: Partial<Record<string, PlaybackProgress>>;
   homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
+  clearHomeCache?: boolean;
   serverUrl?: string;
   session?: Session | null;
 };
@@ -168,8 +173,10 @@ function createSavedAccountFromLegacyPatch(
 
 function mergeSettings(
   currentSettings: Settings,
-  nextSettings: Partial<Settings> | undefined
+  nextSettings: PersistedSettingsPatch | undefined
 ): Settings {
+  const defaultSettings = createDefaultSettings();
+
   return {
     rememberSession: nextSettings?.rememberSession ?? currentSettings.rememberSession,
     defaultVolume: nextSettings?.defaultVolume ?? currentSettings.defaultVolume,
@@ -179,6 +186,11 @@ function mergeSettings(
       ...nextSettings?.proxy,
     },
     danmakuServers: nextSettings?.danmakuServers ?? currentSettings.danmakuServers,
+    cache: {
+      ...defaultSettings.cache,
+      ...currentSettings.cache,
+      ...nextSettings?.cache,
+    },
     serverPreferencesByUrl: {
       ...currentSettings.serverPreferencesByUrl,
       ...nextSettings?.serverPreferencesByUrl,
@@ -211,7 +223,7 @@ export function mergePersistedState(
     fallbackActiveAccountId
   );
   const progressByItemId = { ...currentState.progressByItemId };
-  const homeCacheByKey = { ...currentState.homeCacheByKey };
+  const homeCacheByKey = partial.clearHomeCache ? {} : { ...currentState.homeCacheByKey };
 
   for (const [itemId, progress] of Object.entries(
     createScopedProgressPatch(partial.progressByItemId ?? {}, activeAccountId)

@@ -1,8 +1,6 @@
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '@shared/api/emby/home';
-import type { LibrarySortMode } from '@shared/models/settings';
+import type { DataCacheTtlDays, LibrarySortMode } from '@shared/models/settings';
 import type { PersistedHomeCacheEntry } from '@shared/store/persistence';
-
-export const HOME_CACHE_TTL_MS = 10 * 60 * 1000;
 
 interface CreateHomeCacheEntryArgs {
   accountLabel: string;
@@ -16,7 +14,11 @@ export function createHomeCacheKey(accountId: string, sortMode: LibrarySortMode)
   return `home-cache::${accountId}::${sortMode}`;
 }
 
-export function isHomeCacheFresh(cachedAt: string, nowMs = Date.now()): boolean {
+export function isHomeCacheFresh(
+  cachedAt: string,
+  nowMs = Date.now(),
+  ttlDays: DataCacheTtlDays = 30
+): boolean {
   const cachedAtMs = Date.parse(cachedAt);
 
   if (!Number.isFinite(cachedAtMs)) {
@@ -25,7 +27,15 @@ export function isHomeCacheFresh(cachedAt: string, nowMs = Date.now()): boolean 
 
   const ageMs = nowMs - cachedAtMs;
 
-  return ageMs >= 0 && ageMs <= HOME_CACHE_TTL_MS;
+  if (ageMs < 0) {
+    return false;
+  }
+
+  if (ttlDays === null) {
+    return true;
+  }
+
+  return ageMs <= ttlDays * 24 * 60 * 60 * 1000;
 }
 
 export function createHomeCacheEntry({

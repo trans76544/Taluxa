@@ -95,9 +95,11 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   const read = vi.fn().mockResolvedValue(state);
   const write = vi.fn();
   const clearSession = vi.fn();
+  const statsImageCache = vi.fn().mockResolvedValue({ count: 0, sizeBytes: 0 });
+  const clearImageCache = vi.fn().mockResolvedValue(undefined);
+  const configureImageCache = vi.fn().mockResolvedValue(undefined);
   const resolveImage = vi.fn(async (sourceUrl: string) => ({
     cacheKey: 'test-image-cache-key',
-    filePath: '',
     fromCache: true,
     url: sourceUrl,
   }));
@@ -120,8 +122,11 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     },
     imageCache: {
       resolve: resolveImage,
+      stats: statsImageCache,
+      clear: clearImageCache,
+      configure: configureImageCache,
     },
-  } as Window['embyDesktop'];
+  } as unknown as Window['embyDesktop'];
 
   return {
     launch,
@@ -131,6 +136,9 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     write,
     clearSession,
     resolveImage,
+    statsImageCache,
+    clearImageCache,
+    configureImageCache,
     emitProgress(event: PlayerProgressEvent) {
       for (const listener of progressListeners) {
         listener(event);
@@ -187,7 +195,7 @@ function createCachedHomeEntry(
   overrides: Partial<PersistedHomeCacheEntry> = {}
 ): PersistedHomeCacheEntry {
   return {
-    cachedAt: '2026-04-22T08:00:00.000Z',
+    cachedAt: '2026-03-01T08:00:00.000Z',
     accountLabel: 'Cached Server',
     continueWatching: [],
     libraries: [
@@ -1945,6 +1953,89 @@ describe('App', () => {
       expect(storage.clearSession).toHaveBeenCalledTimes(1);
     });
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('clears image cache when saving a different image cache resolution', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({
+          cache: {
+            ...createDefaultSettings().cache,
+            imageCacheResolution: 'original',
+          },
+        }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.change(await screen.findByLabelText('Image cache resolution'), {
+      target: { value: '720' },
+    });
+
+    await waitFor(() => {
+      expect(storage.clearImageCache).toHaveBeenCalledTimes(1);
+    });
+    expect(storage.write).toHaveBeenCalledWith({
+      settings: {
+        cache: {
+          ...createDefaultSettings().cache,
+          imageCacheResolution: 720,
+        },
+      },
+    });
+    expect(storage.configureImageCache).toHaveBeenCalledWith({
+      enabled: true,
+      maxDimension: 720,
+      maxBytes: 524288000,
+    });
+    expect(storage.clearImageCache.mock.invocationCallOrder[0]).toBeLessThan(
+      storage.configureImageCache.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('keeps image cache files when saving cache options without changing resolution', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({
+          cache: {
+            ...createDefaultSettings().cache,
+            imageCacheResolution: 720,
+          },
+        }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.change(await screen.findByLabelText('Image cache limit'), {
+      target: { value: '104857600' },
+    });
+
+    await waitFor(() => {
+      expect(storage.configureImageCache).toHaveBeenCalledWith({
+        enabled: true,
+        maxDimension: 720,
+        maxBytes: 104857600,
+      });
+    });
+    expect(storage.clearImageCache).not.toHaveBeenCalled();
   });
 
   it('shows the fetched server display name before the raw url in the authenticated shell', async () => {

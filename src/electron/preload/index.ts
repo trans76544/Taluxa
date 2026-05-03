@@ -4,6 +4,7 @@ import type {
   PersistedStatePatch,
 } from '../../shared/store/persistence';
 import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
+import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
 
 export interface PlayerLaunchInput {
   httpHeaders?: Record<string, string>;
@@ -45,6 +46,10 @@ contextBridge.exposeInMainWorld('embyDesktop', {
   imageCache: {
     resolve: (sourceUrl: string) =>
       ipcRenderer.invoke('image-cache:resolve', sourceUrl) as Promise<ImageCacheResolveResult>,
+    stats: () => ipcRenderer.invoke('image-cache:stats') as Promise<ImageCacheStats>,
+    clear: () => ipcRenderer.invoke('image-cache:clear') as Promise<void>,
+    configure: (config: ImageCacheConfig) =>
+      ipcRenderer.invoke('image-cache:configure', config) as Promise<void>,
   },
   storage: {
     read: () => ipcRenderer.invoke('storage:read') as Promise<PersistedState>,

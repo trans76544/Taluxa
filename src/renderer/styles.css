@@ -889,6 +889,66 @@ a {
   font: inherit;
 }
 
+.settings-select {
+  justify-self: end;
+  min-width: 132px;
+  min-height: 36px;
+  padding: 0 34px 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: #454545;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+}
+
+.settings-switch {
+  justify-self: end;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 42px;
+  height: 24px;
+}
+
+.settings-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-switch span {
+  width: 42px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: #4a4a4a;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.settings-switch span::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #d8d8d8;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.settings-switch input:checked + span {
+  border-color: rgba(184, 139, 238, 0.72);
+  background: #9f75d7;
+}
+
+.settings-switch input:checked + span::after {
+  transform: translateX(18px);
+  background: #151515;
+}
+
 .settings-row--wide {
   grid-template-columns: 28px minmax(160px, 260px) minmax(320px, 1fr);
 }
@@ -956,6 +1016,7 @@ a {
 }
 
 .settings-row__control button,
+.settings-secondary-button,
 .settings-danger-button {
   min-height: 36px;
   padding: 0 14px;
@@ -969,6 +1030,7 @@ a {
 }
 
 .settings-row__control button:hover,
+.settings-secondary-button:hover,
 .settings-danger-button:hover {
   background: #505050;
 }
@@ -1054,6 +1116,9 @@ a {
 
   .settings-row__value,
   .settings-row__control,
+  .settings-select,
+  .settings-switch,
+  .settings-secondary-button,
   .settings-danger-button {
     grid-column: 2;
     justify-self: stretch;

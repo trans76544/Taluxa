@@ -18,7 +18,7 @@ import {
 import type { LibraryItem, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
-import type { LibrarySortMode } from '@shared/models/settings';
+import type { CacheSettings, ImageCacheResolution, LibrarySortMode } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
   pickFeaturedViews,
@@ -68,6 +68,14 @@ interface PlaybackSelection {
 }
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
+
+function getJsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
+  return resolution === 'original' ? null : resolution;
+}
 
 interface HomeRouteData {
   accountLabel: string;
@@ -637,7 +645,7 @@ function LibrariesRoute() {
         const cacheEntry = cacheKey ? persistedState.homeCacheByKey?.[cacheKey] : undefined;
         const hasCompleteCacheEntry = isCompleteHomeCacheEntry(cacheEntry);
 
-        if (cacheEntry) {
+        if (settings.cache.dataCacheEnabled && cacheEntry) {
           renderHomeData({
             accountLabel: cacheEntry.accountLabel,
             continueWatching: Array.isArray(cacheEntry.continueWatching)
@@ -650,9 +658,10 @@ function LibrariesRoute() {
         }
 
         if (
+          settings.cache.dataCacheEnabled &&
           cacheEntry &&
           hasCompleteCacheEntry &&
-          isHomeCacheFresh(cacheEntry.cachedAt)
+          isHomeCacheFresh(cacheEntry.cachedAt, Date.now(), settings.cache.dataCacheTtlDays)
         ) {
           return;
         }
@@ -666,7 +675,7 @@ function LibrariesRoute() {
         renderHomeData(nextHomeData);
         setErrorMessage('');
 
-        if (cacheKey) {
+        if (settings.cache.dataCacheEnabled && cacheKey) {
           const nextEntry = createHomeCacheEntry({
             accountLabel: nextHomeData.accountLabel,
             continueWatching: nextHomeData.continueWatching,
@@ -716,6 +725,8 @@ function LibrariesRoute() {
     serverUrl,
     sessionAccessToken,
     sessionUserId,
+    settings.cache.dataCacheEnabled,
+    settings.cache.dataCacheTtlDays,
     settings.librarySortMode,
   ]);
 
@@ -1007,6 +1018,37 @@ function SearchRoute() {
 function SettingsRoute() {
   const navigate = useNavigate();
   const { clearAuthState, serverUrl, session, settings, updateSettings } = useAuth();
+  const [dataCacheBytes, setDataCacheBytes] = useState(0);
+  const [imageCacheBytes, setImageCacheBytes] = useState(0);
+
+  async function refreshCacheStats() {
+    const [persistedState, imageStats] = await Promise.all([
+      window.embyDesktop.storage.read(),
+      window.embyDesktop.imageCache.stats(),
+    ]);
+
+    setDataCacheBytes(getJsonByteLength(persistedState.homeCacheByKey ?? {}));
+    setImageCacheBytes(imageStats.sizeBytes);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([window.embyDesktop.storage.read(), window.embyDesktop.imageCache.stats()])
+      .then(([persistedState, imageStats]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setDataCacheBytes(getJsonByteLength(persistedState.homeCacheByKey ?? {}));
+        setImageCacheBytes(imageStats.sizeBytes);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleLogout() {
     await window.embyDesktop.storage.clearSession();
@@ -1052,6 +1094,42 @@ function SettingsRoute() {
     updateSettings(settingsPatch);
   }
 
+  async function handleCacheSettingsSave(next: CacheSettings) {
+    const imageCacheResolutionChanged =
+      next.imageCacheResolution !== settings.cache.imageCacheResolution;
+    const settingsPatch = {
+      cache: next,
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+
+    if (imageCacheResolutionChanged) {
+      await window.embyDesktop.imageCache.clear();
+      setImageCacheBytes(0);
+    }
+
+    await window.embyDesktop.imageCache.configure({
+      enabled: next.imageCacheEnabled,
+      maxDimension: getImageCacheMaxDimension(next.imageCacheResolution),
+      maxBytes: next.imageCacheMaxBytes,
+    });
+    updateSettings(settingsPatch);
+  }
+
+  async function handleClearDataCache() {
+    await window.embyDesktop.storage.write({
+      clearHomeCache: true,
+    });
+    setDataCacheBytes(0);
+  }
+
+  async function handleClearImageCache() {
+    await window.embyDesktop.imageCache.clear();
+    await refreshCacheStats();
+  }
+
   return (
     <SettingsPage
       userName={session?.userName ?? 'Unknown user'}
@@ -1060,6 +1138,12 @@ function SettingsRoute() {
       proxyMode={settings.proxy.mode}
       customProxyUrl={settings.proxy.customProxyUrl}
       danmakuServers={settings.danmakuServers}
+      cacheSettings={settings.cache}
+      dataCacheBytes={dataCacheBytes}
+      imageCacheBytes={imageCacheBytes}
+      onCacheSettingsSave={handleCacheSettingsSave}
+      onClearDataCache={handleClearDataCache}
+      onClearImageCache={handleClearImageCache}
       onDanmakuServersSave={handleDanmakuServersSave}
       onProxySettingsSave={handleProxySettingsSave}
       onLogout={handleLogout}

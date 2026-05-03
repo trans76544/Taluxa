@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, protocol, session } from 'electron';
 import { join } from 'node:path';
 import { readPersistedState, registerStorageIpc } from './ipc/storage';
 import { registerImageCacheIpc } from './ipc/imageCache';
@@ -14,6 +14,7 @@ import { HlsProxyServer } from './player/hlsProxy';
 import { fetchDandanplayDanmaku } from './player/danmaku';
 import { createMainWindow } from './window';
 import { preflightPlaybackStreamSource } from '@shared/api/emby/playback';
+import type { ImageCacheResolution } from '@shared/models/settings';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -41,6 +42,32 @@ const mpvController = new MpvController({
   onProgress: sendPlayerProgress,
 });
 const hlsProxyServer = new HlsProxyServer((url, init) => session.defaultSession.fetch(url, init));
+
+function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
+  return resolution === 'original' ? null : resolution;
+}
+
+function resizeCachedImage(bytes: Buffer, contentType: string, maxDimension: number) {
+  const image = nativeImage.createFromBuffer(bytes);
+  const size = image.getSize();
+  const longestSide = Math.max(size.width, size.height);
+
+  if (!size.width || !size.height || longestSide <= maxDimension) {
+    return { bytes, contentType };
+  }
+
+  const resized =
+    size.width >= size.height
+      ? image.resize({ width: maxDimension })
+      : image.resize({ height: maxDimension });
+  const nextBytes =
+    contentType === 'image/png' ? resized.toPNG() : resized.toJPEG(82);
+
+  return {
+    bytes: nextBytes.length > 0 ? nextBytes : bytes,
+    contentType: contentType === 'image/png' ? 'image/png' : 'image/jpeg',
+  };
+}
 
 async function prepareLaunchInput(input: LaunchMpvInput): Promise<LaunchMpvInput> {
   if (!input.streamUrl.toLowerCase().includes('.m3u8')) {
@@ -88,14 +115,24 @@ app.whenReady().then(() => {
   const persistedState = readPersistedState();
   const imageCache = new ImageCache({
     cacheDir: join(app.getPath('userData'), 'image-cache'),
+    enabled: persistedState.settings.cache.imageCacheEnabled,
     fetcher: (url) => session.defaultSession.fetch(url),
+    maxDimension: getImageCacheMaxDimension(persistedState.settings.cache.imageCacheResolution),
+    maxBytes: persistedState.settings.cache.imageCacheMaxBytes,
+    transformImage: resizeCachedImage,
   });
 
   return applyProxySettingsWithFallback(session.defaultSession, persistedState.settings.proxy).then(
     () => {
       registerStorageIpc({
-        onSettingsChanged: (settings) =>
-          applyProxySettings(session.defaultSession, settings.proxy),
+        onSettingsChanged: async (settings) => {
+          imageCache.configure({
+            enabled: settings.cache.imageCacheEnabled,
+            maxDimension: getImageCacheMaxDimension(settings.cache.imageCacheResolution),
+            maxBytes: settings.cache.imageCacheMaxBytes,
+          });
+          await applyProxySettings(session.defaultSession, settings.proxy);
+        },
       });
       registerWindowControlIpc();
       registerImageCacheProtocol(imageCache);

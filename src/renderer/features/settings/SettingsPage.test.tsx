@@ -3,23 +3,41 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '@renderer/features/auth/AuthContext';
 import { SettingsPage } from './SettingsPage';
-import type { DanmakuServerSettings } from '@shared/models/settings';
+import type { CacheSettings, DanmakuServerSettings } from '@shared/models/settings';
 
 describe('SettingsPage', () => {
   function renderSettingsPage({
     onLogout = vi.fn(),
     onProxySettingsSave = vi.fn().mockResolvedValue(undefined),
     onDanmakuServersSave = vi.fn().mockResolvedValue(undefined),
+    onCacheSettingsSave = vi.fn().mockResolvedValue(undefined),
+    onClearDataCache = vi.fn().mockResolvedValue(undefined),
+    onClearImageCache = vi.fn().mockResolvedValue(undefined),
     proxyMode = 'system',
     customProxyUrl = '',
     danmakuServers = [],
+    cacheSettings = {
+      dataCacheEnabled: true,
+      dataCacheTtlDays: 30,
+      imageCacheEnabled: true,
+      imageCacheMaxBytes: 524288000,
+      imageCacheResolution: 'original',
+    },
+    dataCacheBytes = 1024,
+    imageCacheBytes = 2048,
   }: {
     onLogout?: ReturnType<typeof vi.fn>;
     onProxySettingsSave?: ReturnType<typeof vi.fn>;
     onDanmakuServersSave?: ReturnType<typeof vi.fn>;
+    onCacheSettingsSave?: ReturnType<typeof vi.fn>;
+    onClearDataCache?: ReturnType<typeof vi.fn>;
+    onClearImageCache?: ReturnType<typeof vi.fn>;
     proxyMode?: 'system' | 'direct' | 'custom';
     customProxyUrl?: string;
     danmakuServers?: DanmakuServerSettings[];
+    cacheSettings?: CacheSettings;
+    dataCacheBytes?: number;
+    imageCacheBytes?: number;
   } = {}) {
     render(
       <MemoryRouter>
@@ -31,6 +49,12 @@ describe('SettingsPage', () => {
             proxyMode={proxyMode}
             customProxyUrl={customProxyUrl}
             danmakuServers={danmakuServers}
+            cacheSettings={cacheSettings}
+            dataCacheBytes={dataCacheBytes}
+            imageCacheBytes={imageCacheBytes}
+            onCacheSettingsSave={onCacheSettingsSave}
+            onClearDataCache={onClearDataCache}
+            onClearImageCache={onClearImageCache}
             onProxySettingsSave={onProxySettingsSave}
             onDanmakuServersSave={onDanmakuServersSave}
             onLogout={onLogout}
@@ -41,6 +65,9 @@ describe('SettingsPage', () => {
 
     return {
       onLogout,
+      onCacheSettingsSave,
+      onClearDataCache,
+      onClearImageCache,
       onDanmakuServersSave,
       onProxySettingsSave,
     };
@@ -151,5 +178,74 @@ describe('SettingsPage', () => {
         enabled: true,
       },
     ]);
+  });
+
+  it('renders media cache controls and saves cache option changes', () => {
+    const { onCacheSettingsSave } = renderSettingsPage();
+
+    expect(screen.getByRole('heading', { name: '媒体库' })).toBeInTheDocument();
+    expect(screen.getByText('1 KB')).toBeInTheDocument();
+    expect(screen.getByText('2 KB')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Data cache'));
+    expect(onCacheSettingsSave).toHaveBeenCalledWith({
+      dataCacheEnabled: false,
+      dataCacheTtlDays: 30,
+      imageCacheEnabled: true,
+      imageCacheMaxBytes: 524288000,
+      imageCacheResolution: 'original',
+    });
+
+    fireEvent.change(screen.getByLabelText('Data cache expiration'), {
+      target: { value: '7' },
+    });
+    expect(onCacheSettingsSave).toHaveBeenCalledWith({
+      dataCacheEnabled: true,
+      dataCacheTtlDays: 7,
+      imageCacheEnabled: true,
+      imageCacheMaxBytes: 524288000,
+      imageCacheResolution: 'original',
+    });
+
+    fireEvent.click(screen.getByLabelText('Image cache'));
+    expect(onCacheSettingsSave).toHaveBeenCalledWith({
+      dataCacheEnabled: true,
+      dataCacheTtlDays: 30,
+      imageCacheEnabled: false,
+      imageCacheMaxBytes: 524288000,
+      imageCacheResolution: 'original',
+    });
+
+    fireEvent.change(screen.getByLabelText('Image cache limit'), {
+      target: { value: '104857600' },
+    });
+    expect(onCacheSettingsSave).toHaveBeenCalledWith({
+      dataCacheEnabled: true,
+      dataCacheTtlDays: 30,
+      imageCacheEnabled: true,
+      imageCacheMaxBytes: 104857600,
+      imageCacheResolution: 'original',
+    });
+
+    fireEvent.change(screen.getByLabelText('Image cache resolution'), {
+      target: { value: '720' },
+    });
+    expect(onCacheSettingsSave).toHaveBeenCalledWith({
+      dataCacheEnabled: true,
+      dataCacheTtlDays: 30,
+      imageCacheEnabled: true,
+      imageCacheMaxBytes: 524288000,
+      imageCacheResolution: 720,
+    });
+  });
+
+  it('clears data and image caches from the media settings section', () => {
+    const { onClearDataCache, onClearImageCache } = renderSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear data cache' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear image cache' }));
+
+    expect(onClearDataCache).toHaveBeenCalledTimes(1);
+    expect(onClearImageCache).toHaveBeenCalledTimes(1);
   });
 });

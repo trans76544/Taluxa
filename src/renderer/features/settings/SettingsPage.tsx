@@ -1,6 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type {
+  CacheSettings,
+  DataCacheTtlDays,
   DanmakuServerSettings,
+  ImageCacheMaxBytes,
+  ImageCacheResolution,
   ProxyMode,
   ProxySettings,
 } from '@shared/models/settings';
@@ -13,9 +17,56 @@ interface SettingsPageProps {
   proxyMode: ProxyMode;
   customProxyUrl: string;
   danmakuServers: DanmakuServerSettings[];
+  cacheSettings: CacheSettings;
+  dataCacheBytes: number;
+  imageCacheBytes: number;
+  onCacheSettingsSave: (next: CacheSettings) => void | Promise<void>;
+  onClearDataCache: () => void | Promise<void>;
+  onClearImageCache: () => void | Promise<void>;
   onDanmakuServersSave: (next: DanmakuServerSettings[]) => void | Promise<void>;
   onProxySettingsSave: (next: ProxySettings) => void | Promise<void>;
   onLogout: () => void;
+}
+
+const DATA_CACHE_TTL_OPTIONS: Array<{ label: string; value: string; days: DataCacheTtlDays }> = [
+  { label: '1天', value: '1', days: 1 },
+  { label: '7天', value: '7', days: 7 },
+  { label: '30天', value: '30', days: 30 },
+  { label: '永不过期', value: 'never', days: null },
+];
+
+const IMAGE_CACHE_LIMIT_OPTIONS: Array<{ label: string; value: ImageCacheMaxBytes }> = [
+  { label: '100 MB', value: 104857600 },
+  { label: '300 MB', value: 314572800 },
+  { label: '500 MB', value: 524288000 },
+  { label: '1 GB', value: 1073741824 },
+];
+
+const IMAGE_CACHE_RESOLUTION_OPTIONS: Array<{ label: string; value: ImageCacheResolution }> = [
+  { label: '原图', value: 'original' },
+  { label: '1080p', value: 1080 },
+  { label: '720p', value: 720 },
+  { label: '480p', value: 480 },
+];
+
+function formatCacheBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${Number((bytes / 1024).toFixed(1)).toLocaleString('en-US')} KB`;
+  }
+
+  return `${Number((bytes / 1024 / 1024).toFixed(1)).toLocaleString('en-US')} MB`;
+}
+
+function parseDataCacheTtlDays(value: string): DataCacheTtlDays {
+  if (value === 'never') {
+    return null;
+  }
+
+  return Number(value) as DataCacheTtlDays;
 }
 
 function createDanmakuServerDraft(index: number): DanmakuServerSettings {
@@ -50,6 +101,12 @@ export function SettingsPage({
   proxyMode,
   customProxyUrl,
   danmakuServers,
+  cacheSettings,
+  dataCacheBytes,
+  imageCacheBytes,
+  onCacheSettingsSave,
+  onClearDataCache,
+  onClearImageCache,
   onDanmakuServersSave,
   onProxySettingsSave,
   onLogout,
@@ -59,6 +116,16 @@ export function SettingsPage({
   const [draftDanmakuServers, setDraftDanmakuServers] = useState(danmakuServers);
   const [proxySaveError, setProxySaveError] = useState('');
   const [danmakuSaveError, setDanmakuSaveError] = useState('');
+  const selectedDataCacheTtlValue =
+    DATA_CACHE_TTL_OPTIONS.find((option) => option.days === cacheSettings.dataCacheTtlDays)?.value ??
+    '30';
+
+  function saveCacheSettingsPatch(nextPatch: Partial<CacheSettings>) {
+    void onCacheSettingsSave({
+      ...cacheSettings,
+      ...nextPatch,
+    });
+  }
 
   useEffect(() => {
     setDraftProxyMode(proxyMode);
@@ -150,6 +217,171 @@ export function SettingsPage({
                 <p>播放器启动时使用的音量</p>
               </div>
               <strong className="settings-row__value">{Math.round(defaultVolume * 100)}%</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-group" aria-labelledby="settings-media-title">
+          <h2 id="settings-media-title">媒体库</h2>
+
+          <div className="settings-list">
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ▣
+              </span>
+              <div className="settings-row__body">
+                <h3>数据缓存</h3>
+                <p>开启后进入主页时会先显示本地保存的媒体库数据</p>
+              </div>
+              <label className="settings-switch">
+                <input
+                  aria-label="Data cache"
+                  type="checkbox"
+                  checked={cacheSettings.dataCacheEnabled}
+                  onChange={(event) =>
+                    saveCacheSettingsPatch({ dataCacheEnabled: event.target.checked })
+                  }
+                />
+                <span />
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ⏱
+              </span>
+              <div className="settings-row__body">
+                <h3>数据缓存过期时间</h3>
+                <p>过期后仍会先显示旧缓存，并在后台刷新为最新内容</p>
+              </div>
+              <select
+                className="settings-select"
+                aria-label="Data cache expiration"
+                value={selectedDataCacheTtlValue}
+                onChange={(event) =>
+                  saveCacheSettingsPatch({
+                    dataCacheTtlDays: parseDataCacheTtlDays(event.target.value),
+                  })
+                }
+              >
+                {DATA_CACHE_TTL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ◩
+              </span>
+              <div className="settings-row__body">
+                <h3>图片缓存</h3>
+                <p>开启后海报会保存到本地，下次显示时优先读取本地文件</p>
+              </div>
+              <label className="settings-switch">
+                <input
+                  aria-label="Image cache"
+                  type="checkbox"
+                  checked={cacheSettings.imageCacheEnabled}
+                  onChange={(event) =>
+                    saveCacheSettingsPatch({ imageCacheEnabled: event.target.checked })
+                  }
+                />
+                <span />
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ◧
+              </span>
+              <div className="settings-row__body">
+                <h3>图片缓存上限</h3>
+                <p>超过上限后会自动清理最久未使用的海报</p>
+              </div>
+              <select
+                className="settings-select"
+                aria-label="Image cache limit"
+                value={cacheSettings.imageCacheMaxBytes}
+                onChange={(event) =>
+                  saveCacheSettingsPatch({
+                    imageCacheMaxBytes: Number(event.target.value) as ImageCacheMaxBytes,
+                  })
+                }
+              >
+                {IMAGE_CACHE_LIMIT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ⛶
+              </span>
+              <div className="settings-row__body">
+                <h3>图片缓存分辨率</h3>
+                <p>降低缓存海报的最长边分辨率，减少本地磁盘占用</p>
+              </div>
+              <select
+                className="settings-select"
+                aria-label="Image cache resolution"
+                value={cacheSettings.imageCacheResolution}
+                onChange={(event) =>
+                  saveCacheSettingsPatch({
+                    imageCacheResolution:
+                      event.target.value === 'original'
+                        ? 'original'
+                        : (Number(event.target.value) as ImageCacheResolution),
+                  })
+                }
+              >
+                {IMAGE_CACHE_RESOLUTION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                DB
+              </span>
+              <div className="settings-row__body">
+                <h3>数据缓存</h3>
+                <p>{formatCacheBytes(dataCacheBytes)}</p>
+              </div>
+              <button
+                className="settings-secondary-button"
+                type="button"
+                aria-label="Clear data cache"
+                onClick={() => void onClearDataCache()}
+              >
+                清空缓存
+              </button>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                IMG
+              </span>
+              <div className="settings-row__body">
+                <h3>图片缓存</h3>
+                <p>{formatCacheBytes(imageCacheBytes)}</p>
+              </div>
+              <button
+                className="settings-secondary-button"
+                type="button"
+                aria-label="Clear image cache"
+                onClick={() => void onClearImageCache()}
+              >
+                清空缓存
+              </button>
             </div>
           </div>
         </section>

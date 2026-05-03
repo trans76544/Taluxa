@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '@shared/api/emby/home';
-import {
-  HOME_CACHE_TTL_MS,
-  createHomeCacheEntry,
-  createHomeCacheKey,
-  isHomeCacheFresh,
-} from './homeCache';
+import { createHomeCacheEntry, createHomeCacheKey, isHomeCacheFresh } from './homeCache';
 
 describe('home cache helpers', () => {
   it('creates a stable account and sort scoped cache key', () => {
@@ -14,18 +9,19 @@ describe('home cache helpers', () => {
     );
   });
 
-  it('treats entries cached within ten minutes as fresh', () => {
-    expect(HOME_CACHE_TTL_MS).toBe(10 * 60 * 1000);
+  it('treats entries cached within the configured ttl as fresh', () => {
     expect(
       isHomeCacheFresh(
         '2026-05-02T00:00:00.000Z',
-        Date.parse('2026-05-02T00:09:59.000Z')
+        Date.parse('2026-05-31T23:59:59.000Z'),
+        30
       )
     ).toBe(true);
     expect(
       isHomeCacheFresh(
         '2026-05-02T00:00:00.000Z',
-        Date.parse('2026-05-02T00:10:00.000Z')
+        Date.parse('2026-06-01T00:00:00.000Z'),
+        30
       )
     ).toBe(true);
   });
@@ -34,16 +30,27 @@ describe('home cache helpers', () => {
     expect(
       isHomeCacheFresh(
         '2026-05-02T00:00:00.000Z',
-        Date.parse('2026-05-02T00:10:01.000Z')
+        Date.parse('2026-06-01T00:00:01.000Z'),
+        30
       )
     ).toBe(false);
     expect(isHomeCacheFresh('not-a-date', Date.parse('2026-05-02T00:00:00.000Z'))).toBe(false);
     expect(
       isHomeCacheFresh(
         '2026-05-02T00:01:00.000Z',
-        Date.parse('2026-05-02T00:00:00.000Z')
+        Date.parse('2026-05-02T00:00:00.000Z'),
+        30
       )
     ).toBe(false);
+  });
+
+  it('uses the configured data cache ttl when checking freshness', () => {
+    const cachedAt = '2026-05-01T00:00:00.000Z';
+    const now = Date.parse('2026-05-03T00:00:00.000Z');
+
+    expect(isHomeCacheFresh(cachedAt, now, 1)).toBe(false);
+    expect(isHomeCacheFresh(cachedAt, now, 7)).toBe(true);
+    expect(isHomeCacheFresh(cachedAt, now, null)).toBe(true);
   });
 
   it('builds a persisted home cache entry from the home screen data shape', () => {
