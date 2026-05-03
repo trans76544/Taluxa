@@ -464,10 +464,10 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
-  it('redirects direct player visits without a session to the login page', async () => {
+  it('redirects direct item visits without a session to the login page', async () => {
     mockStorageRead(createPersistedState());
 
-    window.location.hash = '#/player/item-1';
+    window.location.hash = '#/item/item-1';
 
     render(
       <HashRouter>
@@ -829,10 +829,10 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Continue Watching' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '继续观看' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: /Planet Earth/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Bob Resume/ })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchItemsMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetchItemsMock).toHaveBeenCalledTimes(4));
     expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
@@ -1678,7 +1678,7 @@ describe('App', () => {
 
     const storage = mockStorageRead(deferred.promise);
 
-    window.location.hash = '#/player/item-1';
+    window.location.hash = '#/item/item-1';
 
     render(
       <HashRouter>
@@ -1709,6 +1709,9 @@ describe('App', () => {
       })
     );
 
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
     await waitFor(() => {
       expect(storage.launch).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1736,13 +1739,16 @@ describe('App', () => {
       })
     );
 
-    window.location.hash = '#/player/item-1';
+    window.location.hash = '#/item/item-1';
 
     render(
       <HashRouter>
         <App />
       </HashRouter>
     );
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
       expect(storage.launch).toHaveBeenCalledWith(
@@ -1762,6 +1768,7 @@ describe('App', () => {
     await flushAsyncQueue();
 
     expect(storage.write).toHaveBeenCalledWith({
+      clearHomeCache: true,
       progressByItemId: {
         [createAccountScopedProgressKey(account.id, 'item-1')]: {
           itemId: 'item-1',

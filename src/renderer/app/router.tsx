@@ -357,6 +357,7 @@ function ItemDetailsRoute() {
       .then(async () => {
         try {
           await window.embyDesktop.storage.write({
+            clearHomeCache: true,
             progressByItemId: {
               [resolvedActiveAccountId
                 ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
