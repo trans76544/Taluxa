@@ -69,6 +69,13 @@ export function clearPersistedSession(storeLike: PersistedStateStoreLike): Promi
   });
 }
 
+export function writeSettingsPatchFromMain(
+  settings: PersistedStatePatch['settings'],
+  options: RegisterStorageIpcOptions = {}
+): Promise<PersistedState> {
+  return writePersistedStatePatch(store, { settings }, options);
+}
+
 export function registerStorageIpc(options: RegisterStorageIpcOptions = {}) {
   ipcMain.handle('storage:read', () => readPersistedState());
 

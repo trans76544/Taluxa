@@ -1,5 +1,5 @@
-﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppProviders } from './providers';
@@ -9,6 +9,12 @@ import { createDefaultSettings } from '@shared/models/settings';
 import type { PersistedHomeCacheEntry, PersistedState } from '@shared/store/persistence';
 import type { SavedAccount } from '@shared/models/session';
 import { createAccountScopedProgressKey } from '@shared/store/persistence';
+
+const DEFAULT_HOME_HEADING = 'https://demo.emby.local';
+const SETTINGS_HEADING = '设置';
+const HOME_NAV_LABEL = '首页';
+const SETTINGS_NAV_LABEL = '设置';
+const ADD_SERVER_LABEL = '添加服务器';
 
 const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
@@ -176,6 +182,29 @@ function createSettings(overrides: Partial<PersistedState['settings']> = {}): Pe
   };
 }
 
+function createMovieDetails(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'item-1',
+    name: 'Movie 1',
+    posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+    imageCandidates: [],
+    runtimeTicks: 600000000,
+    serverPositionTicks: null,
+    communityRating: null,
+    productionYear: 2026,
+    type: 'Movie',
+    overview: 'A test movie.',
+    genres: [],
+    officialRating: '',
+    people: [],
+    studios: [],
+    externalUrls: [],
+    mediaSources: [],
+    backdropUrl: null,
+    ...overrides,
+  };
+}
+
 function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPersistedState {
   const state: StoredPersistedState = {
     accounts: overrides.accounts ?? [],
@@ -289,31 +318,22 @@ function ServerNameRetryHarness() {
 }
 
 describe('App', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    window.location.hash = '';
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     vi.useRealTimers();
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
-    fetchItemDetailsMock.mockImplementation(async (_serverUrl: string, _userId: string, itemId: string) => ({
-      id: itemId,
-      name: 'Movie 1',
-      posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
-      imageCandidates: [],
-      runtimeTicks: 600000000,
-      serverPositionTicks: null,
-      communityRating: null,
-      productionYear: 2026,
-      type: 'Movie',
-      overview: 'A test movie.',
-      genres: [],
-      officialRating: '',
-      people: [],
-      studios: [],
-      externalUrls: [],
-      mediaSources: [],
-      backdropUrl: null,
-    }));
+    fetchItemDetailsMock.mockImplementation(async (_serverUrl: string, _userId: string, itemId: string) =>
+      createMovieDetails({ id: itemId })
+    );
     fetchSimilarItemsMock.mockResolvedValue([]);
     fetchSeasonsMock.mockResolvedValue([]);
     fetchEpisodesMock.mockResolvedValue([]);
@@ -356,7 +376,7 @@ describe('App', () => {
       homeCacheByKey: {},
     });
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
   });
 
   it('hydrates the first saved account when activeAccountId is missing', async () => {
@@ -382,7 +402,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
     expect(fetchViewsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
@@ -414,7 +434,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
     expect(fetchViewsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
@@ -606,7 +626,7 @@ describe('App', () => {
       });
     });
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
     expect(fetchViewsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-2',
@@ -646,6 +666,9 @@ describe('App', () => {
         serverPositionTicks: 42000000,
       },
     ]);
+    fetchItemDetailsMock.mockResolvedValueOnce(
+      createMovieDetails({ id: 'item-1', serverPositionTicks: 42000000 })
+    );
 
     window.location.hash = '#/libraries';
 
@@ -657,6 +680,7 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
       expect(storage.launch).toHaveBeenCalledWith(
@@ -727,12 +751,11 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
 
-    expect(
-      await screen.findByText(
-        'Playback stream preflight failed (403 Forbidden) for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]'
-      )
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not prepare desktop playback.'
+    );
     expect(storage.launch).not.toHaveBeenCalled();
   });
 
@@ -1486,20 +1509,13 @@ describe('App', () => {
     });
   });
 
-  it('requests release-date sorting and persists it when the user switches sort mode on the home screen', async () => {
+  it('loads featured rows with the persisted home-screen sort mode', async () => {
     const account = createSavedAccount();
-    const storage = mockStorageRead(
+    mockStorageRead(
       createPersistedState({
         accounts: [account],
         activeAccountId: account.id,
         settings: createSettings({ librarySortMode: 'latest_added' }),
-      })
-    );
-    storage.write.mockResolvedValue(
-      createPersistedState({
-        accounts: [account],
-        activeAccountId: account.id,
-        settings: createSettings({ librarySortMode: 'release_date' }),
       })
     );
 
@@ -1529,7 +1545,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(fetchItemsMock).toHaveBeenCalledWith(
@@ -1544,30 +1560,10 @@ describe('App', () => {
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
-
-    await waitFor(() => {
-      expect(storage.write).toHaveBeenCalledWith({
-        settings: {
-          librarySortMode: 'release_date',
-        },
-      });
-    });
-    await waitFor(() => {
-      expect(fetchItemsMock).toHaveBeenLastCalledWith(
-        'https://demo.emby.local',
-        'user-1',
-        'movies',
-        'token-123',
-        {
-          limit: 8,
-          sortMode: 'release_date',
-        }
-      );
-    });
+    expect(screen.queryByRole('button', { name: 'Release Date' })).not.toBeInTheDocument();
   });
 
-  it('persists library-route sort changes and refetches that library with release-date ordering', async () => {
+  it('persists library-route sort changes and refetches that library with premiere-date ordering', async () => {
     const account = createSavedAccount();
     const storage = mockStorageRead(
       createPersistedState({
@@ -1580,7 +1576,7 @@ describe('App', () => {
       createPersistedState({
         accounts: [account],
         activeAccountId: account.id,
-        settings: createSettings({ librarySortMode: 'release_date' }),
+        settings: createSettings({ librarySortMode: 'premiere_date' }),
       })
     );
     fetchItemsMock.mockResolvedValue([
@@ -1602,7 +1598,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Browse items' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(fetchItemsMock).toHaveBeenCalledWith(
@@ -1616,12 +1612,13 @@ describe('App', () => {
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Release Date' }));
+    fireEvent.click(screen.getByText(/更新日期/));
+    fireEvent.click(await screen.findByRole('button', { name: /首映日期/ }));
 
     await waitFor(() => {
       expect(storage.write).toHaveBeenCalledWith({
         settings: {
-          librarySortMode: 'release_date',
+          librarySortMode: 'premiere_date',
         },
       });
     });
@@ -1632,7 +1629,7 @@ describe('App', () => {
         'movies',
         'token-123',
         {
-          sortMode: 'release_date',
+          sortMode: 'premiere_date',
         }
       );
     });
@@ -1658,8 +1655,8 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Could not load this account. Check the server and try again.'
     );
-    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Alice/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /设置/ })).toBeInTheDocument();
     expect(screen.queryByText('Nothing to resume yet.')).not.toBeInTheDocument();
     expect(screen.queryByText('No libraries found.')).not.toBeInTheDocument();
   });
@@ -1853,6 +1850,9 @@ describe('App', () => {
         serverPositionTicks: 42000000,
       },
     ]);
+    fetchItemDetailsMock.mockResolvedValueOnce(
+      createMovieDetails({ id: 'item-1', serverPositionTicks: 42000000 })
+    );
 
     window.location.hash = '#/libraries';
 
@@ -1864,7 +1864,8 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
 
-    expect(await screen.findByText('Movies')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/libraries/movies');
     expect(screen.queryByText('Library')).not.toBeInTheDocument();
   });
 
@@ -1893,6 +1894,9 @@ describe('App', () => {
         serverPositionTicks: 42000000,
       },
     ]);
+    fetchItemDetailsMock.mockResolvedValueOnce(
+      createMovieDetails({ id: 'item-1', serverPositionTicks: 42000000 })
+    );
 
     window.location.hash = '#/libraries';
 
@@ -1903,6 +1907,7 @@ describe('App', () => {
     );
 
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
       expect(storage.launch).toHaveBeenCalledWith(
@@ -1946,12 +1951,9 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByText('Active account').nextElementSibling).toHaveTextContent('Alice');
-    expect(screen.getByText('Server URL').nextElementSibling).toHaveTextContent(
-      'https://demo.emby.local'
-    );
-    expect(screen.getAllByText('https://demo.emby.local')).toHaveLength(2);
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getAllByText('https://demo.emby.local').length).toBeGreaterThan(0);
     expect(screen.getByText('80%')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -2063,18 +2065,15 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
 
     const displayName = await screen.findByRole('heading', { name: 'Living Room Server' });
-    const rawUrl = screen.getByText('https://demo.emby.local');
 
     expect(fetchServerInfoMock).toHaveBeenCalledWith('https://demo.emby.local', 'token-123');
-    expect(displayName.compareDocumentPosition(rawUrl) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
+    expect(screen.queryByText('https://demo.emby.local')).not.toBeInTheDocument();
   });
 
-  it('shows the fetched server name and featured sort controls in the authenticated shell', async () => {
+  it('shows the fetched server name in the authenticated shell', async () => {
     fetchServerInfoMock.mockResolvedValue({ serverName: 'Living Room Server' });
 
     mockStorageRead(
@@ -2101,11 +2100,17 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Featured sort controls' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Recently Added' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Release Date' })).toBeInTheDocument();
+    expect(fetchItemsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'movies',
+      'token-123',
+      {
+        limit: 8,
+        sortMode: 'latest_added',
+      }
+    );
   });
 
   it('fetches friendly server names for saved sidebar servers during hydration, not only the active account', async () => {
@@ -2139,9 +2144,8 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Bedroom Server' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Bedroom Server/ })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(fetchServerInfoMock).toHaveBeenCalledTimes(2);
@@ -2189,7 +2193,6 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Living Room Server' })).toBeInTheDocument();
     expect(fetchServerInfoMock).toHaveBeenCalledWith('https://demo.emby.local', 'token-fresh');
   });
@@ -2290,11 +2293,11 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Alice' })).toHaveClass('is-active');
-    expect(screen.getByRole('link', { name: 'Add account' })).toHaveAttribute('href', '#/login');
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Alice/ })).toHaveClass('is-active');
+    expect(screen.getByRole('link', { name: /添加服务器/ })).toHaveAttribute('href', '#/login');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+    fireEvent.click(screen.getByRole('button', { name: /Bob/ }));
 
     await waitFor(() => {
       expect(fetchViewsMock).toHaveBeenLastCalledWith(
@@ -2303,7 +2306,7 @@ describe('App', () => {
         'token-456'
       );
     });
-    expect(screen.getByRole('button', { name: 'Bob' })).toHaveClass('is-active');
+    expect(screen.getByRole('button', { name: /Bob/ })).toHaveClass('is-active');
   });
 
   it('persists the selected account and returns to libraries when switching from settings', async () => {
@@ -2331,17 +2334,17 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Libraries' })).toHaveAttribute('href', '#/libraries');
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /首页/ })).toHaveAttribute('href', '#/libraries');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+    fireEvent.click(screen.getByRole('button', { name: /Bob/ }));
 
     await waitFor(() => {
       expect(storage.write).toHaveBeenCalledWith({
         activeAccountId: bobAccount.id,
       });
     });
-    expect(await screen.findByRole('heading', { name: 'Libraries' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: bobAccount.serverUrl })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/libraries');
     expect(fetchViewsMock).toHaveBeenLastCalledWith(
       'https://backup.emby.local',
@@ -2409,7 +2412,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('Custom proxy'));
     fireEvent.change(screen.getByLabelText('Custom proxy URL'), {
@@ -2446,7 +2449,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('Custom proxy'));
     fireEvent.change(screen.getByLabelText('Custom proxy URL'), {

@@ -881,7 +881,8 @@ a {
 
 .settings-row__control input[type='text'],
 .settings-row__control input[type='url'],
-.settings-row__control input[type='password'] {
+.settings-row__control input[type='password'],
+.settings-row__control input[type='number'] {
   width: min(280px, 34vw);
   min-height: 36px;
   padding: 0 12px;
@@ -916,7 +917,7 @@ a {
 
 .settings-range input[type='range'] {
   width: 100%;
-  accent-color: #a980db;
+  accent-color: #1677ff;
 }
 
 .settings-range strong {
@@ -1171,7 +1172,8 @@ a {
 
   .settings-row__control input[type='text'],
   .settings-row__control input[type='url'],
-  .settings-row__control input[type='password'] {
+  .settings-row__control input[type='password'],
+  .settings-row__control input[type='number'] {
     width: min(100%, 360px);
   }
 

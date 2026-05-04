@@ -23,6 +23,8 @@ import type {
   DanmakuSettings,
   ImageCacheResolution,
   LibrarySortMode,
+  PlaybackSettings,
+  SubtitleSettings,
 } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
@@ -1111,6 +1113,28 @@ function SettingsRoute() {
     updateSettings(settingsPatch);
   }
 
+  async function handlePlaybackSettingsSave(next: PlaybackSettings) {
+    const settingsPatch = {
+      playback: next,
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
+  async function handleSubtitleSettingsSave(next: SubtitleSettings) {
+    const settingsPatch = {
+      subtitles: next,
+    };
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   async function handleCacheSettingsSave(next: CacheSettings) {
     const imageCacheResolutionChanged =
       next.imageCacheResolution !== settings.cache.imageCacheResolution;
@@ -1154,6 +1178,8 @@ function SettingsRoute() {
       defaultVolume={settings.defaultVolume}
       proxyMode={settings.proxy.mode}
       customProxyUrl={settings.proxy.customProxyUrl}
+      playbackSettings={settings.playback}
+      subtitleSettings={settings.subtitles}
       danmakuServers={settings.danmakuServers}
       danmakuSettings={settings.danmaku}
       cacheSettings={settings.cache}
@@ -1164,7 +1190,9 @@ function SettingsRoute() {
       onClearImageCache={handleClearImageCache}
       onDanmakuServersSave={handleDanmakuServersSave}
       onDanmakuSettingsSave={handleDanmakuSettingsSave}
+      onPlaybackSettingsSave={handlePlaybackSettingsSave}
       onProxySettingsSave={handleProxySettingsSave}
+      onSubtitleSettingsSave={handleSubtitleSettingsSave}
       onLogout={handleLogout}
     />
   );

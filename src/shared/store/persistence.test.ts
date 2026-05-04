@@ -41,6 +41,22 @@ const DEFAULT_DANMAKU_SERVERS = [
   },
 ];
 
+const DEFAULT_PLAYBACK_SETTINGS = {
+  scaleMode: 'fit',
+} as const;
+
+const DEFAULT_SUBTITLE_SETTINGS = {
+  enabled: true,
+  fontFamily: 'Tahoma',
+  delaySeconds: 0,
+  fontSize: 55,
+  position: 100,
+  outline: 3,
+  shadowOffset: 0,
+  scale: 1,
+  secondaryEnabled: false,
+} as const;
+
 describe('persistence', () => {
   it('creates empty persisted state with multi-account defaults', () => {
     const state = createEmptyPersistedState();
@@ -56,6 +72,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -66,6 +84,47 @@ describe('persistence', () => {
     });
     expect('serverUrl' in state).toBe(false);
     expect('session' in state).toBe(false);
+  });
+
+  it('creates default playback and subtitle settings', () => {
+    const state = createEmptyPersistedState();
+
+    expect(state.settings.playback).toEqual({
+      scaleMode: 'fit',
+    });
+    expect(state.settings.subtitles).toEqual({
+      enabled: true,
+      fontFamily: 'Tahoma',
+      delaySeconds: 0,
+      fontSize: 55,
+      position: 100,
+      outline: 3,
+      shadowOffset: 0,
+      scale: 1,
+      secondaryEnabled: false,
+    });
+  });
+
+  it('merges partial playback and subtitle settings without dropping defaults', () => {
+    const merged = mergePersistedState({
+      settings: {
+        playback: { scaleMode: 'crop' },
+        subtitles: { fontFamily: 'Microsoft YaHei UI', secondaryEnabled: true },
+      },
+    });
+
+    expect(merged.settings.playback.scaleMode).toBe('crop');
+    expect(merged.settings.subtitles).toMatchObject({
+      enabled: true,
+      fontFamily: 'Microsoft YaHei UI',
+      delaySeconds: 0,
+      fontSize: 55,
+      position: 100,
+      outline: 3,
+      shadowOffset: 0,
+      scale: 1,
+      secondaryEnabled: true,
+    });
   });
 
   it('merges cache settings without losing existing settings', () => {
@@ -165,6 +224,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: [
           {
             id: 'official',
@@ -208,6 +269,8 @@ describe('persistence', () => {
           mode: 'custom',
           customProxyUrl: 'http://127.0.0.1:8080',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: [
           {
             id: 'official',
@@ -311,6 +374,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -351,6 +416,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -435,6 +502,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -483,6 +552,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -519,6 +590,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -559,6 +632,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,
@@ -604,6 +679,8 @@ describe('persistence', () => {
               mode: 'system',
               customProxyUrl: '',
             },
+            playback: DEFAULT_PLAYBACK_SETTINGS,
+            subtitles: DEFAULT_SUBTITLE_SETTINGS,
             danmakuServers: DEFAULT_DANMAKU_SERVERS,
             danmaku: DEFAULT_DANMAKU_SETTINGS,
             cache: DEFAULT_CACHE_SETTINGS,
@@ -640,6 +717,8 @@ describe('persistence', () => {
           mode: 'system',
           customProxyUrl: '',
         },
+        playback: DEFAULT_PLAYBACK_SETTINGS,
+        subtitles: DEFAULT_SUBTITLE_SETTINGS,
         danmakuServers: DEFAULT_DANMAKU_SERVERS,
         danmaku: DEFAULT_DANMAKU_SETTINGS,
         cache: DEFAULT_CACHE_SETTINGS,

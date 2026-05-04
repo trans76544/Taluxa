@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from 'vitest';
-import type { ProxySettings } from '@shared/models/settings';
+import { createDefaultDanmakuServers, type ProxySettings } from '@shared/models/settings';
 import {
   applyProxySettings,
   applyProxySettingsWithFallback,
@@ -265,7 +265,7 @@ describe('writePersistedStatePatch', () => {
           imageCacheMaxBytes: 524288000,
           imageCacheResolution: 'original',
         },
-        danmakuServers: [],
+        danmakuServers: createDefaultDanmakuServers(),
         danmaku: {
           enabled: true,
           scrollMaxLines: 5,
@@ -278,6 +278,20 @@ describe('writePersistedStatePatch', () => {
           blocklist: [],
           matchMode: 'fileName',
           conversionMode: 'off',
+        },
+        playback: {
+          scaleMode: 'fit',
+        },
+        subtitles: {
+          enabled: true,
+          fontFamily: 'Tahoma',
+          delaySeconds: 0,
+          fontSize: 55,
+          position: 100,
+          outline: 3,
+          shadowOffset: 0,
+          scale: 1,
+          secondaryEnabled: false,
         },
         serverPreferencesByUrl: {},
       },
@@ -372,7 +386,7 @@ describe('writePersistedStatePatch', () => {
           imageCacheMaxBytes: 524288000,
           imageCacheResolution: 'original',
         },
-        danmakuServers: [],
+        danmakuServers: createDefaultDanmakuServers(),
         danmaku: {
           enabled: true,
           scrollMaxLines: 5,
@@ -385,6 +399,20 @@ describe('writePersistedStatePatch', () => {
           blocklist: [],
           matchMode: 'fileName',
           conversionMode: 'off',
+        },
+        playback: {
+          scaleMode: 'fit',
+        },
+        subtitles: {
+          enabled: true,
+          fontFamily: 'Tahoma',
+          delaySeconds: 0,
+          fontSize: 55,
+          position: 100,
+          outline: 3,
+          shadowOffset: 0,
+          scale: 1,
+          secondaryEnabled: false,
         },
         serverPreferencesByUrl: {},
       },

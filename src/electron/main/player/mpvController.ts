@@ -4,7 +4,14 @@ import { createConnection } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ProxySettings } from '@shared/models/settings';
+import {
+  createDefaultSettings,
+  type PlaybackSettings,
+  type SubtitleSettings,
+  DanmakuServerSettings,
+  DanmakuSettings,
+  ProxySettings,
+} from '@shared/models/settings';
 import { isCustomProxyConfigured } from '@shared/network/proxy';
 import {
   DanmakuSourceError,
@@ -13,7 +20,6 @@ import {
   toAssSubtitle,
   type DanmakuComment,
 } from './danmaku';
-import type { DanmakuServerSettings, DanmakuSettings } from '@shared/models/settings';
 
 export interface LaunchMpvInput {
   httpHeaders?: Record<string, string>;
@@ -27,6 +33,19 @@ export interface MpvProgressSnapshot {
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
+}
+
+export interface PlayerSettingsPatch {
+  playback?: Partial<PlaybackSettings>;
+  subtitles?: Partial<SubtitleSettings>;
+  danmaku?: Partial<DanmakuSettings>;
+}
+
+export interface LaunchPlayerSettings {
+  playback: PlaybackSettings;
+  subtitles: SubtitleSettings;
+  danmakuServers: DanmakuServerSettings[];
+  danmaku: DanmakuSettings;
 }
 
 export interface SpawnedMpvProcess {
@@ -77,8 +96,12 @@ interface ActiveSession {
   client: MpvIpcClient | null;
   connectAttempt: number;
   connectTimeout: NodeJS.Timeout | null;
+  danmakuComments: DanmakuComment[];
+  danmakuFilePath: string;
+  danmakuSettings: DanmakuSettings;
   durationSeconds: number;
   hasConnected: boolean;
+  hasDanmakuSubtitle: boolean;
   ipcServerPath: string;
   isReady: boolean;
   itemId: string;
@@ -165,6 +188,10 @@ function toLuaLongString(value: string): string {
   return `[${delimiter}[${value}]${delimiter}]`;
 }
 
+function toLuaSingleQuotedString(value: string): string {
+  return `'${value.replace(/\\/gu, '\\\\').replace(/'/gu, "\\'")}'`;
+}
+
 function splitPlaybackTitle(title: string): { displayTitle: string; displaySubtitle: string } {
   const parts = title
     .split(' - ')
@@ -184,7 +211,7 @@ function splitPlaybackTitle(title: string): { displayTitle: string; displaySubti
   };
 }
 
-function createMpvUiScript(title: string): string {
+function createMpvUiScript(title: string, playerSettings: LaunchPlayerSettings): string {
   const { displayTitle, displaySubtitle } = splitPlaybackTitle(title);
 
   return String.raw`
@@ -194,19 +221,102 @@ local overlay = mp.create_osd_overlay('ass-events')
 local UI_WIDTH = 1920
 local UI_HEIGHT = 1080
 local BUTTON_SCALE = 2
+local CONTROL_HIDE_SECONDS = 3
+local BLUE = 'FF7716'
+local CACHE_BLUE = 'FFCF8F'
+local TRACK_GRAY = 'CFCFCF'
+local function b(...)
+  return string.char(...)
+end
+local TEXT = {
+  scale_mode = b(231, 188, 169, 230, 148, 190, 230, 168, 161, 229, 188, 143),
+  skip_intro = b(232, 183, 179, 232, 191, 135, 231, 137, 135, 229, 164, 180, 47, 231, 137, 135, 229, 176, 190),
+  subtitle_settings = b(229, 173, 151, 229, 185, 149, 232, 174, 190, 231, 189, 174),
+  danmaku_settings = b(229, 188, 185, 229, 185, 149, 232, 174, 190, 231, 189, 174),
+  statistics = b(231, 187, 159, 232, 174, 161, 228, 191, 161, 230, 129, 175),
+  fit = b(233, 128, 130, 229, 186, 148, 229, 177, 143, 229, 185, 149),
+  stretch = b(230, 139, 137, 228, 188, 184),
+  crop = b(232, 163, 129, 229, 137, 170),
+  no_audio = b(230, 151, 160, 233, 159, 179, 232, 189, 168),
+  no_subtitles = b(230, 151, 160, 229, 173, 151, 229, 185, 149),
+  subtitle_1 = b(229, 173, 151, 229, 185, 149, 32, 49),
+  subtitle_2 = b(229, 173, 151, 229, 185, 149, 32, 50),
+  subtitle_font = b(229, 173, 151, 229, 185, 149, 229, 173, 151, 228, 189, 147),
+  subtitle_sync = b(229, 173, 151, 229, 185, 149, 229, 144, 140, 230, 173, 165),
+  subtitle_size = b(229, 173, 151, 229, 185, 149, 229, 164, 167, 229, 176, 143),
+  subtitle_position = b(229, 173, 151, 229, 185, 149, 228, 189, 141, 231, 189, 174),
+  subtitle_outline = b(229, 173, 151, 229, 185, 149, 230, 143, 143, 232, 190, 185),
+  subtitle_shadow_offset = b(229, 173, 151, 229, 185, 149, 233, 152, 180, 229, 189, 177, 229, 129, 143, 231, 167, 187),
+  subtitle_scale = b(229, 173, 151, 229, 185, 149, 231, 188, 169, 230, 148, 190),
+  danmaku_sync = b(229, 188, 185, 229, 185, 149, 229, 144, 140, 230, 173, 165),
+  on = b(229, 188, 128),
+  off = b(229, 133, 179),
+  scroll_max_lines = b(230, 187, 154, 229, 138, 168, 229, 188, 185, 229, 185, 149, 230, 156, 128, 229, 164, 167, 232, 161, 140, 230, 149, 176),
+  top_max_lines = b(233, 161, 182, 233, 131, 168, 229, 188, 185, 229, 185, 149, 230, 156, 128, 229, 164, 167, 232, 161, 140, 230, 149, 176),
+  bottom_max_lines = b(229, 186, 149, 233, 131, 168, 229, 188, 185, 229, 185, 149, 230, 156, 128, 229, 164, 167, 232, 161, 140, 230, 149, 176),
+  danmaku_scale = b(229, 188, 185, 229, 185, 149, 231, 188, 169, 230, 148, 190),
+  danmaku_opacity = b(229, 188, 185, 229, 185, 149, 233, 128, 143, 230, 152, 142, 229, 186, 166),
+  danmaku_scroll_speed = b(229, 188, 185, 229, 185, 149, 230, 187, 154, 229, 138, 168, 233, 128, 159, 229, 186, 166),
+  toggle_notice = b(229, 188, 185, 229, 185, 149, 47, 229, 173, 151, 229, 185, 149, 229, 183, 178, 229, 136, 135, 230, 141, 162),
+}
+local SUBTITLE_LABELS = {
+  delay_seconds = TEXT.subtitle_sync,
+  font_size = TEXT.subtitle_size,
+  position = TEXT.subtitle_position,
+  outline = TEXT.subtitle_outline,
+  shadow_offset = TEXT.subtitle_shadow_offset,
+  scale = TEXT.subtitle_scale,
+}
+local DANMAKU_LABELS = {
+  scroll_max_lines = TEXT.scroll_max_lines,
+  top_max_lines = TEXT.top_max_lines,
+  bottom_max_lines = TEXT.bottom_max_lines,
+  scale = TEXT.danmaku_scale,
+  opacity = TEXT.danmaku_opacity,
+  speed = TEXT.danmaku_scroll_speed,
+}
 local display_title = ${toLuaLongString(escapeAssText(displayTitle))}
 local display_subtitle = ${toLuaLongString(escapeAssText(displaySubtitle))}
+local scale_mode = ${toLuaSingleQuotedString(playerSettings.playback.scaleMode)}
+local font_family = ${toLuaSingleQuotedString(playerSettings.subtitles.fontFamily)}
 local SPEED_OPTIONS = {'0.5', '0.75', '1', '1.25', '1.5', '2', '3', '4', '5'}
 local audio_tracks = {}
 local buttons = {}
 local cache_speed = 0
+local cache_state = nil
 local duration = 0
 local menu_open = nil
 local muted = false
 local paused = false
 local playback_speed = 1
 local position = 0
+local selected_secondary_sid = 'no'
+local selected_sid = 'auto'
+local subtitle_tracks = {}
+local subtitle_settings = {
+  enabled = ${playerSettings.subtitles.enabled ? 'true' : 'false'},
+  font_family = font_family,
+  delay_seconds = ${playerSettings.subtitles.delaySeconds},
+  font_size = ${playerSettings.subtitles.fontSize},
+  position = ${playerSettings.subtitles.position},
+  outline = ${playerSettings.subtitles.outline},
+  shadow_offset = ${playerSettings.subtitles.shadowOffset},
+  scale = ${playerSettings.subtitles.scale},
+  secondary_enabled = ${playerSettings.subtitles.secondaryEnabled ? 'true' : 'false'},
+}
+local danmaku_settings = {
+  enabled = ${playerSettings.danmaku.enabled ? 'true' : 'false'},
+  scroll_max_lines = ${playerSettings.danmaku.scrollMaxLines},
+  top_max_lines = ${playerSettings.danmaku.topMaxLines},
+  bottom_max_lines = ${playerSettings.danmaku.bottomMaxLines},
+  scale = ${playerSettings.danmaku.scale},
+  opacity = ${playerSettings.danmaku.opacity},
+  speed = ${playerSettings.danmaku.speed},
+}
 local volume = 100
+local controls_visible_until = 0
+local last_mouse_x = nil
+local last_mouse_y = nil
 
 local function clamp(value, min_value, max_value)
   value = tonumber(value) or min_value
@@ -240,6 +350,34 @@ local function format_speed(value)
   return string.format('%.1f %s', value, units[unit])
 end
 
+local function update_ui_dimensions()
+  UI_WIDTH = mp.get_property_number('osd-width', UI_WIDTH)
+  UI_HEIGHT = mp.get_property_number('osd-height', UI_HEIGHT)
+  overlay.res_x = UI_WIDTH
+  overlay.res_y = UI_HEIGHT
+end
+
+local function mark_controls_active()
+  controls_visible_until = mp.get_time() + CONTROL_HIDE_SECONDS
+end
+
+local function should_show_controls()
+  return paused or menu_open ~= nil or mp.get_time() <= controls_visible_until
+end
+
+local function track_mouse_activity()
+  local pos = mp.get_property_native('mouse-pos')
+  if not pos then return end
+
+  local x = pos.x or 0
+  local y = pos.y or 0
+  if last_mouse_x ~= x or last_mouse_y ~= y then
+    last_mouse_x = x
+    last_mouse_y = y
+    mark_controls_active()
+  end
+end
+
 local function append_box(out, x1, y1, x2, y2, color, alpha)
   out[#out + 1] = string.format(
     '{\\an7\\pos(0,0)\\bord0\\shad0\\alpha&H%02X&\\c&H%s&\\p1}m %d %d l %d %d l %d %d l %d %d{\\p0}',
@@ -265,6 +403,105 @@ local function add_range_button(id, x1, y1, x2, y2)
   buttons[#buttons + 1] = { id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
 end
 
+local function emit_settings_patch(patch)
+  mp.commandv('script-message', 'taluxa-settings-patch', patch)
+end
+
+local function apply_scale_mode(mode, should_persist)
+  scale_mode = mode
+  mp.commandv('set', 'video-zoom', '0')
+  mp.commandv('set', 'video-scale-x', '1')
+  mp.commandv('set', 'video-scale-y', '1')
+  if mode == 'stretch' then
+    mp.commandv('set', 'keepaspect', 'no')
+    mp.commandv('set', 'panscan', '0')
+  elseif mode == 'crop' then
+    mp.commandv('set', 'keepaspect', 'yes')
+    mp.commandv('set', 'panscan', '1')
+  else
+    mp.commandv('set', 'keepaspect', 'yes')
+    mp.commandv('set', 'panscan', '0')
+  end
+  if should_persist then
+    emit_settings_patch(string.format('{"playback":{"scaleMode":"%s"}}', mode))
+  end
+end
+
+local function apply_subtitle_settings(should_persist)
+  mp.commandv('set', 'sub-visibility', subtitle_settings.enabled and 'yes' or 'no')
+  mp.commandv('set', 'secondary-sub-visibility', subtitle_settings.secondary_enabled and 'yes' or 'no')
+  mp.commandv('set', 'sub-font', subtitle_settings.font_family)
+  mp.commandv('set', 'sub-delay', tostring(subtitle_settings.delay_seconds))
+  mp.commandv('set', 'secondary-sub-delay', tostring(subtitle_settings.delay_seconds))
+  mp.commandv('set', 'sub-font-size', tostring(subtitle_settings.font_size))
+  mp.commandv('set', 'sub-pos', tostring(subtitle_settings.position))
+  mp.commandv('set', 'secondary-sub-pos', '10')
+  mp.commandv('set', 'sub-border-size', tostring(subtitle_settings.outline))
+  mp.commandv('set', 'sub-shadow-offset', tostring(subtitle_settings.shadow_offset))
+  mp.commandv('set', 'sub-scale', tostring(subtitle_settings.scale))
+  if should_persist then
+    emit_settings_patch(string.format(
+      '{"subtitles":{"enabled":%s,"fontFamily":"%s","delaySeconds":%.2f,"fontSize":%d,"position":%d,"outline":%d,"shadowOffset":%d,"scale":%.2f,"secondaryEnabled":%s}}',
+      subtitle_settings.enabled and 'true' or 'false',
+      subtitle_settings.font_family:gsub('\\', '\\\\'):gsub('"', '\\"'),
+      subtitle_settings.delay_seconds,
+      subtitle_settings.font_size,
+      subtitle_settings.position,
+      subtitle_settings.outline,
+      subtitle_settings.shadow_offset,
+      subtitle_settings.scale,
+      subtitle_settings.secondary_enabled and 'true' or 'false'
+    ))
+  end
+end
+
+local function adjust_subtitle_setting(field, delta)
+  if field == 'delay_seconds' then
+    subtitle_settings.delay_seconds = clamp(subtitle_settings.delay_seconds + delta, -30, 30)
+  elseif field == 'font_size' then
+    subtitle_settings.font_size = math.floor(clamp(subtitle_settings.font_size + delta, 12, 120) + 0.5)
+  elseif field == 'position' then
+    subtitle_settings.position = math.floor(clamp(subtitle_settings.position + delta, 0, 150) + 0.5)
+  elseif field == 'outline' then
+    subtitle_settings.outline = math.floor(clamp(subtitle_settings.outline + delta, 0, 12) + 0.5)
+  elseif field == 'shadow_offset' then
+    subtitle_settings.shadow_offset = math.floor(clamp(subtitle_settings.shadow_offset + delta, 0, 12) + 0.5)
+  elseif field == 'scale' then
+    subtitle_settings.scale = clamp(subtitle_settings.scale + delta, 0.5, 2)
+  end
+  apply_subtitle_settings(true)
+end
+
+local function emit_danmaku_settings_patch()
+  emit_settings_patch(string.format(
+    '{"danmaku":{"enabled":%s,"scrollMaxLines":%d,"topMaxLines":%d,"bottomMaxLines":%d,"scale":%.2f,"opacity":%.2f,"speed":%.2f}}',
+    danmaku_settings.enabled and 'true' or 'false',
+    danmaku_settings.scroll_max_lines,
+    danmaku_settings.top_max_lines,
+    danmaku_settings.bottom_max_lines,
+    danmaku_settings.scale,
+    danmaku_settings.opacity,
+    danmaku_settings.speed
+  ))
+end
+
+local function adjust_danmaku_setting(field, delta)
+  if field == 'scroll_max_lines' then
+    danmaku_settings.scroll_max_lines = math.floor(clamp(danmaku_settings.scroll_max_lines + delta, 1, 12) + 0.5)
+  elseif field == 'top_max_lines' then
+    danmaku_settings.top_max_lines = math.floor(clamp(danmaku_settings.top_max_lines + delta, 1, 12) + 0.5)
+  elseif field == 'bottom_max_lines' then
+    danmaku_settings.bottom_max_lines = math.floor(clamp(danmaku_settings.bottom_max_lines + delta, 1, 12) + 0.5)
+  elseif field == 'scale' then
+    danmaku_settings.scale = clamp(danmaku_settings.scale + delta, 0.5, 2)
+  elseif field == 'opacity' then
+    danmaku_settings.opacity = clamp(danmaku_settings.opacity + delta, 0, 1)
+  elseif field == 'speed' then
+    danmaku_settings.speed = clamp(danmaku_settings.speed + delta, 0.5, 2)
+  end
+  emit_danmaku_settings_patch()
+end
+
 local function update_audio_tracks(value)
   audio_tracks = {}
   for _, track in ipairs(value or {}) do
@@ -274,7 +511,86 @@ local function update_audio_tracks(value)
     end
   end
   if #audio_tracks == 0 then
-    audio_tracks[1] = { id = 'no', label = 'No audio' }
+    audio_tracks[1] = { id = 'no', label = TEXT.no_audio }
+  end
+end
+
+local function update_subtitle_tracks(value)
+  subtitle_tracks = {}
+  for _, track in ipairs(value or {}) do
+    if track.type == 'sub' then
+      local label = track.title or track.lang or ('Subtitle ' .. tostring(track.id))
+      subtitle_tracks[#subtitle_tracks + 1] = { id = track.id, label = label }
+    end
+  end
+  if #subtitle_tracks == 0 then
+    subtitle_tracks[1] = { id = 'no', label = TEXT.no_subtitles }
+  end
+end
+
+local function delta_label(base_label, option)
+  if option.value and tonumber(option.value.delta or 0) > 0 then
+    return base_label .. ' +'
+  end
+  return base_label .. ' -'
+end
+
+local function localize_options(options, menu_name)
+  if menu_name == 'audio' then
+    for _, option in ipairs(options) do
+      if option.value == 'no' then
+        option.label = TEXT.no_audio
+      end
+    end
+  elseif menu_name == 'settings' then
+    options[1].label = TEXT.scale_mode
+    options[3].label = TEXT.skip_intro
+    options[4].label = TEXT.subtitle_settings
+    options[5].label = TEXT.danmaku_settings
+    options[6].label = TEXT.statistics
+  elseif menu_name == 'scale' then
+    for _, option in ipairs(options) do
+      if option.value == 'fit' then
+        option.label = TEXT.fit
+      elseif option.value == 'stretch' then
+        option.label = TEXT.stretch
+      elseif option.value == 'crop' then
+        option.label = TEXT.crop
+      end
+    end
+  elseif menu_name == 'subtitles' then
+    local tab_index = 0
+    for _, option in ipairs(options) do
+      if option.value == 'no' then
+        option.label = TEXT.no_subtitles
+      elseif option.id == 'subtitle-tab' then
+        tab_index = tab_index + 1
+        option.label = tab_index == 1 and TEXT.subtitle_1 or TEXT.subtitle_2
+      elseif option.id == 'disabled' and option.suffix == subtitle_settings.font_family then
+        option.label = TEXT.subtitle_font
+      elseif option.id == 'disabled' then
+        option.label = TEXT.subtitle_settings
+      elseif option.id == 'subtitle-value-minus' or option.id == 'subtitle-value-plus' then
+        local base_label = SUBTITLE_LABELS[option.value and option.value.field]
+        if base_label then
+          option.label = delta_label(base_label, option)
+        end
+      end
+    end
+  elseif menu_name == 'danmaku' then
+    if options[1] then options[1].label = TEXT.danmaku_settings end
+    if options[2] then
+      options[2].label = TEXT.danmaku_sync
+      options[2].suffix = danmaku_settings.enabled and TEXT.on or TEXT.off
+    end
+    for _, option in ipairs(options) do
+      if option.id == 'danmaku-value-minus' or option.id == 'danmaku-value-plus' then
+        local base_label = DANMAKU_LABELS[option.value and option.value.field]
+        if base_label then
+          option.label = delta_label(base_label, option)
+        end
+      end
+    end
   end
 end
 
@@ -294,9 +610,28 @@ local function draw_options_menu(out)
   local width = UI_WIDTH
   local height = UI_HEIGHT
   local item_height = 46
-  local menu_width = menu_open == 'audio' and 260 or 112
+  local menu_width = 112
+  if menu_open == 'audio' then
+    menu_width = 260
+  elseif menu_open == 'settings' then
+    menu_width = 250
+  elseif menu_open == 'scale' then
+    menu_width = 180
+  elseif menu_open == 'subtitles' then
+    menu_width = 360
+  elseif menu_open == 'danmaku' then
+    menu_width = 360
+  end
   local right = width - 640
-  local anchor_x = menu_open == 'audio' and (right + 122) or right
+  local speed_center = right + 48
+  local audio_center = right + 122 + math.floor((36 * BUTTON_SCALE) / 2)
+  local settings_center = right + 368 + math.floor((36 * BUTTON_SCALE) / 2)
+  local anchor_center = speed_center
+  if menu_open == 'audio' then
+    anchor_center = audio_center
+  elseif menu_open == 'settings' or menu_open == 'scale' or menu_open == 'subtitles' or menu_open == 'danmaku' then
+    anchor_center = settings_center
+  end
   local options = {}
 
   if menu_open == 'speed' then
@@ -307,10 +642,68 @@ local function draw_options_menu(out)
     for _, track in ipairs(audio_tracks) do
       options[#options + 1] = { id = 'audio-option', value = track.id, label = track.label }
     end
+  elseif menu_open == 'settings' then
+    options = {
+      { id = 'settings-scale', label = TEXT.scale_mode, suffix = '>' },
+      { id = 'disabled', label = 'Anime4K', suffix = 'PRO' },
+      { id = 'disabled', label = TEXT.skip_intro, suffix = 'PRO' },
+      { id = 'settings-subtitles', label = TEXT.subtitle_settings },
+      { id = 'settings-danmaku', label = TEXT.danmaku_settings },
+      { id = 'settings-stats', label = TEXT.statistics },
+    }
+  elseif menu_open == 'scale' then
+    local scale_options = {
+      { 'fit', TEXT.fit },
+      { 'stretch', TEXT.stretch },
+      { 'crop', TEXT.crop },
+    }
+    for _, option in ipairs(scale_options) do
+      options[#options + 1] = { id = 'scale-option', value = option[1], label = option[2] }
+    end
+  elseif menu_open == 'subtitles' then
+    options[#options + 1] = { id = 'disabled', label = TEXT.subtitle_settings }
+    options[#options + 1] = { id = 'subtitle-tab', value = 'primary', label = TEXT.subtitle_1, suffix = tostring(selected_sid) }
+    for _, track in ipairs(subtitle_tracks) do
+      options[#options + 1] = { id = 'subtitle-track-option', value = track.id, label = track.label }
+    end
+    options[#options + 1] = { id = 'subtitle-tab', value = 'secondary', label = TEXT.subtitle_2, suffix = tostring(selected_secondary_sid) }
+    for _, track in ipairs(subtitle_tracks) do
+      options[#options + 1] = { id = 'secondary-subtitle-track-option', value = track.id, label = track.label }
+    end
+    options[#options + 1] = { id = 'disabled', label = TEXT.subtitle_font, suffix = subtitle_settings.font_family }
+    options[#options + 1] = { id = 'subtitle-value-minus', value = { field = 'delay_seconds', delta = -0.1 }, label = TEXT.subtitle_sync .. ' -', suffix = string.format('%.1fs', subtitle_settings.delay_seconds) }
+    options[#options + 1] = { id = 'subtitle-value-plus', value = { field = 'delay_seconds', delta = 0.1 }, label = TEXT.subtitle_sync .. ' +' }
+    options[#options + 1] = { id = 'subtitle-value-minus', value = { field = 'font_size', delta = -1 }, label = TEXT.subtitle_size .. ' -', suffix = tostring(subtitle_settings.font_size) }
+    options[#options + 1] = { id = 'subtitle-value-plus', value = { field = 'font_size', delta = 1 }, label = TEXT.subtitle_size .. ' +' }
+    options[#options + 1] = { id = 'subtitle-value-minus', value = { field = 'position', delta = -1 }, label = TEXT.subtitle_position .. ' -', suffix = tostring(subtitle_settings.position) }
+    options[#options + 1] = { id = 'subtitle-value-plus', value = { field = 'position', delta = 1 }, label = TEXT.subtitle_position .. ' +' }
+    options[#options + 1] = { id = 'subtitle-value-minus', value = { field = 'outline', delta = -1 }, label = TEXT.subtitle_outline .. ' -', suffix = tostring(subtitle_settings.outline) }
+    options[#options + 1] = { id = 'subtitle-value-plus', value = { field = 'outline', delta = 1 }, label = TEXT.subtitle_outline .. ' +' }
+    options[#options + 1] = { id = 'subtitle-value-minus', value = { field = 'shadow_offset', delta = -1 }, label = TEXT.subtitle_shadow_offset .. ' -', suffix = tostring(subtitle_settings.shadow_offset) }
+    options[#options + 1] = { id = 'subtitle-value-plus', value = { field = 'shadow_offset', delta = 1 }, label = TEXT.subtitle_shadow_offset .. ' +' }
+    options[#options + 1] = { id = 'subtitle-value-minus', value = { field = 'scale', delta = -0.1 }, label = TEXT.subtitle_scale .. ' -', suffix = string.format('%.1f', subtitle_settings.scale) }
+    options[#options + 1] = { id = 'subtitle-value-plus', value = { field = 'scale', delta = 0.1 }, label = TEXT.subtitle_scale .. ' +' }
+  elseif menu_open == 'danmaku' then
+    options[#options + 1] = { id = 'disabled', label = TEXT.danmaku_settings }
+    options[#options + 1] = { id = 'disabled', label = TEXT.danmaku_sync, suffix = danmaku_settings.enabled and TEXT.on or TEXT.off }
+    options[#options + 1] = { id = 'danmaku-value-minus', value = { field = 'scroll_max_lines', delta = -1 }, label = TEXT.scroll_max_lines .. ' -', suffix = tostring(danmaku_settings.scroll_max_lines) }
+    options[#options + 1] = { id = 'danmaku-value-plus', value = { field = 'scroll_max_lines', delta = 1 }, label = TEXT.scroll_max_lines .. ' +' }
+    options[#options + 1] = { id = 'danmaku-value-minus', value = { field = 'top_max_lines', delta = -1 }, label = TEXT.top_max_lines .. ' -', suffix = tostring(danmaku_settings.top_max_lines) }
+    options[#options + 1] = { id = 'danmaku-value-plus', value = { field = 'top_max_lines', delta = 1 }, label = TEXT.top_max_lines .. ' +' }
+    options[#options + 1] = { id = 'danmaku-value-minus', value = { field = 'bottom_max_lines', delta = -1 }, label = TEXT.bottom_max_lines .. ' -', suffix = tostring(danmaku_settings.bottom_max_lines) }
+    options[#options + 1] = { id = 'danmaku-value-plus', value = { field = 'bottom_max_lines', delta = 1 }, label = TEXT.bottom_max_lines .. ' +' }
+    options[#options + 1] = { id = 'danmaku-value-minus', value = { field = 'scale', delta = -0.1 }, label = TEXT.danmaku_scale .. ' -', suffix = string.format('%.1f', danmaku_settings.scale) }
+    options[#options + 1] = { id = 'danmaku-value-plus', value = { field = 'scale', delta = 0.1 }, label = TEXT.danmaku_scale .. ' +' }
+    options[#options + 1] = { id = 'danmaku-value-minus', value = { field = 'opacity', delta = -0.05 }, label = TEXT.danmaku_opacity .. ' -', suffix = string.format('%d%%', math.floor(danmaku_settings.opacity * 100 + 0.5)) }
+    options[#options + 1] = { id = 'danmaku-value-plus', value = { field = 'opacity', delta = 0.05 }, label = TEXT.danmaku_opacity .. ' +' }
+    options[#options + 1] = { id = 'danmaku-value-minus', value = { field = 'speed', delta = -0.1 }, label = TEXT.danmaku_scroll_speed .. ' -', suffix = string.format('%.1fx', danmaku_settings.speed) }
+    options[#options + 1] = { id = 'danmaku-value-plus', value = { field = 'speed', delta = 0.1 }, label = TEXT.danmaku_scroll_speed .. ' +' }
   end
 
+  localize_options(options, menu_open)
+
   local menu_height = math.max(item_height, #options * item_height)
-  local x = math.min(width - menu_width - 28, anchor_x)
+  local x = math.min(width - menu_width - 28, math.max(28, anchor_center - math.floor(menu_width / 2)))
   local y = height - 128 - menu_height
   append_box(out, x, y, x + menu_width, y + menu_height, '101010', 35)
 
@@ -318,16 +711,43 @@ local function draw_options_menu(out)
     local item_y = y + (index - 1) * item_height
     local label = option.label
     add_button(out, option.id, x, item_y, menu_width, item_height, label, 24, option.value)
+    if option.suffix then
+      append_text(out, x + menu_width - 14, item_y + math.floor(item_height / 2) + 1, 6, 18, option.suffix, 'CFCFCF', 0, false)
+    end
+  end
+end
+
+local function append_cache_ranges(out, bar_left, bar_right, bar_y)
+  if not cache_state or duration <= 0 then return end
+
+  local ranges = cache_state['seekable-ranges'] or {}
+  local bar_width = math.max(1, bar_right - bar_left)
+  for _, cached_range in ipairs(ranges) do
+    local start_time = tonumber(cached_range['start']) or 0
+    local end_time = tonumber(cached_range['end']) or 0
+    if end_time > position then
+      local x1 = bar_left + math.floor(bar_width * clamp(math.max(start_time, position) / duration, 0, 1))
+      local x2 = bar_left + math.floor(bar_width * clamp(end_time / duration, 0, 1))
+      if x2 > x1 then
+        append_box(out, x1, bar_y - 2, x2, bar_y + 2, CACHE_BLUE, 35)
+      end
+    end
   end
 end
 
 local function draw_controls()
+  update_ui_dimensions()
+  track_mouse_activity()
+
   local width = UI_WIDTH
   local height = UI_HEIGHT
   local out = {}
   buttons = {}
-  overlay.res_x = width
-  overlay.res_y = height
+  if not should_show_controls() then
+    overlay.data = ''
+    overlay:update()
+    return
+  end
 
   local progress = 0
   if duration > 0 then
@@ -353,9 +773,10 @@ local function draw_controls()
 
   append_text(out, 24, bar_y + 5, 4, 16, format_clock(position), 'FFFFFF', 0, false)
   append_text(out, width - 24, bar_y + 5, 6, 16, format_clock(remaining), 'FFFFFF', 0, false)
-  append_box(out, bar_left, bar_y - 1, bar_right, bar_y + 1, 'CFCFCF', 80)
-  append_box(out, bar_left, bar_y - 2, progress_x, bar_y + 2, 'B35CFF', 0)
-  append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, 'B35CFF', 0)
+  append_box(out, bar_left, bar_y - 1, bar_right, bar_y + 1, TRACK_GRAY, 80)
+  append_cache_ranges(out, bar_left, bar_right, bar_y)
+  append_box(out, bar_left, bar_y - 2, progress_x, bar_y + 2, BLUE, 0)
+  append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, BLUE, 0)
   add_range_button('seek', bar_left, bar_y - 12, bar_right, bar_y + 12)
 
   local button_height = 36 * BUTTON_SCALE
@@ -365,9 +786,9 @@ local function draw_controls()
   add_button(out, 'play', 104, button_y, icon_button, button_height, paused and '\226\150\182' or 'II', 43)
   add_button(out, 'next', 184, button_y, icon_button, button_height, '>|', 42)
   add_button(out, 'mute', 286, button_y, icon_button, button_height, muted and 'x' or '\226\153\170', 42)
-  append_box(out, 374, controls_y - 3, 526, controls_y + 3, 'D0D0D0', 115)
-  append_box(out, 374, controls_y - 4, 374 + math.floor(152 * clamp(volume / 100, 0, 1)), controls_y + 4, 'B35CFF', 0)
-  append_box(out, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) - 8, controls_y - 9, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) + 8, controls_y + 9, 'B35CFF', 0)
+  append_box(out, 374, controls_y - 3, 526, controls_y + 3, TRACK_GRAY, 115)
+  append_box(out, 374, controls_y - 4, 374 + math.floor(152 * clamp(volume / 100, 0, 1)), controls_y + 4, BLUE, 0)
+  append_box(out, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) - 8, controls_y - 9, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) + 8, controls_y + 9, BLUE, 0)
   add_range_button('volume', 360, controls_y - 18, 540, controls_y + 18)
 
   local right = width - 640
@@ -402,12 +823,18 @@ local function button_at(x, y)
 end
 
 local function handle_click()
+  mark_controls_active()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
-  if not pos then return end
+  if not pos then
+    draw_controls()
+    return
+  end
   local id, button = button_at(pos.x or 0, pos.y or 0)
   if not id then
     if menu_open then
       menu_open = nil
+      draw_controls()
+    else
       draw_controls()
     end
     return
@@ -429,6 +856,34 @@ local function handle_click()
       mp.commandv('set', 'aid', tostring(button.value))
     end
     menu_open = nil
+  elseif id == 'settings-scale' then
+    menu_open = 'scale'
+  elseif id == 'scale-option' then
+    apply_scale_mode(tostring(button.value), true)
+    menu_open = 'settings'
+  elseif id == 'settings-subtitles' then
+    menu_open = 'subtitles'
+  elseif id == 'settings-danmaku' then
+    menu_open = 'danmaku'
+  elseif id == 'settings-stats' then
+    menu_open = nil
+    mp.commandv('script-binding', 'stats/display-stats-toggle')
+  elseif id == 'subtitle-track-option' then
+    selected_sid = tostring(button.value)
+    mp.commandv('set', 'sid', selected_sid)
+  elseif id == 'secondary-subtitle-track-option' then
+    selected_secondary_sid = tostring(button.value)
+    mp.commandv('set', 'secondary-sid', selected_secondary_sid)
+    subtitle_settings.secondary_enabled = selected_secondary_sid ~= 'no'
+    apply_subtitle_settings(true)
+  elseif id == 'subtitle-value-minus' or id == 'subtitle-value-plus' then
+    if button.value then
+      adjust_subtitle_setting(button.value.field, button.value.delta)
+    end
+  elseif id == 'danmaku-value-minus' or id == 'danmaku-value-plus' then
+    if button.value then
+      adjust_danmaku_setting(button.value.field, button.value.delta)
+    end
   elseif id == 'prev' then
     menu_open = nil
     mp.commandv('playlist-prev')
@@ -458,11 +913,14 @@ local function handle_click()
     mp.commandv('cycle', 'sid')
   elseif id == 'danmaku' then
     menu_open = nil
-    mp.commandv('cycle', 'sid')
-    mp.commandv('show-text', 'Danmaku/subtitles toggled', '1200')
+    mp.commandv('cycle', 'secondary-sid')
+    mp.commandv('show-text', TEXT.toggle_notice, '1200')
   elseif id == 'settings' then
-    menu_open = nil
-    mp.commandv('show-text', 'F6/F7 speed  F9/F10 cache', '2500')
+    if menu_open == 'settings' then
+      menu_open = nil
+    else
+      menu_open = 'settings'
+    end
   elseif id == 'fullscreen' then
     menu_open = nil
     mp.commandv('cycle', 'fullscreen')
@@ -479,6 +937,7 @@ local function handle_click()
 end
 
 local function handle_wheel(delta)
+  mark_controls_active()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
   if pos then
     local id = button_at(pos.x or 0, pos.y or 0)
@@ -491,20 +950,25 @@ local function handle_wheel(delta)
 end
 
 mp.observe_property('cache-speed', 'native', function(_, value) cache_speed = value or 0; draw_controls() end)
+mp.observe_property('demuxer-cache-state', 'native', function(_, value) cache_state = value; draw_controls() end)
 mp.observe_property('duration', 'number', function(_, value) duration = value or 0; draw_controls() end)
 mp.observe_property('time-pos', 'number', function(_, value) position = value or 0; draw_controls() end)
 mp.observe_property('pause', 'bool', function(_, value) paused = value or false; draw_controls() end)
 mp.observe_property('speed', 'number', function(_, value) playback_speed = value or 1; draw_controls() end)
 mp.observe_property('volume', 'number', function(_, value) volume = value or 0; draw_controls() end)
 mp.observe_property('mute', 'bool', function(_, value) muted = value or false; draw_controls() end)
-mp.observe_property('track-list', 'native', function(_, value) update_audio_tracks(value); draw_controls() end)
+mp.observe_property('track-list', 'native', function(_, value) update_audio_tracks(value); update_subtitle_tracks(value); draw_controls() end)
 mp.observe_property('osd-width', 'native', draw_controls)
 mp.observe_property('osd-height', 'native', draw_controls)
 mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_click)
 mp.add_forced_key_binding('WHEEL_UP', 'taluxa-wheel-up', function() handle_wheel(1) end)
 mp.add_forced_key_binding('WHEEL_DOWN', 'taluxa-wheel-down', function() handle_wheel(-1) end)
 mp.add_periodic_timer(1, draw_controls)
+apply_scale_mode(scale_mode, false)
+apply_subtitle_settings(false)
 update_audio_tracks(mp.get_property_native('track-list'))
+update_subtitle_tracks(mp.get_property_native('track-list'))
+mark_controls_active()
 draw_controls()
 `.trimStart();
 }
@@ -523,6 +987,7 @@ export interface MpvControllerOptions {
   isPackaged?: boolean;
   maxConnectAttempts?: number;
   moduleDir?: string;
+  onPlayerSettingsPatch?: (patch: PlayerSettingsPatch) => void | Promise<void>;
   onProgress?: (snapshot: MpvProgressSnapshot) => void;
   readTextFile?: (targetPath: string) => string;
   resourcesPath?: string;
@@ -646,6 +1111,121 @@ function normalizeFailureDetail(detail: unknown): string {
   return typeof detail === 'string' ? detail.trim() : '';
 }
 
+function clampNumber(value: number, minValue: number, maxValue: number): number {
+  if (!Number.isFinite(value)) {
+    return minValue;
+  }
+
+  return Math.max(minValue, Math.min(maxValue, value));
+}
+
+function parsePlayerSettingsPatch(value: unknown): PlayerSettingsPatch | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as PlayerSettingsPatch;
+    const patch: PlayerSettingsPatch = {};
+
+    if (
+      parsed.playback?.scaleMode === 'fit' ||
+      parsed.playback?.scaleMode === 'stretch' ||
+      parsed.playback?.scaleMode === 'crop'
+    ) {
+      patch.playback = { scaleMode: parsed.playback.scaleMode };
+    }
+
+    if (parsed.subtitles) {
+      patch.subtitles = {};
+      if (typeof parsed.subtitles.enabled === 'boolean') {
+        patch.subtitles.enabled = parsed.subtitles.enabled;
+      }
+      if (typeof parsed.subtitles.secondaryEnabled === 'boolean') {
+        patch.subtitles.secondaryEnabled = parsed.subtitles.secondaryEnabled;
+      }
+      if (typeof parsed.subtitles.fontFamily === 'string') {
+        patch.subtitles.fontFamily = parsed.subtitles.fontFamily.slice(0, 80);
+      }
+      if (typeof parsed.subtitles.delaySeconds === 'number') {
+        patch.subtitles.delaySeconds = clampNumber(parsed.subtitles.delaySeconds, -30, 30);
+      }
+      if (typeof parsed.subtitles.fontSize === 'number') {
+        patch.subtitles.fontSize = Math.round(clampNumber(parsed.subtitles.fontSize, 12, 120));
+      }
+      if (typeof parsed.subtitles.position === 'number') {
+        patch.subtitles.position = Math.round(clampNumber(parsed.subtitles.position, 0, 150));
+      }
+      if (typeof parsed.subtitles.outline === 'number') {
+        patch.subtitles.outline = Math.round(clampNumber(parsed.subtitles.outline, 0, 12));
+      }
+      if (typeof parsed.subtitles.shadowOffset === 'number') {
+        patch.subtitles.shadowOffset = Math.round(
+          clampNumber(parsed.subtitles.shadowOffset, 0, 12)
+        );
+      }
+      if (typeof parsed.subtitles.scale === 'number') {
+        patch.subtitles.scale = clampNumber(parsed.subtitles.scale, 0.5, 2);
+      }
+    }
+
+    if (parsed.danmaku) {
+      patch.danmaku = {};
+      if (typeof parsed.danmaku.enabled === 'boolean') {
+        patch.danmaku.enabled = parsed.danmaku.enabled;
+      }
+      if (typeof parsed.danmaku.scrollMaxLines === 'number') {
+        patch.danmaku.scrollMaxLines = Math.round(
+          clampNumber(parsed.danmaku.scrollMaxLines, 1, 12)
+        );
+      }
+      if (typeof parsed.danmaku.topMaxLines === 'number') {
+        patch.danmaku.topMaxLines = Math.round(clampNumber(parsed.danmaku.topMaxLines, 1, 12));
+      }
+      if (typeof parsed.danmaku.bottomMaxLines === 'number') {
+        patch.danmaku.bottomMaxLines = Math.round(
+          clampNumber(parsed.danmaku.bottomMaxLines, 1, 12)
+        );
+      }
+      if (typeof parsed.danmaku.scale === 'number') {
+        patch.danmaku.scale = clampNumber(parsed.danmaku.scale, 0.5, 2);
+      }
+      if (typeof parsed.danmaku.opacity === 'number') {
+        patch.danmaku.opacity = clampNumber(parsed.danmaku.opacity, 0, 1);
+      }
+      if (typeof parsed.danmaku.speed === 'number') {
+        patch.danmaku.speed = clampNumber(parsed.danmaku.speed, 0.5, 2);
+      }
+    }
+
+    return patch.playback || patch.subtitles || patch.danmaku ? patch : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLaunchPlayerSettings(
+  playerSettings?: Partial<LaunchPlayerSettings>
+): LaunchPlayerSettings {
+  const defaultSettings = createDefaultSettings();
+
+  return {
+    playback: {
+      ...defaultSettings.playback,
+      ...playerSettings?.playback,
+    },
+    subtitles: {
+      ...defaultSettings.subtitles,
+      ...playerSettings?.subtitles,
+    },
+    danmakuServers: playerSettings?.danmakuServers ?? [],
+    danmaku: {
+      ...defaultSettings.danmaku,
+      ...playerSettings?.danmaku,
+    },
+  };
+}
+
 function redactSensitivePlaybackText(value: string): string {
   return value
     .replace(/([?&]api_key=)[^&\s]+/giu, '$1[redacted]')
@@ -683,6 +1263,8 @@ export class MpvController {
   private readonly maxConnectAttempts: number;
 
   private readonly moduleDir: string;
+
+  private readonly onPlayerSettingsPatch: (patch: PlayerSettingsPatch) => void | Promise<void>;
 
   private readonly onProgress: (snapshot: MpvProgressSnapshot) => void;
 
@@ -723,6 +1305,7 @@ export class MpvController {
     this.isPackaged = options.isPackaged ?? process.env.NODE_ENV === 'production';
     this.maxConnectAttempts = options.maxConnectAttempts ?? 20;
     this.moduleDir = options.moduleDir ?? path.dirname(fileURLToPath(import.meta.url));
+    this.onPlayerSettingsPatch = options.onPlayerSettingsPatch ?? (() => undefined);
     this.onProgress = options.onProgress ?? (() => undefined);
     this.readTextFile =
       options.readTextFile ?? ((targetPath) => readFileSync(targetPath, 'utf8'));
@@ -748,9 +1331,9 @@ export class MpvController {
   async launch(
     input: LaunchMpvInput,
     proxy: ProxySettings,
-    danmakuServers: DanmakuServerSettings[] = [],
-    danmakuSettings?: DanmakuSettings
+    playerSettings?: Partial<LaunchPlayerSettings>
   ): Promise<void> {
+    const normalizedPlayerSettings = normalizeLaunchPlayerSettings(playerSettings);
     const executablePath = this.getExecutablePath();
     const ipcServerPath = this.createIpcEndpoint();
     const sessionId = ++this.sessionCounter;
@@ -759,10 +1342,11 @@ export class MpvController {
     const danmakuFilePath = this.createDanmakuFilePath(sessionId);
     const logFilePath = this.createLogFilePath(sessionId);
     this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
-    this.writeTextFile(uiScriptFilePath, createMpvUiScript(input.title));
+    this.writeTextFile(uiScriptFilePath, createMpvUiScript(input.title, normalizedPlayerSettings));
     const args = [
       '--force-window=yes',
       '--border=no',
+      '--keepaspect-window=no',
       '--osc=no',
       `--input-ipc-server=${ipcServerPath}`,
       `--input-conf=${inputConfigFilePath}`,
@@ -828,6 +1412,8 @@ export class MpvController {
         child.once('exit', handleExit);
         this.startSession({
           child,
+          danmakuFilePath,
+          danmakuSettings: normalizedPlayerSettings.danmaku,
           sessionId,
           itemId: input.itemId,
           ipcServerPath,
@@ -840,7 +1426,13 @@ export class MpvController {
           },
           stderrLines,
         });
-        this.startDanmakuLookup(sessionId, input, danmakuServers, danmakuFilePath, danmakuSettings);
+        this.startDanmakuLookup(
+          sessionId,
+          input,
+          normalizedPlayerSettings.danmakuServers,
+          danmakuFilePath,
+          normalizedPlayerSettings.danmaku
+        );
         child.unref();
       };
       const handleError = (error: Error) => {
@@ -932,6 +1524,13 @@ export class MpvController {
         if (comments.length === 0) {
           this.queueDanmakuNotice(sessionId, DANMAKU_NO_MATCH_NOTICE);
           return;
+        }
+
+        const session = this.activeSession;
+        if (session && session.sessionId === sessionId) {
+          session.danmakuComments = comments;
+          session.danmakuSettings = danmakuSettings ?? createDefaultSettings().danmaku;
+          session.hasDanmakuSubtitle = true;
         }
 
         this.writeTextFile(danmakuFilePath, toAssSubtitle(comments, danmakuSettings));
@@ -1127,6 +1726,7 @@ export class MpvController {
           event?: string;
           error?: string;
           file_error?: string;
+          args?: unknown[];
           name?: string;
           reason?: string;
         };
@@ -1157,6 +1757,21 @@ export class MpvController {
           continue;
         }
 
+        if (payload.event === 'client-message' && Array.isArray(payload.args)) {
+          const [name, rawPatch] = payload.args;
+
+          if (name === 'taluxa-settings-patch') {
+            const patch = parsePlayerSettingsPatch(rawPatch);
+
+            if (patch) {
+              void this.onPlayerSettingsPatch(patch);
+              this.applyLiveSettingsPatch(session, patch);
+            }
+          }
+
+          continue;
+        }
+
         if (payload.event !== 'property-change') {
           continue;
         }
@@ -1179,6 +1794,28 @@ export class MpvController {
         // Ignore malformed IPC payloads from a stale or interrupted mpv session.
       }
     }
+  }
+
+  private applyLiveSettingsPatch(session: ActiveSession, patch: PlayerSettingsPatch): void {
+    if (patch.danmaku) {
+      session.danmakuSettings = {
+        ...session.danmakuSettings,
+        ...patch.danmaku,
+      };
+      this.refreshDanmakuSubtitle(session);
+    }
+  }
+
+  private refreshDanmakuSubtitle(session: ActiveSession): void {
+    if (!session.hasDanmakuSubtitle || session.danmakuComments.length === 0) {
+      return;
+    }
+
+    this.writeTextFile(
+      session.danmakuFilePath,
+      toAssSubtitle(session.danmakuComments, session.danmakuSettings)
+    );
+    this.queueSessionCommand(session.sessionId, ['sub-add', session.danmakuFilePath, 'select']);
   }
 
   private isActiveSession(sessionId: number): boolean {
@@ -1217,6 +1854,8 @@ export class MpvController {
 
   private startSession({
     child,
+    danmakuFilePath,
+    danmakuSettings,
     ipcServerPath,
     itemId,
     logFilePath,
@@ -1226,6 +1865,8 @@ export class MpvController {
     stderrLines,
   }: {
     child: SpawnedMpvProcess;
+    danmakuFilePath: string;
+    danmakuSettings: DanmakuSettings;
     ipcServerPath: string;
     itemId: string;
     logFilePath: string;
@@ -1240,8 +1881,12 @@ export class MpvController {
       client: null,
       connectAttempt: 0,
       connectTimeout: null,
+      danmakuComments: [],
+      danmakuFilePath,
+      danmakuSettings,
       durationSeconds: 0,
       hasConnected: false,
+      hasDanmakuSubtitle: false,
       ipcServerPath,
       isReady: false,
       itemId,

@@ -8,6 +8,8 @@ import type {
   CacheSettings,
   DanmakuServerSettings,
   DanmakuSettings,
+  PlaybackSettings,
+  SubtitleSettings,
 } from '@shared/models/settings';
 
 describe('SettingsPage', () => {
@@ -16,6 +18,8 @@ describe('SettingsPage', () => {
     onProxySettingsSave = vi.fn().mockResolvedValue(undefined),
     onDanmakuServersSave = vi.fn().mockResolvedValue(undefined),
     onDanmakuSettingsSave = vi.fn().mockResolvedValue(undefined),
+    onPlaybackSettingsSave = vi.fn().mockResolvedValue(undefined),
+    onSubtitleSettingsSave = vi.fn().mockResolvedValue(undefined),
     onCacheSettingsSave = vi.fn().mockResolvedValue(undefined),
     onClearDataCache = vi.fn().mockResolvedValue(undefined),
     onClearImageCache = vi.fn().mockResolvedValue(undefined),
@@ -35,6 +39,20 @@ describe('SettingsPage', () => {
       matchMode: 'fileName',
       conversionMode: 'off',
     },
+    playbackSettings = {
+      scaleMode: 'fit',
+    },
+    subtitleSettings = {
+      enabled: true,
+      fontFamily: 'Tahoma',
+      delaySeconds: 0,
+      fontSize: 55,
+      position: 100,
+      outline: 3,
+      shadowOffset: 0,
+      scale: 1,
+      secondaryEnabled: false,
+    },
     cacheSettings = {
       dataCacheEnabled: true,
       dataCacheTtlDays: 30,
@@ -49,6 +67,8 @@ describe('SettingsPage', () => {
     onProxySettingsSave?: ReturnType<typeof vi.fn>;
     onDanmakuServersSave?: ReturnType<typeof vi.fn>;
     onDanmakuSettingsSave?: ReturnType<typeof vi.fn>;
+    onPlaybackSettingsSave?: ReturnType<typeof vi.fn>;
+    onSubtitleSettingsSave?: ReturnType<typeof vi.fn>;
     onCacheSettingsSave?: ReturnType<typeof vi.fn>;
     onClearDataCache?: ReturnType<typeof vi.fn>;
     onClearImageCache?: ReturnType<typeof vi.fn>;
@@ -56,6 +76,8 @@ describe('SettingsPage', () => {
     customProxyUrl?: string;
     danmakuServers?: DanmakuServerSettings[];
     danmakuSettings?: DanmakuSettings;
+    playbackSettings?: PlaybackSettings;
+    subtitleSettings?: SubtitleSettings;
     cacheSettings?: CacheSettings;
     dataCacheBytes?: number;
     imageCacheBytes?: number;
@@ -69,6 +91,8 @@ describe('SettingsPage', () => {
             defaultVolume={0.8}
             proxyMode={proxyMode}
             customProxyUrl={customProxyUrl}
+            playbackSettings={playbackSettings}
+            subtitleSettings={subtitleSettings}
             danmakuServers={danmakuServers}
             danmakuSettings={danmakuSettings}
             cacheSettings={cacheSettings}
@@ -78,6 +102,8 @@ describe('SettingsPage', () => {
             onClearDataCache={onClearDataCache}
             onClearImageCache={onClearImageCache}
             onProxySettingsSave={onProxySettingsSave}
+            onPlaybackSettingsSave={onPlaybackSettingsSave}
+            onSubtitleSettingsSave={onSubtitleSettingsSave}
             onDanmakuServersSave={onDanmakuServersSave}
             onDanmakuSettingsSave={onDanmakuSettingsSave}
             onLogout={onLogout}
@@ -93,6 +119,8 @@ describe('SettingsPage', () => {
       onClearImageCache,
       onDanmakuServersSave,
       onDanmakuSettingsSave,
+      onPlaybackSettingsSave,
+      onSubtitleSettingsSave,
       onProxySettingsSave,
     };
   }
@@ -249,6 +277,46 @@ describe('SettingsPage', () => {
     });
     expect(onDanmakuSettingsSave).toHaveBeenCalledWith(
       expect.objectContaining({ matchMode: 'hashAndFileName' })
+    );
+  });
+
+  it('saves playback scale mode from the media settings section', () => {
+    const onPlaybackSettingsSave = vi.fn().mockResolvedValue(undefined);
+    renderSettingsPage({ onPlaybackSettingsSave });
+
+    fireEvent.change(screen.getByLabelText('Playback scale mode'), {
+      target: { value: 'crop' },
+    });
+
+    expect(onPlaybackSettingsSave).toHaveBeenCalledWith({ scaleMode: 'crop' });
+  });
+
+  it('saves subtitle settings from Taluxa settings rows', () => {
+    const onSubtitleSettingsSave = vi.fn().mockResolvedValue(undefined);
+    renderSettingsPage({ onSubtitleSettingsSave });
+
+    fireEvent.click(screen.getByLabelText('Enable subtitles'));
+    expect(onSubtitleSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false })
+    );
+
+    fireEvent.change(screen.getByLabelText('Subtitle delay'), {
+      target: { value: '1.5' },
+    });
+    expect(onSubtitleSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ delaySeconds: 1.5 })
+    );
+
+    fireEvent.change(screen.getByLabelText('Subtitle font size'), {
+      target: { value: '72' },
+    });
+    expect(onSubtitleSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ fontSize: 72 })
+    );
+
+    fireEvent.click(screen.getByLabelText('Enable secondary subtitles'));
+    expect(onSubtitleSettingsSave).toHaveBeenCalledWith(
+      expect.objectContaining({ secondaryEnabled: true })
     );
   });
 

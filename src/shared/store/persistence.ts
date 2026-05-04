@@ -5,7 +5,9 @@ import {
   createDefaultSettings,
   type CacheSettings,
   type DanmakuSettings,
+  type PlaybackSettings,
   type Settings,
+  type SubtitleSettings,
 } from '../models/settings';
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '../api/emby/home';
 
@@ -27,9 +29,11 @@ export interface PersistedState {
 
 const ACCOUNT_SCOPED_PROGRESS_PREFIX = 'account-progress::';
 
-type PersistedSettingsPatch = Partial<Omit<Settings, 'cache' | 'danmaku'>> & {
+type PersistedSettingsPatch = Partial<Omit<Settings, 'cache' | 'danmaku' | 'playback' | 'subtitles'>> & {
   cache?: Partial<CacheSettings>;
   danmaku?: Partial<DanmakuSettings>;
+  playback?: Partial<PlaybackSettings>;
+  subtitles?: Partial<SubtitleSettings>;
 };
 
 export interface LegacyPersistedState {
@@ -191,6 +195,16 @@ function mergeSettings(
     proxy: {
       ...currentSettings.proxy,
       ...nextSettings?.proxy,
+    },
+    playback: {
+      ...defaultSettings.playback,
+      ...currentSettings.playback,
+      ...nextSettings?.playback,
+    },
+    subtitles: {
+      ...defaultSettings.subtitles,
+      ...currentSettings.subtitles,
+      ...nextSettings?.subtitles,
     },
     danmakuServers:
       nextSettings?.danmakuServers && nextSettings.danmakuServers.length > 0

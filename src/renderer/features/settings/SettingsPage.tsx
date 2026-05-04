@@ -8,8 +8,11 @@ import type {
   DanmakuServerSettings,
   ImageCacheMaxBytes,
   ImageCacheResolution,
+  PlaybackScaleMode,
+  PlaybackSettings,
   ProxyMode,
   ProxySettings,
+  SubtitleSettings,
 } from '@shared/models/settings';
 import { Layout } from '@renderer/components/Layout';
 
@@ -19,6 +22,8 @@ interface SettingsPageProps {
   defaultVolume: number;
   proxyMode: ProxyMode;
   customProxyUrl: string;
+  playbackSettings: PlaybackSettings;
+  subtitleSettings: SubtitleSettings;
   danmakuServers: DanmakuServerSettings[];
   danmakuSettings: DanmakuSettings;
   cacheSettings: CacheSettings;
@@ -29,7 +34,9 @@ interface SettingsPageProps {
   onClearImageCache: () => void | Promise<void>;
   onDanmakuServersSave: (next: DanmakuServerSettings[]) => void | Promise<void>;
   onDanmakuSettingsSave: (next: DanmakuSettings) => void | Promise<void>;
+  onPlaybackSettingsSave: (next: PlaybackSettings) => void | Promise<void>;
   onProxySettingsSave: (next: ProxySettings) => void | Promise<void>;
+  onSubtitleSettingsSave: (next: SubtitleSettings) => void | Promise<void>;
   onLogout: () => void;
 }
 
@@ -105,6 +112,8 @@ export function SettingsPage({
   defaultVolume,
   proxyMode,
   customProxyUrl,
+  playbackSettings,
+  subtitleSettings,
   danmakuServers,
   danmakuSettings,
   cacheSettings,
@@ -115,7 +124,9 @@ export function SettingsPage({
   onClearImageCache,
   onDanmakuServersSave,
   onDanmakuSettingsSave,
+  onPlaybackSettingsSave,
   onProxySettingsSave,
+  onSubtitleSettingsSave,
   onLogout,
 }: SettingsPageProps) {
   const [draftProxyMode, setDraftProxyMode] = useState(proxyMode);
@@ -139,6 +150,20 @@ export function SettingsPage({
   function saveDanmakuSettingsPatch(nextPatch: Partial<DanmakuSettings>) {
     void onDanmakuSettingsSave({
       ...danmakuSettings,
+      ...nextPatch,
+    });
+  }
+
+  function savePlaybackSettingsPatch(nextPatch: Partial<PlaybackSettings>) {
+    void onPlaybackSettingsSave({
+      ...playbackSettings,
+      ...nextPatch,
+    });
+  }
+
+  function saveSubtitleSettingsPatch(nextPatch: Partial<SubtitleSettings>) {
+    void onSubtitleSettingsSave({
+      ...subtitleSettings,
       ...nextPatch,
     });
   }
@@ -239,6 +264,227 @@ export function SettingsPage({
                 <p>播放器启动时使用的音量</p>
               </div>
               <strong className="settings-row__value">{Math.round(defaultVolume * 100)}%</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-group" aria-labelledby="settings-playback-title">
+          <h2 id="settings-playback-title">播放器</h2>
+
+          <div className="settings-list">
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ▶
+              </span>
+              <div className="settings-row__body">
+                <h3>缩放模式</h3>
+              </div>
+              <select
+                className="settings-select"
+                aria-label="Playback scale mode"
+                value={playbackSettings.scaleMode}
+                onChange={(event) =>
+                  savePlaybackSettingsPatch({
+                    scaleMode: event.target.value as PlaybackScaleMode,
+                  })
+                }
+              >
+                <option value="fit">适应屏幕</option>
+                <option value="stretch">拉伸</option>
+                <option value="crop">裁剪</option>
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                CC
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕显示</h3>
+              </div>
+              <label className="settings-switch">
+                <input
+                  aria-label="Enable subtitles"
+                  type="checkbox"
+                  checked={subtitleSettings.enabled}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ enabled: event.target.checked })
+                  }
+                />
+                <span />
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                T
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕字体</h3>
+              </div>
+              <div className="settings-row__control">
+                <input
+                  aria-label="Subtitle font family"
+                  type="text"
+                  value={subtitleSettings.fontFamily}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ fontFamily: event.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ±
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕同步</h3>
+              </div>
+              <div className="settings-row__control">
+                <input
+                  aria-label="Subtitle delay"
+                  type="number"
+                  min="-30"
+                  max="30"
+                  step="0.1"
+                  value={subtitleSettings.delaySeconds}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ delaySeconds: Number(event.target.value) })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                T
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕大小</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Subtitle font size"
+                  type="range"
+                  min="12"
+                  max="120"
+                  value={subtitleSettings.fontSize}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ fontSize: Number(event.target.value) })
+                  }
+                />
+                <strong>{subtitleSettings.fontSize}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                ↕
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕位置</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Subtitle position"
+                  type="range"
+                  min="0"
+                  max="150"
+                  value={subtitleSettings.position}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ position: Number(event.target.value) })
+                  }
+                />
+                <strong>{subtitleSettings.position}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                O
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕描边</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Subtitle outline"
+                  type="range"
+                  min="0"
+                  max="12"
+                  value={subtitleSettings.outline}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ outline: Number(event.target.value) })
+                  }
+                />
+                <strong>{subtitleSettings.outline}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                S
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕阴影</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Subtitle shadow offset"
+                  type="range"
+                  min="0"
+                  max="12"
+                  value={subtitleSettings.shadowOffset}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ shadowOffset: Number(event.target.value) })
+                  }
+                />
+                <strong>{subtitleSettings.shadowOffset}</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                %
+              </span>
+              <div className="settings-row__body">
+                <h3>字幕缩放</h3>
+              </div>
+              <label className="settings-range">
+                <input
+                  aria-label="Subtitle scale"
+                  type="range"
+                  min="50"
+                  max="200"
+                  step="10"
+                  value={Math.round(subtitleSettings.scale * 100)}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ scale: Number(event.target.value) / 100 })
+                  }
+                />
+                <strong>{subtitleSettings.scale.toFixed(1)}x</strong>
+              </label>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row__icon" aria-hidden="true">
+                2
+              </span>
+              <div className="settings-row__body">
+                <h3>双字幕</h3>
+              </div>
+              <label className="settings-switch">
+                <input
+                  aria-label="Enable secondary subtitles"
+                  type="checkbox"
+                  checked={subtitleSettings.secondaryEnabled}
+                  onChange={(event) =>
+                    saveSubtitleSettingsPatch({ secondaryEnabled: event.target.checked })
+                  }
+                />
+                <span />
+              </label>
             </div>
           </div>
         </section>

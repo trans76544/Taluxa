@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeImage, protocol, session } from 'electron';
 import { join } from 'node:path';
-import { readPersistedState, registerStorageIpc } from './ipc/storage';
+import { readPersistedState, registerStorageIpc, writeSettingsPatchFromMain } from './ipc/storage';
 import { registerImageCacheIpc } from './ipc/imageCache';
 import { ImageCache, IMAGE_CACHE_PROTOCOL } from './image/imageCache';
 import { registerImageCacheProtocol } from './image/protocol';
@@ -40,6 +40,9 @@ const mpvController = new MpvController({
       fetcher: (url, init) => session.defaultSession.fetch(url, init),
       logger: (message) => console.info(message),
     }),
+  onPlayerSettingsPatch: async (settingsPatch) => {
+    await writeSettingsPatchFromMain(settingsPatch);
+  },
   onProgress: sendPlayerProgress,
 });
 const hlsProxyServer = new HlsProxyServer((url, init) => session.defaultSession.fetch(url, init));
@@ -144,8 +147,12 @@ app.whenReady().then(() => {
         return mpvController.launch(
           await prepareLaunchInput(input),
           settings.proxy,
-          settings.danmakuServers,
-          settings.danmaku
+          {
+            playback: settings.playback,
+            subtitles: settings.subtitles,
+            danmakuServers: settings.danmakuServers,
+            danmaku: settings.danmaku,
+          }
         );
       });
       ipcMain.handle(

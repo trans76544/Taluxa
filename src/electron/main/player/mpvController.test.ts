@@ -46,6 +46,8 @@ describe('MpvController', () => {
     '\u5f39\u5e55\u6e90\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u5f39\u5e55 API \u5730\u5740\u6216\u51ed\u8bc1';
   const danmakuSourceErrorNoticeLog =
     '\\u5f39\\u5e55\\u6e90\\u8bf7\\u6c42\\u5931\\u8d25\\uff0c\\u8bf7\\u68c0\\u67e5\\u5f39\\u5e55 API \\u5730\\u5740\\u6216\\u51ed\\u8bc1';
+  const luaUtf8Bytes = (value: string) =>
+    `b(${Array.from(Buffer.from(value, 'utf8')).join(', ')})`;
 
   let existingPaths: Set<string>;
 
@@ -182,6 +184,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -203,6 +206,92 @@ describe('MpvController', () => {
       }
     );
     expect(child.unref).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards player settings patches from mpv client messages', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const onPlayerSettingsPatch = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      onPlayerSettingsPatch,
+      spawnProcess: vi.fn(() => child),
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    ipcClient.emit(
+      'data',
+      Buffer.from(
+        `${JSON.stringify({
+          event: 'client-message',
+          args: ['taluxa-settings-patch', '{"playback":{"scaleMode":"stretch"}}'],
+        })}\n`
+      )
+    );
+
+    expect(onPlayerSettingsPatch).toHaveBeenCalledWith({
+      playback: { scaleMode: 'stretch' },
+    });
+  });
+
+  it('launches mpv with persisted playback and subtitle settings', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      fetchDanmaku: vi.fn().mockResolvedValue([]),
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings(), {
+      playback: { scaleMode: 'crop' },
+      subtitles: {
+        enabled: true,
+        fontFamily: 'Tahoma',
+        delaySeconds: 0.5,
+        fontSize: 55,
+        position: 100,
+        outline: 3,
+        shadowOffset: 0,
+        scale: 1,
+        secondaryEnabled: true,
+      },
+      danmakuServers: [],
+      danmaku: createDanmakuSettings(),
+    });
+
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("scale_mode = 'crop'")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("font_family = 'Tahoma'")
+    );
   });
 
   it('loads a generated ASS danmaku subtitle file when comments are available', async () => {
@@ -231,14 +320,16 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(
       createLaunchInput(),
       createProxySettings(),
-      [
-        {
-          id: 'official',
-          name: 'Official',
-          url: 'https://api.dandanplay.net',
-          enabled: true,
-        },
-      ]
+      {
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
+      }
     );
     await Promise.resolve();
     await Promise.resolve();
@@ -293,15 +384,17 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(
       createLaunchInput(),
       createProxySettings(),
-      [
-        {
-          id: 'official',
-          name: 'Official',
-          url: 'https://api.dandanplay.net',
-          enabled: true,
-        },
-      ],
-      createDanmakuSettings()
+      {
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
+        danmaku: createDanmakuSettings(),
+      }
     );
     await flushAsyncQueue();
     expect(spawnProcess).toHaveBeenCalledTimes(1);
@@ -360,15 +453,17 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(
       createLaunchInput(),
       createProxySettings(),
-      [
-        {
-          id: 'official',
-          name: 'Official',
-          url: 'https://api.dandanplay.net',
-          enabled: true,
-        },
-      ],
-      createDanmakuSettings()
+      {
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
+        danmaku: createDanmakuSettings(),
+      }
     );
     child.emit('spawn');
     ipcClient.emit('connect');
@@ -410,15 +505,17 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(
       createLaunchInput(),
       createProxySettings(),
-      [
-        {
-          id: 'official',
-          name: 'Official',
-          url: 'https://api.dandanplay.net',
-          enabled: true,
-        },
-      ],
-      createDanmakuSettings()
+      {
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
+        danmaku: createDanmakuSettings(),
+      }
     );
     child.emit('spawn');
     ipcClient.emit('connect');
@@ -488,15 +585,17 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(
       createLaunchInput(),
       createProxySettings(),
-      [
-        {
-          id: 'official',
-          name: 'Official',
-          url: 'https://api.dandanplay.net',
-          enabled: true,
-        },
-      ],
-      createDanmakuSettings({ enabled: false })
+      {
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
+        danmaku: createDanmakuSettings({ enabled: false }),
+      }
     );
     child.emit('spawn');
     ipcClient.emit('connect');
@@ -537,21 +636,23 @@ describe('MpvController', () => {
     const launchPromise = controller.launch(
       createLaunchInput(),
       createProxySettings(),
-      [
-        {
-          id: 'official',
-          name: 'Official',
-          url: 'https://api.dandanplay.net',
-          enabled: true,
-        },
-      ],
-      createDanmakuSettings({
-        blocklist: ['spoiler'],
-        bold: true,
-        opacity: 0.25,
-        scale: 1.5,
-        speed: 2,
-      })
+      {
+        danmakuServers: [
+          {
+            id: 'official',
+            name: 'Official',
+            url: 'https://api.dandanplay.net',
+            enabled: true,
+          },
+        ],
+        danmaku: createDanmakuSettings({
+          blocklist: ['spoiler'],
+          bold: true,
+          opacity: 0.25,
+          scale: 1.5,
+          speed: 2,
+        }),
+      }
     );
     await Promise.resolve();
     await Promise.resolve();
@@ -572,6 +673,147 @@ describe('MpvController', () => {
       danmakuAssPath,
       expect.not.stringContaining('blocked spoiler')
     );
+  });
+
+  it('regenerates loaded danmaku subtitles when mpv patches danmaku settings', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createDanmakuFilePath: () => danmakuAssPath,
+      createIpcEndpoint: () => ipcServerPath,
+      fetchDanmaku: vi.fn().mockResolvedValue([
+        { color: 16777215, mode: 'scroll', text: 'visible', timeSeconds: 12 },
+      ]),
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings(), {
+      danmakuServers: [
+        { id: 'official', name: 'Official', url: 'https://api.dandanplay.net', enabled: true },
+      ],
+      danmaku: createDanmakuSettings({ opacity: 0.5 }),
+    });
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+    await flushAsyncQueue();
+
+    ipcClient.emit(
+      'data',
+      Buffer.from(
+        `${JSON.stringify({
+          event: 'client-message',
+          args: ['taluxa-settings-patch', '{"danmaku":{"opacity":0.25,"scale":1.5}}'],
+        })}\n`
+      )
+    );
+
+    expect(writeTextFile).toHaveBeenCalledWith(
+      danmakuAssPath,
+      expect.stringContaining('Style: Scroll,Microsoft YaHei UI,51,&HBF00FFFFFF')
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['sub-add', danmakuAssPath, 'select'] })}\n`
+    );
+  });
+
+  it('renders danmaku settings menu controls that emit settings patches', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings(), {
+      danmaku: createDanmakuSettings(),
+    });
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain(`danmaku_settings = ${luaUtf8Bytes('\u5f39\u5e55\u8bbe\u7f6e')}`);
+    expect(script).toContain(`scroll_max_lines = ${luaUtf8Bytes('\u6eda\u52a8\u5f39\u5e55\u6700\u5927\u884c\u6570')}`);
+    expect(script).toContain(`top_max_lines = ${luaUtf8Bytes('\u9876\u90e8\u5f39\u5e55\u6700\u5927\u884c\u6570')}`);
+    expect(script).toContain(`bottom_max_lines = ${luaUtf8Bytes('\u5e95\u90e8\u5f39\u5e55\u6700\u5927\u884c\u6570')}`);
+    expect(script).toContain(`danmaku_opacity = ${luaUtf8Bytes('\u5f39\u5e55\u900f\u660e\u5ea6')}`);
+    expect(script).toContain('localize_options(options, menu_open)');
+    expect(script).toContain('danmaku-value-minus');
+    expect(script).toContain('{"danmaku"');
+  });
+
+  it('toggles the built-in mpv statistics overlay from settings', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain("mp.commandv('script-binding', 'stats/display-stats-toggle')");
+  });
+
+  it('draws blue progress and light-blue cached seek ranges', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain("local BLUE = 'FF7716'");
+    expect(script).toContain("local CACHE_BLUE = 'FFCF8F'");
+    expect(script).toContain("mp.observe_property('demuxer-cache-state', 'native'");
+    expect(script).toContain('seekable-ranges');
   });
 
   it('launches mpv with the custom Taluxa in-player control layer', async () => {
@@ -667,6 +909,26 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
+      expect.stringContaining('local CONTROL_HIDE_SECONDS = 3')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining('if not should_show_controls() then')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("overlay.data = ''")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("mp.get_property_native('mouse-pos')")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("UI_WIDTH = mp.get_property_number('osd-width', UI_WIDTH)")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
       expect.stringContaining("local function draw_options_menu(out)")
     );
     expect(writeTextFile).toHaveBeenCalledWith(
@@ -679,12 +941,15 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
-      expect.stringContaining('Danmaku/subtitles toggled')
+      expect.stringContaining(
+        `toggle_notice = ${luaUtf8Bytes('\u5f39\u5e55/\u5b57\u5e55\u5df2\u5207\u6362')}`
+      )
     );
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       expect.arrayContaining([
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-conf=${inputConfigPath}`,
         `--script=${uiScriptPath}`,
@@ -693,6 +958,94 @@ describe('MpvController', () => {
       ]),
       expect.any(Object)
     );
+  });
+
+  it('renders scale mode settings menu entries and applies mpv scale commands', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings(), {
+      playback: { scaleMode: 'fit' },
+    });
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain("menu_open = 'settings'");
+    expect(script).toContain("menu_open = 'scale'");
+    expect(script).toContain("settings_center = right + 368 + math.floor((36 * BUTTON_SCALE) / 2)");
+    expect(script).toContain("anchor_center - math.floor(menu_width / 2)");
+    expect(script).toContain(`scale_mode = ${luaUtf8Bytes('\u7f29\u653e\u6a21\u5f0f')}`);
+    expect(script).toContain(`skip_intro = ${luaUtf8Bytes('\u8df3\u8fc7\u7247\u5934/\u7247\u5c3e')}`);
+    expect(script).toContain(`subtitle_settings = ${luaUtf8Bytes('\u5b57\u5e55\u8bbe\u7f6e')}`);
+    expect(script).toContain(`danmaku_settings = ${luaUtf8Bytes('\u5f39\u5e55\u8bbe\u7f6e')}`);
+    expect(script).toContain(`statistics = ${luaUtf8Bytes('\u7edf\u8ba1\u4fe1\u606f')}`);
+    expect(script).toContain(`fit = ${luaUtf8Bytes('\u9002\u5e94\u5c4f\u5e55')}`);
+    expect(script).toContain(`stretch = ${luaUtf8Bytes('\u62c9\u4f38')}`);
+    expect(script).toContain(`crop = ${luaUtf8Bytes('\u88c1\u526a')}`);
+    expect(script).not.toContain('Scale Mode');
+    expect(script).not.toContain('Skip Intro/Ending');
+    expect(script).not.toContain('Subtitle Settings');
+    expect(script).not.toContain('Danmaku Settings');
+    expect(script).not.toContain('Statistics');
+    expect(script).toContain("mp.commandv('set', 'keepaspect', 'no')");
+    expect(script).toContain("mp.commandv('set', 'panscan', '1')");
+  });
+
+  it('renders subtitle settings and dual subtitle controls', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings(), {
+      subtitles: {
+        enabled: true,
+        fontFamily: 'Tahoma',
+        delaySeconds: 0,
+        fontSize: 55,
+        position: 100,
+        outline: 3,
+        shadowOffset: 0,
+        scale: 1,
+        secondaryEnabled: true,
+      },
+    });
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain("mp.commandv('set', 'sid'");
+    expect(script).toContain("mp.commandv('set', 'secondary-sid'");
+    expect(script).toContain("mp.commandv('set', 'secondary-sub-visibility'");
+    expect(script).toContain("mp.commandv('set', 'sub-font', subtitle_settings.font_family)");
+    expect(script).toContain(`subtitle_settings = ${luaUtf8Bytes('\u5b57\u5e55\u8bbe\u7f6e')}`);
   });
 
   it('passes playback http headers through to mpv', async () => {
@@ -730,6 +1083,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -781,6 +1135,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -833,6 +1188,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -889,6 +1245,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -947,6 +1304,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -1003,6 +1361,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
@@ -1058,6 +1417,7 @@ describe('MpvController', () => {
       [
         '--force-window=yes',
         '--border=no',
+        '--keepaspect-window=no',
         '--osc=no',
         `--input-ipc-server=${ipcServerPath}`,
         `--input-conf=${inputConfigPath}`,
