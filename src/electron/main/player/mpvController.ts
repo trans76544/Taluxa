@@ -1393,6 +1393,7 @@ export class MpvController {
       `--start=${normalizeStartSeconds(input.startSeconds)}`,
       '--osd-font=Microsoft YaHei UI',
       '--osd-duration=1500',
+      '--hwdec=auto-safe',
       '--cache=yes',
       `--cache-secs=${DEFAULT_CACHE_SECONDS}`,
       '--msg-level=all=v',

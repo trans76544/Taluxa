@@ -820,7 +820,7 @@ describe('App', () => {
     );
   });
 
-  it('launches mpv from item media source metadata without waiting for PlaybackInfo', async () => {
+  it('uses PlaybackInfo for HEVC MKV media instead of launching the slow static stream', async () => {
     const storage = mockStorageRead(
       createPersistedState({
         accounts: [createSavedAccount()],
@@ -878,16 +878,15 @@ describe('App', () => {
     expect(playButton).not.toBeNull();
     fireEvent.click(playButton!);
 
-    await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          itemId: 'item-1',
-          title: 'Movie 1',
-          streamUrl:
-            'https://demo.emby.local/Videos/item-1/stream?static=true&api_key=token-123&DeviceId=emby-player-desktop&MediaSourceId=source-1&AudioStreamIndex=2',
-        })
-      );
-    });
+    await flushAsyncQueue();
+    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'item-1',
+        mediaSourceId: 'source-1',
+        audioStreamIndex: 2,
+      })
+    );
+    expect(storage.launch).not.toHaveBeenCalled();
   });
 
   it('loads continue watching items from non-featured libraries when local progress exists', async () => {

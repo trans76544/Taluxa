@@ -126,6 +126,22 @@ function pickPlaybackMediaSource(
   );
 }
 
+function isFastDirectPlaybackMediaSource(mediaSource: LibraryItemMediaSource): boolean {
+  const container = mediaSource.container.toLowerCase();
+  const videoCodec = mediaSource.videoCodec.toLowerCase();
+  const hasProgressiveContainer = ['mp4', 'm4v', 'mov'].some((value) =>
+    container.split(',').map((part) => part.trim()).includes(value)
+  );
+  const needsSeekHeavyDemuxing =
+    container.includes('mkv') ||
+    container.includes('matroska') ||
+    container.includes('webm') ||
+    videoCodec === 'hevc' ||
+    videoCodec === 'h265';
+
+  return hasProgressiveContainer && !needsSeekHeavyDemuxing;
+}
+
 function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
   return resolution === 'original' ? null : resolution;
 }
@@ -357,7 +373,7 @@ function ItemDetailsRoute() {
         playbackMediaSources,
         selection?.mediaSourceId
       );
-      const directSource = selectedMediaSource
+      const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
         ? buildDirectPlaybackStreamSource({
             serverUrl,
             userId: session.userId,
