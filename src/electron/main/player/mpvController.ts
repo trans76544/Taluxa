@@ -761,7 +761,6 @@ local function draw_controls()
     progress = clamp(position / duration, 0, 1)
   end
   local remaining = math.max(0, duration - position)
-  local bottom = height
   local bar_y = height - 78
   local title_y = height - 126
   local subtitle_y = height - 98
@@ -770,8 +769,6 @@ local function draw_controls()
   local bar_right = width - 90
   local bar_width = math.max(1, bar_right - bar_left)
   local progress_x = bar_left + math.floor(bar_width * progress)
-
-  append_box(out, 0, height - 210, width, bottom, '000000', 130)
 
   append_text(out, 24, title_y, 1, 30, display_title, 'FFFFFF', 0, true)
   if display_subtitle ~= '' then

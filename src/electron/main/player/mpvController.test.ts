@@ -889,7 +889,7 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
-      expect.stringContaining("append_box(out, 0, height - 210, width, bottom, '000000', 130)")
+      expect.not.stringContaining("append_box(out, 0, height - 210, width, bottom, '000000', 130)")
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
