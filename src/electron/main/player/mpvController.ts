@@ -229,6 +229,8 @@ local UI_WIDTH = 1920
 local UI_HEIGHT = 1080
 local BUTTON_SCALE = 2
 local WINDOW_ICON_SCALE = 0.8
+local BOTTOM_BUTTON_SCALE = 0.8
+local BOTTOM_GAP_SCALE = 0.5
 local CONTROL_HIDE_SECONDS = 3
 local BLUE = 'FF7716'
 local CACHE_BLUE = 'FFCF8F'
@@ -442,6 +444,31 @@ local function add_button(out, id, x, y, width, height, label, size, value)
   append_text(out, x + math.floor(width / 2), y + math.floor(height / 2) + 1, 5, size or 22, label, 'FFFFFF', 0, false)
 end
 
+local function estimate_menu_text_width(text, size)
+  text = tostring(text or '')
+  local width = 0
+  local index = 1
+  local length = string.len(text)
+  while index <= length do
+    local byte = string.byte(text, index)
+    if not byte then break end
+    if byte < 128 then
+      width = width + size * 0.55
+      index = index + 1
+    elseif byte < 224 then
+      width = width + size
+      index = index + 2
+    elseif byte < 240 then
+      width = width + size
+      index = index + 3
+    else
+      width = width + size
+      index = index + 4
+    end
+  end
+  return width
+end
+
 local function draw_window_icon(out, icon, cx, cy)
   local size = 24 * WINDOW_ICON_SCALE
   local half = size / 2
@@ -468,8 +495,83 @@ local function add_window_button(out, id, x, y, width, height, icon)
   draw_window_icon(out, icon, x + math.floor(width / 2), y + math.floor(height / 2))
 end
 
+local function draw_control_icon(out, icon, cx, cy)
+  local size = 30 * BOTTOM_BUTTON_SCALE
+  local half = size / 2
+  local corner = half * 0.6
+  local inset = half * 0.18
+  local thickness = math.max(2, round_coord(2.4 * BOTTOM_BUTTON_SCALE))
+  local color = 'FFFFFF'
+
+  if icon == 'fullscreen' then
+    append_line(out, cx - corner, cy - corner, cx - inset, cy - corner, thickness, color, 0)
+    append_line(out, cx - corner, cy - corner, cx - corner, cy - inset, thickness, color, 0)
+    append_line(out, cx + corner, cy - corner, cx + inset, cy - corner, thickness, color, 0)
+    append_line(out, cx + corner, cy - corner, cx + corner, cy - inset, thickness, color, 0)
+    append_line(out, cx - corner, cy + corner, cx - inset, cy + corner, thickness, color, 0)
+    append_line(out, cx - corner, cy + corner, cx - corner, cy + inset, thickness, color, 0)
+    append_line(out, cx + corner, cy + corner, cx + inset, cy + corner, thickness, color, 0)
+    append_line(out, cx + corner, cy + corner, cx + corner, cy + inset, thickness, color, 0)
+  end
+end
+
+local function add_icon_button(out, id, x, y, width, height, icon)
+  buttons[#buttons + 1] = { id = id, x1 = x, y1 = y, x2 = x + width, y2 = y + height }
+  draw_control_icon(out, icon, x + math.floor(width / 2), y + math.floor(height / 2))
+end
+
 local function add_range_button(id, x1, y1, x2, y2)
   buttons[#buttons + 1] = { id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+end
+
+local function get_bottom_button_size()
+  return round_coord(36 * BUTTON_SCALE * BOTTOM_BUTTON_SCALE)
+end
+
+local function get_bottom_layout(width)
+  local icon_width = get_bottom_button_size()
+  local speed_width = round_coord(96 * BOTTOM_BUTTON_SCALE)
+  local left_gap = round_coord(8 * BOTTOM_GAP_SCALE)
+  local left_section_gap = round_coord(30 * BOTTOM_GAP_SCALE)
+  local volume_gap = round_coord(16 * BOTTOM_GAP_SCALE)
+  local right_speed_gap = round_coord(26 * BOTTOM_GAP_SCALE)
+  local right_gap = round_coord(10 * BOTTOM_GAP_SCALE)
+  local right_fullscreen_gap = round_coord(92 * BOTTOM_GAP_SCALE)
+  local volume_width = 152
+  local prev_x = 24
+  local play_x = prev_x + icon_width + left_gap
+  local next_x = play_x + icon_width + left_gap
+  local mute_x = next_x + icon_width + left_section_gap
+  local volume_x = mute_x + icon_width + volume_gap
+  local right_group_width =
+    speed_width +
+    right_speed_gap +
+    icon_width * 5 +
+    right_gap * 3 +
+    right_fullscreen_gap
+  local speed_x = width - 36 - right_group_width
+  local audio_x = speed_x + speed_width + right_speed_gap
+  local sub_x = audio_x + icon_width + right_gap
+  local danmaku_x = sub_x + icon_width + right_gap
+  local settings_x = danmaku_x + icon_width + right_gap
+  local fullscreen_x = settings_x + icon_width + right_fullscreen_gap
+
+  return {
+    audio_x = audio_x,
+    danmaku_x = danmaku_x,
+    fullscreen_x = fullscreen_x,
+    icon_width = icon_width,
+    mute_x = mute_x,
+    next_x = next_x,
+    play_x = play_x,
+    prev_x = prev_x,
+    settings_x = settings_x,
+    speed_width = speed_width,
+    speed_x = speed_x,
+    sub_x = sub_x,
+    volume_x = volume_x,
+    volume_width = volume_width,
+  }
 end
 
 local function emit_settings_patch(patch)
@@ -678,23 +780,16 @@ local function draw_options_menu(out)
 
   local width = UI_WIDTH
   local height = UI_HEIGHT
-  local item_height = 46
-  local menu_width = 112
-  if menu_open == 'audio' then
-    menu_width = 260
-  elseif menu_open == 'settings' then
-    menu_width = 250
-  elseif menu_open == 'scale' then
-    menu_width = 180
-  elseif menu_open == 'subtitles' then
-    menu_width = 360
-  elseif menu_open == 'danmaku' then
-    menu_width = 360
-  end
-  local right = width - 640
-  local speed_center = right + 48
-  local audio_center = right + 122 + math.floor((36 * BUTTON_SCALE) / 2)
-  local settings_center = right + 368 + math.floor((36 * BUTTON_SCALE) / 2)
+  local item_height = round_coord(46 * 0.8)
+  local menu_text_size = round_coord(24 * 0.9)
+  local menu_suffix_size = round_coord(18 * 0.9)
+  local menu_vertical_offset = 24
+  local menu_min_width = 72
+  local menu_suffix_gap = 18
+  local layout = get_bottom_layout(width)
+  local speed_center = layout.speed_x + math.floor(layout.speed_width / 2)
+  local audio_center = layout.audio_x + math.floor(layout.icon_width / 2)
+  local settings_center = layout.settings_x + math.floor(layout.icon_width / 2)
   local anchor_center = speed_center
   if menu_open == 'audio' then
     anchor_center = audio_center
@@ -771,17 +866,25 @@ local function draw_options_menu(out)
 
   localize_options(options, menu_open)
 
+  local max_text_width = 0
+  for _, option in ipairs(options) do
+    local label_width = estimate_menu_text_width(option.label, menu_text_size)
+    local suffix_width = option.suffix and estimate_menu_text_width(option.suffix, menu_suffix_size) or 0
+    local content_width = label_width + suffix_width + (option.suffix and menu_suffix_gap or 0)
+    max_text_width = math.max(max_text_width, content_width)
+  end
+  local menu_width = math.max(menu_min_width, round_coord(max_text_width * 1.2))
   local menu_height = math.max(item_height, #options * item_height)
   local x = math.min(width - menu_width - 28, math.max(28, anchor_center - math.floor(menu_width / 2)))
-  local y = height - 128 - menu_height
-  append_box(out, x, y, x + menu_width, y + menu_height, '101010', 35)
+  local y = height - 128 - menu_height + menu_vertical_offset
+  append_box(out, x, y, x + menu_width, y + menu_height, '101010', 128)
 
   for index, option in ipairs(options) do
     local item_y = y + (index - 1) * item_height
     local label = option.label
-    add_button(out, option.id, x, item_y, menu_width, item_height, label, 24, option.value)
+    add_button(out, option.id, x, item_y, menu_width, item_height, label, menu_text_size, option.value)
     if option.suffix then
-      append_text(out, x + menu_width - 14, item_y + math.floor(item_height / 2) + 1, 6, 18, option.suffix, 'CFCFCF', 0, false)
+      append_text(out, x + menu_width - 14, item_y + math.floor(item_height / 2) + 1, 6, menu_suffix_size, option.suffix, 'CFCFCF', 0, false)
     end
   end
 end
@@ -845,25 +948,27 @@ local function draw_controls()
   append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, BLUE, 0)
   add_range_button('seek', bar_left, bar_y - 12, bar_right, bar_y + 12)
 
-  local button_height = 36 * BUTTON_SCALE
-  local icon_button = 36 * BUTTON_SCALE
-  local button_y = controls_y - math.floor(button_height / 2)
-  add_button(out, 'prev', 24, button_y, icon_button, button_height, '|<', 42)
-  add_button(out, 'play', 104, button_y, icon_button, button_height, paused and '\226\150\182' or 'II', 43)
-  add_button(out, 'next', 184, button_y, icon_button, button_height, '>|', 42)
-  add_button(out, 'mute', 286, button_y, icon_button, button_height, muted and 'x' or '\226\153\170', 42)
-  append_box(out, 374, controls_y - 3, 526, controls_y + 3, TRACK_GRAY, 115)
-  append_box(out, 374, controls_y - 4, 374 + math.floor(152 * clamp(volume / 100, 0, 1)), controls_y + 4, BLUE, 0)
-  append_box(out, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) - 8, controls_y - 9, 374 + math.floor(152 * clamp(volume / 100, 0, 1)) + 8, controls_y + 9, BLUE, 0)
-  add_range_button('volume', 360, controls_y - 18, 540, controls_y + 18)
+  local layout = get_bottom_layout(width)
+  local bottom_button_height = get_bottom_button_size()
+  local bottom_icon_button = get_bottom_button_size()
+  local button_y = controls_y - math.floor(bottom_button_height / 2)
+  local volume_end_x = layout.volume_x + layout.volume_width
+  local volume_value_x = layout.volume_x + math.floor(layout.volume_width * clamp(volume / 100, 0, 1))
+  add_button(out, 'prev', layout.prev_x, button_y, bottom_icon_button, bottom_button_height, '|<', 34)
+  add_button(out, 'play', layout.play_x, button_y, bottom_icon_button, bottom_button_height, paused and '\226\150\182' or 'II', 34)
+  add_button(out, 'next', layout.next_x, button_y, bottom_icon_button, bottom_button_height, '>|', 34)
+  add_button(out, 'mute', layout.mute_x, button_y, bottom_icon_button, bottom_button_height, muted and 'x' or '\226\153\170', 34)
+  append_box(out, layout.volume_x, controls_y - 3, volume_end_x, controls_y + 3, TRACK_GRAY, 115)
+  append_box(out, layout.volume_x, controls_y - 4, volume_value_x, controls_y + 4, BLUE, 0)
+  append_box(out, volume_value_x - 7, controls_y - 7, volume_value_x + 7, controls_y + 7, BLUE, 0)
+  add_range_button('volume', layout.volume_x - 14, controls_y - 18, volume_end_x + 14, controls_y + 18)
 
-  local right = width - 640
-  add_button(out, 'speed', right, button_y, 96, button_height, string.format('%.1fx', playback_speed), 28)
-  add_button(out, 'audio', right + 122, button_y, icon_button, button_height, '\226\153\170', 42)
-  add_button(out, 'sub', right + 204, button_y, icon_button, button_height, 'CC', 28)
-  add_button(out, 'danmaku', right + 286, button_y, icon_button, button_height, 'DM', 28)
-  add_button(out, 'settings', right + 368, button_y, icon_button, button_height, '\226\154\153', 40)
-  add_button(out, 'fullscreen', right + 532, button_y, icon_button, button_height, '[ ]', 30)
+  add_button(out, 'speed', layout.speed_x, button_y, layout.speed_width, bottom_button_height, string.format('%.1fx', playback_speed), 22)
+  add_button(out, 'audio', layout.audio_x, button_y, bottom_icon_button, bottom_button_height, '\226\153\170', 34)
+  add_button(out, 'sub', layout.sub_x, button_y, bottom_icon_button, bottom_button_height, 'CC', 22)
+  add_button(out, 'danmaku', layout.danmaku_x, button_y, bottom_icon_button, bottom_button_height, 'DM', 22)
+  add_button(out, 'settings', layout.settings_x, button_y, bottom_icon_button, bottom_button_height, '\226\154\153', 32)
+  add_icon_button(out, 'fullscreen', layout.fullscreen_x, button_y, bottom_icon_button, bottom_button_height, 'fullscreen')
 
   draw_options_menu(out)
 

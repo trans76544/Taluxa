@@ -339,6 +339,51 @@ describe('MpvController', () => {
     expect(uiScript).not.toEqual(expect.stringContaining("'[]', 34"));
   });
 
+  it('renders compact bottom controls with aligned icons and a fullscreen button', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
+
+    expect(uiScript).toEqual(expect.stringContaining('local BOTTOM_BUTTON_SCALE = 0.8'));
+    expect(uiScript).toEqual(expect.stringContaining('local BOTTOM_GAP_SCALE = 0.5'));
+    expect(uiScript).toEqual(expect.stringContaining('local layout = get_bottom_layout(width)'));
+    expect(uiScript).toEqual(
+      expect.stringContaining(
+        "add_button(out, 'play', layout.play_x, button_y, bottom_icon_button, bottom_button_height"
+      )
+    );
+    expect(uiScript).toEqual(
+      expect.stringContaining(
+        "add_icon_button(out, 'fullscreen', layout.fullscreen_x, button_y, bottom_icon_button, bottom_button_height, 'fullscreen')"
+      )
+    );
+    expect(uiScript).toEqual(
+      expect.stringContaining(
+        'local settings_center = layout.settings_x + math.floor(layout.icon_width / 2)'
+      )
+    );
+    expect(uiScript).not.toEqual(expect.stringContaining("'[ ]', 30"));
+  });
+
   it('loads a generated ASS danmaku subtitle file when comments are available', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const child = new FakeSpawnedProcess();
@@ -859,6 +904,13 @@ describe('MpvController', () => {
     expect(script).toContain("local CACHE_BLUE = 'FFCF8F'");
     expect(script).toContain("mp.observe_property('demuxer-cache-state', 'native'");
     expect(script).toContain('seekable-ranges');
+    expect(script).toContain(
+      'append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, BLUE, 0)'
+    );
+    expect(script).toContain(
+      'append_box(out, volume_value_x - 7, controls_y - 7, volume_value_x + 7, controls_y + 7, BLUE, 0)'
+    );
+    expect(script).not.toContain('append_box(out, volume_value_x - 8, controls_y - 9');
   });
 
   it('launches mpv with the custom Taluxa in-player control layer', async () => {
@@ -1085,8 +1137,23 @@ describe('MpvController', () => {
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain("menu_open = 'settings'");
     expect(script).toContain("menu_open = 'scale'");
-    expect(script).toContain("settings_center = right + 368 + math.floor((36 * BUTTON_SCALE) / 2)");
+    expect(script).toContain(
+      'settings_center = layout.settings_x + math.floor(layout.icon_width / 2)'
+    );
     expect(script).toContain("anchor_center - math.floor(menu_width / 2)");
+    expect(script).toContain('local item_height = round_coord(46 * 0.8)');
+    expect(script).toContain('local menu_text_size = round_coord(24 * 0.9)');
+    expect(script).toContain('local menu_suffix_size = round_coord(18 * 0.9)');
+    expect(script).toContain('local menu_vertical_offset = 24');
+    expect(script).toContain('local function estimate_menu_text_width(text, size)');
+    expect(script).toContain('local max_text_width = 0');
+    expect(script).toContain('local suffix_width = option.suffix and estimate_menu_text_width(option.suffix, menu_suffix_size) or 0');
+    expect(script).toContain('local content_width = label_width + suffix_width + (option.suffix and menu_suffix_gap or 0)');
+    expect(script).toContain('local menu_width = math.max(menu_min_width, round_coord(max_text_width * 1.2))');
+    expect(script).toContain("append_box(out, x, y, x + menu_width, y + menu_height, '101010', 128)");
+    expect(script).toContain('local y = height - 128 - menu_height + menu_vertical_offset');
+    expect(script).toContain('add_button(out, option.id, x, item_y, menu_width, item_height, label, menu_text_size, option.value)');
+    expect(script).toContain("append_text(out, x + menu_width - 14, item_y + math.floor(item_height / 2) + 1, 6, menu_suffix_size, option.suffix, 'CFCFCF', 0, false)");
     expect(script).toContain(`scale_mode = ${luaUtf8Bytes('\u7f29\u653e\u6a21\u5f0f')}`);
     expect(script).toContain(`skip_intro = ${luaUtf8Bytes('\u8df3\u8fc7\u7247\u5934/\u7247\u5c3e')}`);
     expect(script).toContain(`subtitle_settings = ${luaUtf8Bytes('\u5b57\u5e55\u8bbe\u7f6e')}`);
