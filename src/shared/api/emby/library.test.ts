@@ -250,6 +250,44 @@ describe('fetchEpisodes', () => {
       }),
     ]);
   });
+
+  it('maps Emby episode parent metadata for resume cards', () => {
+    expect(
+      mapItemsResponse(
+        {
+          Items: [
+            {
+              Id: 'episode-14',
+              Name: '尘都无法忘记',
+              Type: 'Episode',
+              SeriesId: 'series-1',
+              SeriesName: '一人之下',
+              ParentId: 'season-6',
+              ParentIndexNumber: 6,
+              IndexNumber: 14,
+              RunTimeTicks: 600000000,
+              UserData: {
+                PlaybackPositionTicks: 42000000,
+              },
+            },
+          ],
+        },
+        'https://demo.emby.local'
+      )
+    ).toEqual([
+      expect.objectContaining({
+        id: 'episode-14',
+        name: '尘都无法忘记',
+        type: 'Episode',
+        seriesId: 'series-1',
+        seriesName: '一人之下',
+        parentId: 'season-6',
+        parentIndexNumber: 6,
+        indexNumber: 14,
+        serverPositionTicks: 42000000,
+      }),
+    ]);
+  });
 });
 
 describe('fetchSearchItems', () => {

@@ -20,6 +20,7 @@ interface ItemDetailsPageProps {
   seasons: LibrarySeason[];
   episodes: LibraryEpisode[];
   selectedSeasonId: string;
+  resumeEpisodeId?: string | null;
   onSelectSeason: (seasonId: string) => void;
   onPlay: (itemId: string, resumeTicks?: number | null, selection?: PlaybackSelection) => void;
 }
@@ -130,6 +131,7 @@ export function ItemDetailsPage({
   seasons,
   episodes,
   selectedSeasonId,
+  resumeEpisodeId,
   onSelectSeason,
   onPlay,
 }: ItemDetailsPageProps) {
@@ -158,6 +160,16 @@ export function ItemDetailsPage({
   const [selectedAudioValue, setSelectedAudioValue] = useState(
     getDefaultAudioValue(selectedMediaSource)
   );
+
+  useEffect(() => {
+    if (!resumeEpisodeId) {
+      return;
+    }
+
+    if (episodes.some((episode) => episode.id === resumeEpisodeId)) {
+      setSelectedEpisodeId(resumeEpisodeId);
+    }
+  }, [episodes, resumeEpisodeId]);
 
   useEffect(() => {
     const firstMediaSource = playbackMediaSources[0];

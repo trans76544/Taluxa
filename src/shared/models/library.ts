@@ -12,6 +12,12 @@ export interface LibraryImageCandidate {
 export interface LibraryItem {
   id: string;
   name: string;
+  type?: string | null;
+  seriesId?: string | null;
+  seriesName?: string | null;
+  parentId?: string | null;
+  parentIndexNumber?: number | null;
+  indexNumber?: number | null;
   posterUrl: string;
   imageCandidates: LibraryImageCandidate[];
   runtimeTicks: number | null;

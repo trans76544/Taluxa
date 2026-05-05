@@ -994,6 +994,128 @@ describe('App', () => {
     );
   });
 
+  it('opens episode resume cards on the parent series details and selects the resumed episode', async () => {
+    const account = createSavedAccount();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(account.id, 'episode-14')]: {
+            itemId: 'episode-14',
+            positionSeconds: 300,
+            durationSeconds: 1800,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    fetchItemsByIdsMock.mockResolvedValue([
+      {
+        id: 'episode-14',
+        name: '尘都无法忘记',
+        type: 'Episode',
+        seriesId: 'series-1',
+        seriesName: '一人之下',
+        parentId: 'season-6',
+        parentIndexNumber: 6,
+        indexNumber: 14,
+        posterUrl: 'https://demo.emby.local/Items/episode-14/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 3000000000,
+        productionYear: 2026,
+        communityRating: null,
+      },
+    ]);
+    fetchItemDetailsMock.mockResolvedValue({
+      id: 'series-1',
+      name: '一人之下',
+      posterUrl: 'https://demo.emby.local/Items/series-1/Images/Primary',
+      imageCandidates: [],
+      runtimeTicks: null,
+      serverPositionTicks: null,
+      communityRating: null,
+      productionYear: 2026,
+      type: 'Series',
+      overview: 'A test series.',
+      genres: [],
+      officialRating: '',
+      people: [],
+      studios: [],
+      externalUrls: [],
+      mediaSources: [],
+      backdropUrl: null,
+    });
+    fetchSeasonsMock.mockResolvedValue([
+      {
+        id: 'season-1',
+        name: 'Season 1',
+        indexNumber: 1,
+        posterUrl: null,
+      },
+      {
+        id: 'season-6',
+        name: 'Season 6',
+        indexNumber: 6,
+        posterUrl: null,
+      },
+    ]);
+    fetchEpisodesMock.mockImplementation(
+      async (_serverUrl: string, _userId: string, _seriesId: string, seasonId: string) =>
+        seasonId === 'season-6'
+          ? [
+              {
+                id: 'episode-14',
+                name: '尘都无法忘记',
+                overview: '',
+                indexNumber: 14,
+                parentIndexNumber: 6,
+                posterUrl: null,
+                runtimeTicks: 600000000,
+                serverPositionTicks: null,
+                mediaSources: [],
+              },
+            ]
+          : []
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /一人之下/ }));
+
+    await waitFor(() => {
+      expect(fetchItemDetailsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'series-1',
+        'token-123'
+      );
+    });
+    await waitFor(() => {
+      expect(fetchEpisodesMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'series-1',
+        'season-6',
+        'token-123'
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /14\. 尘都无法忘记/ })).toHaveClass(
+        'episode-active'
+      );
+    });
+  });
+
   it('renders cached home data before delayed network refresh resolves', async () => {
     const account = createSavedAccount();
     const homeCacheKey = `home-cache::${account.id}::latest_added`;

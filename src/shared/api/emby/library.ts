@@ -21,6 +21,12 @@ interface EmbyLibraryItemPayload {
   Items?: Array<{
     Id?: string;
     Name?: string;
+    Type?: string | null;
+    SeriesId?: string | null;
+    SeriesName?: string | null;
+    ParentId?: string | null;
+    ParentIndexNumber?: number | null;
+    IndexNumber?: number | null;
     RunTimeTicks?: number | null;
     CommunityRating?: number | null;
     ProductionYear?: number | null;
@@ -33,6 +39,12 @@ interface EmbyLibraryItemPayload {
 interface EmbyLibraryItem {
   Id: string;
   Name: string;
+  Type?: string | null;
+  SeriesId?: string | null;
+  SeriesName?: string | null;
+  ParentId?: string | null;
+  ParentIndexNumber?: number | null;
+  IndexNumber?: number | null;
   RunTimeTicks?: number | null;
   CommunityRating?: number | null;
   ProductionYear?: number | null;
@@ -95,6 +107,14 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
       return {
         id: itemId,
         name: item.Name.trim(),
+        ...(hasText(item.Type) ? { type: item.Type.trim() } : {}),
+        ...(hasText(item.SeriesId) ? { seriesId: item.SeriesId.trim() } : {}),
+        ...(hasText(item.SeriesName) ? { seriesName: item.SeriesName.trim() } : {}),
+        ...(hasText(item.ParentId) ? { parentId: item.ParentId.trim() } : {}),
+        ...(typeof item.ParentIndexNumber === 'number'
+          ? { parentIndexNumber: item.ParentIndexNumber }
+          : {}),
+        ...(typeof item.IndexNumber === 'number' ? { indexNumber: item.IndexNumber } : {}),
         posterUrl,
         imageCandidates: [
           {
@@ -293,9 +313,16 @@ export async function fetchItemsByIds(
   }
 
   const ids = itemIds.map((itemId) => itemId.trim()).filter(Boolean).join(',');
+  const query = new URLSearchParams({
+    Ids: ids,
+    EnableUserData: 'true',
+    EnableImages: 'true',
+    ImageTypeLimit: '1',
+    Fields: 'ProductionYear,SeriesInfo',
+  });
   const response = await createEmbyRequest(
     serverUrl,
-    `/Users/${encodeURIComponent(userId)}/Items?Ids=${encodeURIComponent(ids)}&EnableUserData=true&EnableImages=true&ImageTypeLimit=1`,
+    `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
     {
       accessToken,
     }

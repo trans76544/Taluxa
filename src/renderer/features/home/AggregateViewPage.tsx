@@ -62,6 +62,8 @@ export function AggregateViewPage({ rows, onOpenItem }: AggregateViewPageProps) 
                   href={item.href}
                   state={item.state}
                   landscape={true}
+                  progressPercent={item.progressPercent}
+                  className="poster-card--continue"
                   onClick={(event) => onOpenItem(item, event)}
                 />
               ))}

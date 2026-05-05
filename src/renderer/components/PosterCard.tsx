@@ -12,12 +12,16 @@ interface PosterCardProps {
   state?: {
     title?: string;
     serverPositionTicks?: number | null;
+    resumeEpisodeId?: string;
+    resumeSeasonId?: string;
+    resumeSeasonIndex?: number;
   };
   landscape?: boolean;
   onClick?: React.MouseEventHandler<HTMLAnchorElement>;
   className?: string;
   communityRating?: number | null;
   productionYear?: number | null;
+  progressPercent?: number;
 }
 
 function getPosterCandidates(
@@ -52,6 +56,7 @@ export function PosterCard({
   className = '',
   communityRating,
   productionYear,
+  progressPercent,
 }: PosterCardProps) {
   const candidates = getPosterCandidates(posterUrl, imageCandidates);
   const [candidateIndex, setCandidateIndex] = useState(0);
@@ -62,6 +67,10 @@ export function PosterCard({
 
   const activePosterUrl = candidates[candidateIndex] ?? null;
   const resolvedPosterUrl = useCachedImageUrl(activePosterUrl);
+  const normalizedProgressPercent =
+    typeof progressPercent === 'number' && Number.isFinite(progressPercent)
+      ? Math.min(100, Math.max(0, progressPercent))
+      : null;
 
   return (
     <Link className={`poster-card ${landscape ? 'poster-card--landscape' : ''} ${className}`} to={href} state={state} onClick={onClick}>
@@ -82,6 +91,21 @@ export function PosterCard({
         )}
         {communityRating != null && communityRating > 0 && (
           <div className="poster-card__rating">{communityRating.toFixed(1)}</div>
+        )}
+        {normalizedProgressPercent !== null && normalizedProgressPercent > 0 && (
+          <div
+            className="poster-card__progress"
+            role="progressbar"
+            aria-label="Watching progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(normalizedProgressPercent)}
+          >
+            <div
+              className="poster-card__progress-fill"
+              style={{ width: `${normalizedProgressPercent}%` }}
+            />
+          </div>
         )}
       </div>
       <span className="poster-card__title">{title}</span>

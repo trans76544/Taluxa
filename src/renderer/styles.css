@@ -2636,6 +2636,27 @@ a {
   z-index: 5;
 }
 
+.poster-card__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(12, 15, 26, 0.72);
+  z-index: 6;
+}
+
+.poster-card__progress-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #d78cff, #a783ff);
+  box-shadow: 0 0 10px rgba(215, 140, 255, 0.45);
+}
+
+.poster-card--continue {
+  gap: 6px;
+}
+
 .poster-card__title {
   display: block;
   text-align: center;
@@ -2654,6 +2675,14 @@ a {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
   margin-top: 2px;
+}
+
+.poster-card--continue .poster-card__title {
+  margin-top: 4px;
+}
+
+.poster-card--continue .poster-card__subtitle {
+  margin-top: 1px;
 }
 
 .home-screen--aggregate .poster-card__image-container {

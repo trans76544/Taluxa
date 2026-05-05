@@ -81,4 +81,23 @@ describe('PosterCard', () => {
         .querySelector('.poster-card__image--placeholder')
     ).not.toBeNull();
   });
+
+  it('renders a clamped image progress bar when progress is provided', () => {
+    render(
+      <MemoryRouter>
+        <PosterCard
+          title="Movie 1"
+          subtitle="2026"
+          posterUrl="https://demo.local/poster.jpg"
+          imageCandidates={[]}
+          href="/player/item-1"
+          progressPercent={25}
+        />
+      </MemoryRouter>
+    );
+
+    const progress = screen.getByRole('progressbar', { name: 'Watching progress' });
+    expect(progress).toHaveAttribute('aria-valuenow', '25');
+    expect(progress.querySelector('.poster-card__progress-fill')).toHaveStyle({ width: '25%' });
+  });
 });

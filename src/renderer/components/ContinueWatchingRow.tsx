@@ -26,6 +26,8 @@ export function ContinueWatchingRow({ title, items }: ContinueWatchingRowProps) 
               href={item.href}
               state={item.state}
               landscape={true}
+              progressPercent={item.progressPercent}
+              className="poster-card--continue"
             />
           ))}
         </div>

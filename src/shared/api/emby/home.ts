@@ -8,9 +8,13 @@ export interface HomePosterItem {
   posterUrl: string;
   imageCandidates: LibraryImageCandidate[];
   href: string;
+  progressPercent?: number;
   state?: {
     title?: string;
     serverPositionTicks?: number | null;
+    resumeEpisodeId?: string;
+    resumeSeasonId?: string;
+    resumeSeasonIndex?: number;
   };
 }
 
@@ -41,21 +45,89 @@ export function buildContinueWatchingItems(args: {
 }): HomePosterItem[] {
   return Object.values(args.progressByItemId)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .map((progress) => args.itemsById[progress.itemId])
-    .filter((item): item is LibraryItem => Boolean(item))
+    .map((progress) => ({
+      item: args.itemsById[progress.itemId],
+      progress,
+    }))
+    .filter(
+      (entry): entry is { item: LibraryItem; progress: PlaybackProgress } => Boolean(entry.item)
+    )
     .slice(0, 8)
-    .map((item) => ({
+    .map(({ item, progress }) => buildContinueWatchingItem(item, progress));
+}
+
+function buildContinueWatchingItem(
+  item: LibraryItem,
+  progress: PlaybackProgress
+): HomePosterItem {
+  const progressPercent = getProgressPercent(progress);
+
+  if (item.type === 'Episode') {
+    const seriesTitle = item.seriesName?.trim() || item.name;
+    const episodeSubtitle = formatEpisodeSubtitle(item);
+    const state: HomePosterItem['state'] = {
+      title: seriesTitle,
+      serverPositionTicks: item.serverPositionTicks,
+      resumeEpisodeId: item.id,
+    };
+
+    if (item.parentId) {
+      state.resumeSeasonId = item.parentId;
+    }
+
+    if (typeof item.parentIndexNumber === 'number') {
+      state.resumeSeasonIndex = item.parentIndexNumber;
+    }
+
+    return {
       id: item.id,
-      title: item.name,
-      subtitle: 'Continue watching',
+      title: seriesTitle,
+      subtitle: episodeSubtitle,
       posterUrl: item.posterUrl,
       imageCandidates: item.imageCandidates,
-      href: `/item/${item.id}`,
-      state: {
-        title: item.name,
-        serverPositionTicks: item.serverPositionTicks,
-      },
-    }));
+      href: `/item/${item.seriesId || item.id}`,
+      progressPercent,
+      state,
+    };
+  }
+
+  return {
+    id: item.id,
+    title: item.name,
+    subtitle: typeof item.productionYear === 'number' ? String(item.productionYear) : '',
+    posterUrl: item.posterUrl,
+    imageCandidates: item.imageCandidates,
+    href: `/item/${item.id}`,
+    progressPercent,
+    state: {
+      title: item.name,
+      serverPositionTicks: item.serverPositionTicks,
+    },
+  };
+}
+
+function getProgressPercent(progress: PlaybackProgress): number | undefined {
+  if (progress.durationSeconds <= 0 || progress.positionSeconds <= 0) {
+    return undefined;
+  }
+
+  return Math.min(100, Math.max(0, (progress.positionSeconds / progress.durationSeconds) * 100));
+}
+
+function formatEpisodeSubtitle(item: LibraryItem): string {
+  const episodeName = item.name.trim();
+  const seasonNumber = item.parentIndexNumber;
+  const episodeNumber = item.indexNumber;
+
+  if (typeof seasonNumber === 'number' && typeof episodeNumber === 'number') {
+    return `S${seasonNumber}E${episodeNumber}${episodeName ? ` - ${episodeName}` : ''}`;
+  }
+
+  if (typeof episodeNumber === 'number') {
+    return `E${episodeNumber}${episodeName ? ` - ${episodeName}` : ''}`;
+  }
+
+  return episodeName;
 }
 
 export function pickFeaturedViews(views: LibraryView[]): LibraryView[] {

@@ -244,4 +244,19 @@ describe('HomePage', () => {
     expect(libraryGridRule?.groups?.body).toContain('grid-auto-flow: column');
     expect(libraryGridRule?.groups?.body).toContain('overflow-x: auto');
   });
+
+  it('uses compact text spacing for continue-watching cards', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const continueCardRule = styles.match(/\.poster-card--continue\s*\{(?<body>[^}]*)\}/);
+    const continueTitleRule = styles.match(
+      /\.poster-card--continue\s+\.poster-card__title\s*\{(?<body>[^}]*)\}/
+    );
+    const continueSubtitleRule = styles.match(
+      /\.poster-card--continue\s+\.poster-card__subtitle\s*\{(?<body>[^}]*)\}/
+    );
+
+    expect(continueCardRule?.groups?.body).toContain('gap: 6px');
+    expect(continueTitleRule?.groups?.body).toContain('margin-top: 4px');
+    expect(continueSubtitleRule?.groups?.body).toContain('margin-top: 1px');
+  });
 });

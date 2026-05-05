@@ -226,4 +226,31 @@ describe('ItemDetailsPage', () => {
       audioStreamIndex: 7,
     });
   });
+
+  it('selects the continue-watching episode when it is present in the loaded season', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[
+            createEpisode(),
+            createEpisode({
+              id: 'episode-2',
+              name: 'Second Case',
+              indexNumber: 2,
+            }),
+          ]}
+          selectedSeasonId=""
+          resumeEpisodeId="episode-2"
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('S1:E2 - Second Case')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /2\. Second Case/ })).toHaveClass('episode-active');
+  });
 });

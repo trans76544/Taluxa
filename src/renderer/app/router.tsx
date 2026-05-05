@@ -81,6 +81,14 @@ interface PlaybackSelection {
   audioStreamIndex?: number | null;
 }
 
+interface ItemRouteState {
+  title?: string;
+  serverPositionTicks?: number | null;
+  resumeEpisodeId?: string;
+  resumeSeasonId?: string;
+  resumeSeasonIndex?: number;
+}
+
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
 const PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS = 1500;
 
@@ -272,6 +280,10 @@ function ItemDetailsRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const location = useLocation();
+  const itemRouteState = (location.state as ItemRouteState | null | undefined) ?? {};
+  const resumeEpisodeId = itemRouteState.resumeEpisodeId;
+  const resumeSeasonId = itemRouteState.resumeSeasonId;
+  const resumeSeasonIndex = itemRouteState.resumeSeasonIndex;
 
   const [details, setDetails] = useState<LibraryItemDetails | null>(null);
   const [similarItems, setSimilarItems] = useState<LibraryItem[]>([]);
@@ -324,9 +336,16 @@ function ItemDetailsRoute() {
           setSeasons(seasonsList);
           
           if (seasonsList.length > 0) {
-            const firstSeason = seasonsList[0].id;
-            setSelectedSeasonId(firstSeason);
-            const episodesList = await fetchEpisodes(serverUrl, currentSession!.userId, itemId, firstSeason, currentSession!.accessToken).catch(() => []);
+            const resumeSeason =
+              seasonsList.find((season) => season.id === resumeSeasonId) ??
+              seasonsList.find(
+                (season) =>
+                  typeof resumeSeasonIndex === 'number' &&
+                  season.indexNumber === resumeSeasonIndex
+              );
+            const initialSeason = resumeSeason?.id ?? seasonsList[0].id;
+            setSelectedSeasonId(initialSeason);
+            const episodesList = await fetchEpisodes(serverUrl, currentSession!.userId, itemId, initialSeason, currentSession!.accessToken).catch(() => []);
             if (cancelled) return;
             setEpisodes(episodesList);
           }
@@ -341,7 +360,7 @@ function ItemDetailsRoute() {
     }
     void loadData();
     return () => { cancelled = true; };
-  }, [itemId, serverUrl, session]);
+  }, [itemId, resumeSeasonId, resumeSeasonIndex, serverUrl, session]);
 
   useEffect(() => {
     const currentSession = session;
@@ -489,6 +508,7 @@ function ItemDetailsRoute() {
         seasons={seasons}
         episodes={episodes}
         selectedSeasonId={selectedSeasonId}
+        resumeEpisodeId={resumeEpisodeId}
         onSelectSeason={setSelectedSeasonId}
         onPlay={handlePlay}
       />
