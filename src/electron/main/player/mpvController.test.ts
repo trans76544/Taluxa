@@ -295,6 +295,50 @@ describe('MpvController', () => {
     );
   });
 
+  it('renders refined top window controls with scaled geometric icons', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
+
+    expect(uiScript).toEqual(expect.stringContaining('local WINDOW_ICON_SCALE = 0.8'));
+    expect(uiScript).toEqual(expect.stringContaining('local window_button_gap = 18'));
+    expect(uiScript).toEqual(
+      expect.stringContaining(
+        "add_window_button(out, 'pin', window_x, 8, window_button_width, window_button_height, 'pin')"
+      )
+    );
+    expect(uiScript).toEqual(
+      expect.stringContaining(
+        "add_window_button(out, 'maximize', window_x, 8, window_button_width, window_button_height, 'square')"
+      )
+    );
+    expect(uiScript).toEqual(
+      expect.stringContaining(
+        "draw_window_icon(out, icon, x + math.floor(width / 2), y + math.floor(height / 2))"
+      )
+    );
+    expect(uiScript).not.toEqual(expect.stringContaining("'[]', 34"));
+  });
+
   it('loads a generated ASS danmaku subtitle file when comments are available', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const child = new FakeSpawnedProcess();
@@ -902,11 +946,11 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
-      expect.stringContaining('local window_button_width = 28 * BUTTON_SCALE')
+      expect.stringContaining('local window_button_width = 44')
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
-      expect.stringContaining("add_button(out, 'close', width - 76, 8, window_button_width")
+      expect.stringContaining("add_window_button(out, 'close', window_x, 8, window_button_width")
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,

@@ -228,6 +228,7 @@ local overlay = mp.create_osd_overlay('ass-events')
 local UI_WIDTH = 1920
 local UI_HEIGHT = 1080
 local BUTTON_SCALE = 2
+local WINDOW_ICON_SCALE = 0.8
 local CONTROL_HIDE_SECONDS = 3
 local BLUE = 'FF7716'
 local CACHE_BLUE = 'FFCF8F'
@@ -392,6 +393,41 @@ local function append_box(out, x1, y1, x2, y2, color, alpha)
   )
 end
 
+local function round_coord(value)
+  return math.floor(value + 0.5)
+end
+
+local function append_line(out, x1, y1, x2, y2, thickness, color, alpha)
+  local dx = x2 - x1
+  local dy = y2 - y1
+  local length = math.sqrt(dx * dx + dy * dy)
+  if length <= 0 then return end
+
+  local radius = thickness / 2
+  local nx = -dy / length * radius
+  local ny = dx / length * radius
+  out[#out + 1] = string.format(
+    '{\\an7\\pos(0,0)\\bord0\\shad0\\alpha&H%02X&\\c&H%s&\\p1}m %d %d l %d %d l %d %d l %d %d{\\p0}',
+    alpha,
+    color,
+    round_coord(x1 + nx),
+    round_coord(y1 + ny),
+    round_coord(x2 + nx),
+    round_coord(y2 + ny),
+    round_coord(x2 - nx),
+    round_coord(y2 - ny),
+    round_coord(x1 - nx),
+    round_coord(y1 - ny)
+  )
+end
+
+local function append_outline_box(out, x1, y1, x2, y2, thickness, color, alpha)
+  append_box(out, x1, y1, x2, y1 + thickness, color, alpha)
+  append_box(out, x2 - thickness, y1, x2, y2, color, alpha)
+  append_box(out, x1, y2 - thickness, x2, y2, color, alpha)
+  append_box(out, x1, y1, x1 + thickness, y2, color, alpha)
+end
+
 local function append_text(out, x, y, align, size, text, color, alpha, bold)
   local weight = bold and '\\b1' or '\\b0'
   text = tostring(text or ''):gsub('\\', '\\\\'):gsub('{', '\\{'):gsub('}', '\\}')
@@ -404,6 +440,32 @@ end
 local function add_button(out, id, x, y, width, height, label, size, value)
   buttons[#buttons + 1] = { id = id, x1 = x, y1 = y, x2 = x + width, y2 = y + height, value = value }
   append_text(out, x + math.floor(width / 2), y + math.floor(height / 2) + 1, 5, size or 22, label, 'FFFFFF', 0, false)
+end
+
+local function draw_window_icon(out, icon, cx, cy)
+  local size = 24 * WINDOW_ICON_SCALE
+  local half = size / 2
+  local thickness = math.max(2, round_coord(2.2 * WINDOW_ICON_SCALE))
+  local color = 'FFFFFF'
+
+  if icon == 'pin' then
+    append_line(out, cx - half * 0.5, cy - half * 0.58, cx + half * 0.5, cy - half * 0.58, thickness, color, 0)
+    append_line(out, cx, cy - half * 0.58, cx, cy + half * 0.08, thickness, color, 0)
+    append_line(out, cx - half * 0.28, cy + half * 0.08, cx + half * 0.28, cy + half * 0.08, thickness, color, 0)
+    append_line(out, cx, cy + half * 0.08, cx, cy + half * 0.68, thickness, color, 0)
+  elseif icon == 'minimize' then
+    append_line(out, cx - half * 0.5, cy, cx + half * 0.5, cy, thickness, color, 0)
+  elseif icon == 'square' then
+    append_outline_box(out, round_coord(cx - half * 0.44), round_coord(cy - half * 0.44), round_coord(cx + half * 0.44), round_coord(cy + half * 0.44), thickness, color, 0)
+  elseif icon == 'close' then
+    append_line(out, cx - half * 0.42, cy - half * 0.42, cx + half * 0.42, cy + half * 0.42, thickness, color, 0)
+    append_line(out, cx + half * 0.42, cy - half * 0.42, cx - half * 0.42, cy + half * 0.42, thickness, color, 0)
+  end
+end
+
+local function add_window_button(out, id, x, y, width, height, icon)
+  buttons[#buttons + 1] = { id = id, x1 = x, y1 = y, x2 = x + width, y2 = y + height }
+  draw_window_icon(out, icon, x + math.floor(width / 2), y + math.floor(height / 2))
 end
 
 local function add_range_button(id, x1, y1, x2, y2)
@@ -806,12 +868,17 @@ local function draw_controls()
   draw_options_menu(out)
 
   append_text(out, width - 20, 68, 3, 14, format_speed(cache_speed), 'FFFFFF', 0, false)
-  local window_button_width = 28 * BUTTON_SCALE
-  local window_button_height = 24 * BUTTON_SCALE
-  add_button(out, 'pin', width - 268, 8, window_button_width, window_button_height, '*', 34)
-  add_button(out, 'minimize', width - 204, 8, window_button_width, window_button_height, '-', 36)
-  add_button(out, 'maximize', width - 140, 8, window_button_width, window_button_height, '[]', 34)
-  add_button(out, 'close', width - 76, 8, window_button_width, window_button_height, 'x', 40)
+  local window_button_width = 44
+  local window_button_height = 38
+  local window_button_gap = 18
+  local window_x = width - 20 - window_button_width * 4 - window_button_gap * 3
+  add_window_button(out, 'pin', window_x, 8, window_button_width, window_button_height, 'pin')
+  window_x = window_x + window_button_width + window_button_gap
+  add_window_button(out, 'minimize', window_x, 8, window_button_width, window_button_height, 'minimize')
+  window_x = window_x + window_button_width + window_button_gap
+  add_window_button(out, 'maximize', window_x, 8, window_button_width, window_button_height, 'square')
+  window_x = window_x + window_button_width + window_button_gap
+  add_window_button(out, 'close', window_x, 8, window_button_width, window_button_height, 'close')
 
   overlay.data = table.concat(out, '\n')
   overlay:update()
