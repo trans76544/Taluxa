@@ -35,6 +35,13 @@ export interface MpvProgressSnapshot {
   durationSeconds: number;
 }
 
+export interface MpvWindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface PlayerSettingsPatch {
   playback?: Partial<PlaybackSettings>;
   subtitles?: Partial<SubtitleSettings>;
@@ -929,7 +936,8 @@ local function handle_click()
     mp.commandv('set', 'window-minimized', 'yes')
   elseif id == 'maximize' then
     menu_open = nil
-    mp.commandv('cycle', 'window-maximized')
+    local is_maximized = mp.get_property_bool('window-maximized') and 'yes' or 'no'
+    mp.commandv('script-message', 'taluxa-toggle-window-maximize', is_maximized)
   elseif id == 'close' then
     mp.commandv('quit')
   end
@@ -984,6 +992,7 @@ export interface MpvControllerOptions {
   createIpcEndpoint?: () => string;
   fileExists?: (targetPath: string) => boolean;
   fetchDanmaku?: FetchDanmaku;
+  getWindowMaximizeBounds?: () => MpvWindowBounds | null;
   isPackaged?: boolean;
   maxConnectAttempts?: number;
   moduleDir?: string;
@@ -1117,6 +1126,35 @@ function clampNumber(value: number, minValue: number, maxValue: number): number 
   }
 
   return Math.max(minValue, Math.min(maxValue, value));
+}
+
+function normalizeWindowBounds(bounds: MpvWindowBounds | null): MpvWindowBounds | null {
+  if (!bounds) {
+    return null;
+  }
+
+  const x = Math.round(bounds.x);
+  const y = Math.round(bounds.y);
+  const width = Math.round(bounds.width);
+  const height = Math.round(bounds.height);
+
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { x, y, width, height };
+}
+
+function formatGeometryOffset(value: number): string {
+  return value >= 0 ? `+${value}` : String(value);
+}
+
+function formatWindowGeometry(bounds: MpvWindowBounds): string {
+  return `${bounds.width}x${bounds.height}${formatGeometryOffset(bounds.x)}${formatGeometryOffset(bounds.y)}`;
+}
+
+function isMpvWindowMaximized(value: unknown): boolean {
+  return value === true || value === 'yes' || value === 'true' || value === 1;
 }
 
 function parsePlayerSettingsPatch(value: unknown): PlayerSettingsPatch | null {
@@ -1256,6 +1294,8 @@ export class MpvController {
 
   private readonly fetchDanmaku: FetchDanmaku;
 
+  private readonly getWindowMaximizeBounds: () => MpvWindowBounds | null;
+
   private ipcEndpointCounter = 0;
 
   private readonly isPackaged: boolean;
@@ -1302,6 +1342,7 @@ export class MpvController {
     this.fileExists = options.fileExists ?? existsSync;
     this.fetchDanmaku =
       options.fetchDanmaku ?? ((nextInput, servers) => fetchDandanplayDanmaku(nextInput, servers));
+    this.getWindowMaximizeBounds = options.getWindowMaximizeBounds ?? (() => null);
     this.isPackaged = options.isPackaged ?? process.env.NODE_ENV === 'production';
     this.maxConnectAttempts = options.maxConnectAttempts ?? 20;
     this.moduleDir = options.moduleDir ?? path.dirname(fileURLToPath(import.meta.url));
@@ -1769,6 +1810,10 @@ export class MpvController {
             }
           }
 
+          if (name === 'taluxa-toggle-window-maximize') {
+            this.toggleWindowMaximize(session, rawPatch);
+          }
+
           continue;
         }
 
@@ -1838,6 +1883,30 @@ export class MpvController {
     }
     session.onReady();
     this.flushPendingCommands(session);
+  }
+
+  private toggleWindowMaximize(session: ActiveSession, currentState: unknown): void {
+    const client = session.client;
+
+    if (!client) {
+      return;
+    }
+
+    this.writeCommand(client, ['set_property', 'fullscreen', false]);
+
+    if (isMpvWindowMaximized(currentState)) {
+      this.writeCommand(client, ['set_property', 'window-maximized', false]);
+      return;
+    }
+
+    this.writeCommand(client, ['set_property', 'window-maximized', true]);
+
+    const bounds = normalizeWindowBounds(this.getWindowMaximizeBounds());
+
+    if (bounds) {
+      this.writeCommand(client, ['set_property', 'force-window-position', true]);
+      this.writeCommand(client, ['set_property', 'geometry', formatWindowGeometry(bounds)]);
+    }
   }
 
   private observeProperty(

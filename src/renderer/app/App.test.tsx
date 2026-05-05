@@ -1,5 +1,6 @@
 ﻿import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act } from '@testing-library/react';
 import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppProviders } from './providers';
@@ -757,6 +758,136 @@ describe('App', () => {
       'Could not prepare desktop playback.'
     );
     expect(storage.launch).not.toHaveBeenCalled();
+  });
+
+  it('launches mpv when playback stream preflight is still pending after a short wait', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    storage.preflight.mockReturnValueOnce(new Promise(() => undefined));
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: 0,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    const { container } = render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
+    fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+    await screen.findByRole('heading', { name: 'Movie 1' });
+    const playButton = container.querySelector<HTMLButtonElement>('.btn-play');
+    expect(playButton).not.toBeNull();
+
+    vi.useFakeTimers();
+    fireEvent.click(playButton!);
+
+    await flushAsyncQueue();
+    expect(storage.preflight).toHaveBeenCalled();
+    expect(storage.launch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+      await flushAsyncQueue();
+    });
+
+    expect(storage.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'item-1',
+        title: 'Movie 1',
+      })
+    );
+  });
+
+  it('launches mpv from item media source metadata without waiting for PlaybackInfo', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    fetchPlaybackStreamSourceMock.mockReturnValueOnce(new Promise(() => undefined));
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Movie 1',
+        posterUrl: 'https://demo.emby.local/Items/item-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: 0,
+      },
+    ]);
+    fetchItemDetailsMock.mockResolvedValueOnce(
+      createMovieDetails({
+        id: 'item-1',
+        mediaSources: [
+          {
+            id: 'source-1',
+            path: 'Movie 1.mkv',
+            container: 'mkv',
+            size: null,
+            bitrate: null,
+            videoCodec: 'hevc',
+            videoStream: null,
+            audioStreams: [{ Index: 2, DisplayTitle: 'Japanese AAC', IsDefault: true }],
+          },
+        ],
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    const { container } = render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
+    fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
+    await screen.findByRole('heading', { name: 'Movie 1' });
+    const playButton = container.querySelector<HTMLButtonElement>('.btn-play');
+    expect(playButton).not.toBeNull();
+    fireEvent.click(playButton!);
+
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'item-1',
+          title: 'Movie 1',
+          streamUrl:
+            'https://demo.emby.local/Videos/item-1/stream?static=true&api_key=token-123&DeviceId=emby-player-desktop&MediaSourceId=source-1&AudioStreamIndex=2',
+        })
+      );
+    });
   });
 
   it('loads continue watching items from non-featured libraries when local progress exists', async () => {

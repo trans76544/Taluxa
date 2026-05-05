@@ -74,6 +74,26 @@ export function buildStreamUrl(serverUrl: string, itemId: string, accessToken: s
   return `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${encodeURIComponent(accessToken)}`;
 }
 
+export function buildDirectPlaybackStreamSource({
+  serverUrl,
+  itemId,
+  accessToken,
+  mediaSourceId,
+  audioStreamIndex,
+}: FetchPlaybackStreamSourceInput): PlaybackStreamSource {
+  return {
+    streamUrl: buildMediaSourceDirectUrl(
+      serverUrl,
+      itemId,
+      accessToken,
+      null,
+      mediaSourceId,
+      audioStreamIndex
+    ),
+    httpHeaders: {},
+  };
+}
+
 function buildMediaSourceHlsUrl(
   serverUrl: string,
   itemId: string,

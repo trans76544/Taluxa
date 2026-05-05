@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeImage, protocol, session } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, protocol, screen, session } from 'electron';
 import { join } from 'node:path';
 import { readPersistedState, registerStorageIpc, writeSettingsPatchFromMain } from './ipc/storage';
 import { registerImageCacheIpc } from './ipc/imageCache';
@@ -9,6 +9,7 @@ import {
   MpvController,
   type LaunchMpvInput,
   type MpvProgressSnapshot,
+  type MpvWindowBounds,
 } from './player/mpvController';
 import { HlsProxyServer } from './player/hlsProxy';
 import { fetchDandanplayDanmaku } from './player/danmaku';
@@ -33,6 +34,13 @@ function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
   }
 }
 
+function getMpvWindowMaximizeBounds(): MpvWindowBounds | null {
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+
+  return display.workArea;
+}
+
 const mpvController = new MpvController({
   isPackaged: app.isPackaged,
   fetchDanmaku: (input, servers) =>
@@ -40,6 +48,7 @@ const mpvController = new MpvController({
       fetcher: (url, init) => session.defaultSession.fetch(url, init),
       logger: (message) => console.info(message),
     }),
+  getWindowMaximizeBounds: getMpvWindowMaximizeBounds,
   onPlayerSettingsPatch: async (settingsPatch) => {
     await writeSettingsPatchFromMain(settingsPatch);
   },

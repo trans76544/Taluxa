@@ -11,11 +11,18 @@ import {
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchItemsByIds, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
+  buildDirectPlaybackStreamSource,
   fetchPlaybackStreamSource,
   reportPlaybackProgress,
   type PlaybackStreamSource,
 } from '@shared/api/emby/playback';
-import type { LibraryItem, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
+import type {
+  LibraryItem,
+  LibraryItemDetails,
+  LibraryItemMediaSource,
+  LibrarySeason,
+  LibraryEpisode,
+} from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
 import type { SavedAccount } from '@shared/models/session';
 import type {
@@ -75,9 +82,48 @@ interface PlaybackSelection {
 }
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
+const PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS = 1500;
+
+async function waitForFastPlaybackPreflight(source: PlaybackStreamSource): Promise<void> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const preflightPromise = window.embyDesktop.player.preflight(source);
+  preflightPromise.catch(() => undefined);
+
+  try {
+    const result = await Promise.race([
+      preflightPromise.then(() => 'completed' as const),
+      new Promise<'timed-out'>((resolve) => {
+        timeoutId = setTimeout(resolve, PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS, 'timed-out');
+      }),
+    ]);
+
+    if (result === 'timed-out') {
+      return;
+    }
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 function getJsonByteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function pickPlaybackMediaSource(
+  mediaSources: LibraryItemMediaSource[],
+  preferredMediaSourceId?: string | null
+): LibraryItemMediaSource | null {
+  if (mediaSources.length === 0) {
+    return null;
+  }
+
+  const preferredId = preferredMediaSourceId?.trim();
+  return (
+    (preferredId ? mediaSources.find((source) => source.id === preferredId) : null) ??
+    mediaSources[0]
+  );
 }
 
 function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
@@ -303,18 +349,37 @@ function ItemDetailsRoute() {
     setPlaybackTitle(selection?.title?.trim() || details?.name || '');
 
     try {
+      const playbackMediaSources =
+        details?.id === playItemId
+          ? details.mediaSources
+          : episodes.find((episode) => episode.id === playItemId)?.mediaSources ?? [];
+      const selectedMediaSource = pickPlaybackMediaSource(
+        playbackMediaSources,
+        selection?.mediaSourceId
+      );
+      const directSource = selectedMediaSource
+        ? buildDirectPlaybackStreamSource({
+            serverUrl,
+            userId: session.userId,
+            itemId: playItemId,
+            accessToken: session.accessToken,
+            mediaSourceId: selectedMediaSource.id,
+            audioStreamIndex: selection?.audioStreamIndex,
+          })
+        : null;
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
-        fetchPlaybackStreamSource({
-          serverUrl,
-          userId: session.userId,
-          itemId: playItemId,
-          accessToken: session.accessToken,
-          mediaSourceId: selection?.mediaSourceId,
-          audioStreamIndex: selection?.audioStreamIndex,
-        })
+        directSource ??
+          fetchPlaybackStreamSource({
+            serverUrl,
+            userId: session.userId,
+            itemId: playItemId,
+            accessToken: session.accessToken,
+            mediaSourceId: selection?.mediaSourceId,
+            audioStreamIndex: selection?.audioStreamIndex,
+          })
       ]);
-      await window.embyDesktop.player.preflight(nextSource);
+      await waitForFastPlaybackPreflight(nextSource);
       
       const progressByItemId = getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId);
       const savedPositionSeconds = progressByItemId[playItemId]?.positionSeconds ?? null;

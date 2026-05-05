@@ -939,6 +939,12 @@ describe('MpvController', () => {
       uiScriptPath,
       expect.stringContaining("menu_open = 'audio'")
     );
+    const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
+    expect(uiScript).toContain("elseif id == 'maximize' then");
+    expect(uiScript).toContain("mp.get_property_bool('window-maximized')");
+    expect(uiScript).toContain(
+      "mp.commandv('script-message', 'taluxa-toggle-window-maximize', is_maximized)"
+    );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
       expect.stringContaining(
@@ -957,6 +963,53 @@ describe('MpvController', () => {
         '--cache-secs=120',
       ]),
       expect.any(Object)
+    );
+  });
+
+  it('maximizes the mpv window to the current display work area', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      getWindowMaximizeBounds: () => ({ x: 38, y: 0, width: 2010, height: 1121 }),
+      moduleDir: devModuleDir,
+      spawnProcess,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    ipcClient.write.mockClear();
+    ipcClient.emit(
+      'data',
+      Buffer.from(
+        `${JSON.stringify({
+          event: 'client-message',
+          args: ['taluxa-toggle-window-maximize', 'no'],
+        })}\n`
+      )
+    );
+
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['set_property', 'fullscreen', false] })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['set_property', 'window-maximized', true] })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['set_property', 'force-window-position', true] })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ command: ['set_property', 'geometry', '2010x1121+38+0'] })}\n`
     );
   });
 
