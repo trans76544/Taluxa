@@ -189,6 +189,7 @@ describe('fetchEpisodes', () => {
             RunTimeTicks: 600000000,
             UserData: {
               PlaybackPositionTicks: 120000000,
+              Played: true,
             },
             ImageTags: {
               Primary: 'tag-1',
@@ -236,6 +237,7 @@ describe('fetchEpisodes', () => {
     const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestUrl.pathname).toBe('/Shows/series-1/Episodes');
     expect(requestUrl.searchParams.get('Fields')).toBe('Overview,MediaSources');
+    expect(episodes[0].played).toBe(true);
     expect(episodes[0].mediaSources).toEqual([
       expect.objectContaining({
         id: 'episode-1-2160',

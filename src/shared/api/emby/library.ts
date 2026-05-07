@@ -39,6 +39,7 @@ interface EmbyLibraryItemPayload {
     ProductionYear?: number | null;
     UserData?: {
       PlaybackPositionTicks?: number | null;
+      Played?: boolean | null;
     };
   }>;
 }
@@ -57,6 +58,7 @@ interface EmbyLibraryItem {
   ProductionYear?: number | null;
   UserData?: {
     PlaybackPositionTicks?: number | null;
+    Played?: boolean | null;
   };
 }
 
@@ -174,6 +176,7 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
           typeof item.UserData?.PlaybackPositionTicks === 'number'
             ? item.UserData.PlaybackPositionTicks
             : null,
+        ...(typeof item.UserData?.Played === 'boolean' ? { played: item.UserData.Played } : {}),
       };
     });
 }
@@ -402,6 +405,7 @@ export async function fetchItemDetails(
     productionYear: item.ProductionYear || null,
     runtimeTicks: item.RunTimeTicks || null,
     serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
+    ...(typeof item.UserData?.Played === 'boolean' ? { played: item.UserData.Played } : {}),
     posterUrl: `${normalizedServerUrl}/Items/${item.Id}/Images/Primary`,
     imageCandidates: [],
     backdropUrl: item.BackdropImageTags && item.BackdropImageTags.length > 0
@@ -499,6 +503,7 @@ export async function fetchEpisodes(
     overview: item.Overview || '',
     runtimeTicks: item.RunTimeTicks || null,
     serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
+    played: item.UserData?.Played === true,
     posterUrl: item.ImageTags?.Primary ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary` : null,
     imageCandidates: buildExistingImageCandidates(normalizedServerUrl, item),
     mediaSources: mapMediaSources(item),

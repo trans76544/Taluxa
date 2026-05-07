@@ -22,6 +22,7 @@ interface PosterCardProps {
   communityRating?: number | null;
   productionYear?: number | null;
   progressPercent?: number;
+  played?: boolean;
   onContextMenu?: React.MouseEventHandler<HTMLAnchorElement>;
 }
 
@@ -58,6 +59,7 @@ export function PosterCard({
   communityRating,
   productionYear,
   progressPercent,
+  played = false,
   onContextMenu,
 }: PosterCardProps) {
   const candidates = getPosterCandidates(posterUrl, imageCandidates);
@@ -99,6 +101,9 @@ export function PosterCard({
         )}
         {communityRating != null && communityRating > 0 && (
           <div className="poster-card__rating">{communityRating.toFixed(1)}</div>
+        )}
+        {played && (
+          <div className="poster-card__played-indicator" aria-label="Played" title="Played" />
         )}
         {normalizedProgressPercent !== null && normalizedProgressPercent > 0 && (
           <div

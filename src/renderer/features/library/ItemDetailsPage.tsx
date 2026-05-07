@@ -7,6 +7,7 @@ import type {
   LibraryItemMediaSource,
   LibrarySeason,
 } from '@shared/models/library';
+import type { PlaybackProgress } from '@shared/models/progress';
 
 interface PlaybackSelection {
   title?: string | null;
@@ -21,6 +22,7 @@ interface ItemDetailsPageProps {
   episodes: LibraryEpisode[];
   selectedSeasonId: string;
   resumeEpisodeId?: string | null;
+  episodeProgressByItemId?: Record<string, PlaybackProgress>;
   onSelectSeason: (seasonId: string) => void;
   onPlay: (itemId: string, resumeTicks?: number | null, selection?: PlaybackSelection) => void;
 }
@@ -125,6 +127,51 @@ function formatEpisodePlaybackTitle(seriesName: string, episode: LibraryEpisode)
   return `${seriesName} - S${episode.parentIndexNumber}:E${episode.indexNumber} - ${episode.name}`;
 }
 
+function getProgressPercentFromSeconds(
+  positionSeconds: number | null | undefined,
+  durationSeconds: number | null | undefined
+): number | undefined {
+  if (
+    typeof positionSeconds !== 'number' ||
+    typeof durationSeconds !== 'number' ||
+    positionSeconds <= 0 ||
+    durationSeconds <= 0
+  ) {
+    return undefined;
+  }
+
+  return Math.min(100, Math.max(0, (positionSeconds / durationSeconds) * 100));
+}
+
+function getEpisodeProgressPercent(
+  episode: LibraryEpisode,
+  savedProgress?: PlaybackProgress
+): number | undefined {
+  if (episode.played === true) {
+    return undefined;
+  }
+
+  const savedProgressPercent = getProgressPercentFromSeconds(
+    savedProgress?.positionSeconds,
+    savedProgress?.durationSeconds
+  );
+
+  if (savedProgressPercent !== undefined) {
+    return savedProgressPercent;
+  }
+
+  if (
+    typeof episode.runtimeTicks !== 'number' ||
+    typeof episode.serverPositionTicks !== 'number' ||
+    episode.runtimeTicks <= 0 ||
+    episode.serverPositionTicks <= 0
+  ) {
+    return undefined;
+  }
+
+  return Math.min(100, Math.max(0, (episode.serverPositionTicks / episode.runtimeTicks) * 100));
+}
+
 export function ItemDetailsPage({
   details,
   similarItems,
@@ -132,6 +179,7 @@ export function ItemDetailsPage({
   episodes,
   selectedSeasonId,
   resumeEpisodeId,
+  episodeProgressByItemId = {},
   onSelectSeason,
   onPlay,
 }: ItemDetailsPageProps) {
@@ -145,8 +193,9 @@ export function ItemDetailsPage({
     () =>
       episodes.find((episode) => episode.id === selectedEpisodeId) ??
       episodes.find((episode) => episode.serverPositionTicks !== null && episode.serverPositionTicks > 0) ??
+      episodes.find((episode) => getEpisodeProgressPercent(episode, episodeProgressByItemId[episode.id]) !== undefined) ??
       episodes[0],
-    [episodes, selectedEpisodeId]
+    [episodeProgressByItemId, episodes, selectedEpisodeId]
   );
   const playbackMediaSources = isSeries
     ? selectedEpisode?.mediaSources ?? []
@@ -314,6 +363,8 @@ export function ItemDetailsPage({
                     posterUrl={eps.posterUrl || ''}
                     imageCandidates={[]} // Not used immediately
                     href="#" // Prevent navigation
+                    progressPercent={getEpisodeProgressPercent(eps, episodeProgressByItemId[eps.id])}
+                    played={eps.played === true}
                     onClick={(e) => {
                       e.preventDefault();
                       setSelectedEpisodeId(eps.id);

@@ -253,4 +253,45 @@ describe('ItemDetailsPage', () => {
     expect(screen.getByText('S1:E2 - Second Case')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /2\. Second Case/ })).toHaveClass('episode-active');
   });
+
+  it('shows playback progress and played status on episode cards', () => {
+    const playedEpisode = {
+      ...createEpisode({
+        id: 'episode-2',
+        name: 'Solved Case',
+        indexNumber: 2,
+      }),
+      played: true,
+    };
+
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[
+            createEpisode({
+              id: 'episode-1',
+              name: 'In Progress',
+              runtimeTicks: 600000000,
+              serverPositionTicks: 150000000,
+            }),
+            playedEpisode,
+          ]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const inProgressCard = screen.getByRole('link', { name: /1\. In Progress/ });
+    const progress = inProgressCard.querySelector('[role="progressbar"]');
+    expect(progress).toHaveAttribute('aria-valuenow', '25');
+    expect(progress?.querySelector('.poster-card__progress-fill')).toHaveStyle({ width: '25%' });
+
+    const playedCard = screen.getByRole('link', { name: /2\. Solved Case/ });
+    expect(playedCard.querySelector('.poster-card__played-indicator')).not.toBeNull();
+  });
 });

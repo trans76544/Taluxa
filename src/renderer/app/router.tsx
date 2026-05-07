@@ -423,6 +423,9 @@ function ItemDetailsRoute() {
   const [similarItems, setSimilarItems] = useState<LibraryItem[]>([]);
   const [seasons, setSeasons] = useState<LibrarySeason[]>([]);
   const [episodes, setEpisodes] = useState<LibraryEpisode[]>([]);
+  const [episodeProgressByItemId, setEpisodeProgressByItemId] = useState<
+    Record<string, PlaybackProgress>
+  >({});
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -456,9 +459,21 @@ function ItemDetailsRoute() {
     setPlaybackTitle('');
     setPlaybackEpisodeSelector(undefined);
     setPlaybackErrorMessage('');
+    setEpisodeProgressByItemId({});
 
     async function loadData() {
       try {
+        const persistedState = await window.embyDesktop.storage.read().catch(() => null);
+        if (cancelled) return;
+        setEpisodeProgressByItemId(
+          persistedState
+            ? getPersistedProgressByItemIdForAccount(
+                persistedState.progressByItemId,
+                resolvedActiveAccountId
+              )
+            : {}
+        );
+
         const itemDetails = await fetchItemDetails(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken);
         if (cancelled) return;
         setDetails(itemDetails);
@@ -497,7 +512,7 @@ function ItemDetailsRoute() {
     }
     void loadData();
     return () => { cancelled = true; };
-  }, [itemId, resumeSeasonId, resumeSeasonIndex, serverUrl, session]);
+  }, [itemId, resolvedActiveAccountId, resumeSeasonId, resumeSeasonIndex, serverUrl, session]);
 
   useEffect(() => {
     const currentSession = session;
@@ -675,6 +690,10 @@ function ItemDetailsRoute() {
                 : progressItemId]: nextProgress,
             },
           });
+          setEpisodeProgressByItemId((currentProgress) => ({
+            ...currentProgress,
+            [progressItemId]: nextProgress,
+          }));
         } catch {}
         try {
           await reportPlaybackProgress({
@@ -721,6 +740,7 @@ function ItemDetailsRoute() {
         episodes={episodes}
         selectedSeasonId={selectedSeasonId}
         resumeEpisodeId={resumeEpisodeId}
+        episodeProgressByItemId={episodeProgressByItemId}
         onSelectSeason={setSelectedSeasonId}
         onPlay={handlePlay}
       />

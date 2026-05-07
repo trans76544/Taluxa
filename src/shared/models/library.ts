@@ -22,6 +22,7 @@ export interface LibraryItem {
   imageCandidates: LibraryImageCandidate[];
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
+  played?: boolean;
   communityRating: number | null;
   productionYear: number | null;
 }
@@ -99,6 +100,7 @@ export interface LibraryEpisode {
   imageCandidates?: LibraryImageCandidate[];
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
+  played?: boolean;
   mediaSources: LibraryItemMediaSource[];
 }
 

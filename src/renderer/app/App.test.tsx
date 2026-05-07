@@ -1141,6 +1141,11 @@ describe('App', () => {
         'episode-active'
       );
     });
+    expect(
+      screen
+        .getByRole('link', { name: /14\./ })
+        .querySelector('[role="progressbar"]')
+    ).toHaveAttribute('aria-valuenow', '17');
   });
 
   it('renders cached home data before delayed network refresh resolves', async () => {
