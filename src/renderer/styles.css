@@ -1590,7 +1590,8 @@ a {
   font-weight: bold;
   opacity: 0.3;
 }
-.server-context-menu {
+.server-context-menu,
+.continue-context-menu {
   position: fixed;
   z-index: 1000;
   min-width: 148px;
@@ -1600,7 +1601,11 @@ a {
   background: #2a2a2c;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
 }
-.server-context-menu button {
+.continue-context-menu {
+  min-width: 174px;
+}
+.server-context-menu button,
+.continue-context-menu button {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1615,9 +1620,49 @@ a {
   cursor: pointer;
 }
 .server-context-menu button:hover,
-.server-context-menu button:focus-visible {
+.server-context-menu button:focus-visible,
+.continue-context-menu button:hover,
+.continue-context-menu button:focus-visible {
   background: rgba(255, 255, 255, 0.09);
   color: #fff;
+}
+.context-menu-icon {
+  position: relative;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+.context-menu-icon--remove {
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.context-menu-icon--remove::before {
+  content: '';
+  width: 7px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.context-menu-icon--favorite::before {
+  content: '♡';
+  font-size: 17px;
+  line-height: 1;
+}
+.context-menu-icon--played {
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.context-menu-icon--played::before {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-bottom: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: rotate(-45deg) translateY(-1px);
 }
 .server-editor-backdrop {
   position: fixed;

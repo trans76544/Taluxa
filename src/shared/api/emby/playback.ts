@@ -55,6 +55,13 @@ export interface ReportPlaybackProgressInput {
   positionSeconds: number;
 }
 
+export interface UserItemActionInput {
+  serverUrl: string;
+  userId: string;
+  itemId: string;
+  accessToken: string;
+}
+
 interface PlaybackInfoResponse {
   PlaySessionId?: string | null;
   MediaSources?: Array<{
@@ -429,5 +436,74 @@ export async function reportPlaybackProgress({
 
   if (!response.ok) {
     throw new Error(`Failed to report playback progress (${response.status})`);
+  }
+}
+
+export async function markItemPlayed({
+  serverUrl,
+  userId,
+  itemId,
+  accessToken,
+}: UserItemActionInput): Promise<void> {
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/PlayedItems/${encodeURIComponent(itemId)}`,
+    {
+      method: 'POST',
+      accessToken,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to mark item played (${response.status})`);
+  }
+}
+
+export async function addFavoriteItem({
+  serverUrl,
+  userId,
+  itemId,
+  accessToken,
+}: UserItemActionInput): Promise<void> {
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/FavoriteItems/${encodeURIComponent(itemId)}`,
+    {
+      method: 'POST',
+      accessToken,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to add item to favorites (${response.status})`);
+  }
+}
+
+export async function hideItemFromContinueWatching({
+  serverUrl,
+  userId,
+  itemId,
+  accessToken,
+}: UserItemActionInput): Promise<void> {
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}/UserData`,
+    {
+      method: 'POST',
+      accessToken,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ItemId: itemId,
+        PlaybackPositionTicks: 0,
+        Played: false,
+        HideFromResume: true,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to remove item from continue watching (${response.status})`);
   }
 }

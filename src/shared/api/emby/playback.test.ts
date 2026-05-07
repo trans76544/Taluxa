@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  addFavoriteItem,
   buildStreamUrl,
   fetchPlaybackStreamSource,
+  hideItemFromContinueWatching,
+  markItemPlayed,
   preflightPlaybackStreamSource,
   type FetchPlaybackStreamSourceInput,
 } from './playback';
@@ -359,5 +362,56 @@ describe('playback api', () => {
     ).rejects.toThrow(
       'Playback stream preflight could not reach https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted] (Failed to fetch)'
     );
+  });
+
+  it('marks an item as played through the user playstate endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+
+    await expect(markItemPlayed(createInput())).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://demo.emby.local/Users/user-1/PlayedItems/item-1',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.any(Headers),
+      })
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('X-Emby-Token')).toBe('token-123');
+  });
+
+  it('adds an item to favorites through the user library endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+
+    await expect(addFavoriteItem(createInput())).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://demo.emby.local/Users/user-1/FavoriteItems/item-1',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.any(Headers),
+      })
+    );
+  });
+
+  it('hides an item from continue watching by updating item userdata', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(''));
+
+    await expect(hideItemFromContinueWatching(createInput())).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://demo.emby.local/Users/user-1/Items/item-1/UserData',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          ItemId: 'item-1',
+          PlaybackPositionTicks: 0,
+          Played: false,
+          HideFromResume: true,
+        }),
+      })
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('Content-Type')).toBe('application/json');
   });
 });

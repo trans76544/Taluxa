@@ -1,5 +1,5 @@
-import type { LibrarySortMode } from '@shared/models/settings';
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '@shared/api/emby/home';
+import type { LibrarySortMode } from '@shared/models/settings';
 import { ContinueWatchingRow } from '@renderer/components/ContinueWatchingRow';
 import { LibraryCardRow } from '@renderer/components/LibraryCardRow';
 import { PosterRow } from '@renderer/components/PosterRow';
@@ -11,6 +11,9 @@ interface HomePageProps {
   featuredRows: HomePosterRow[];
   sortMode: LibrarySortMode;
   onSortModeChange: (nextSortMode: LibrarySortMode) => void;
+  onRemoveFromContinueWatching?: (item: HomePosterItem) => void;
+  onAddToFavorites?: (item: HomePosterItem) => void;
+  onMarkPlayed?: (item: HomePosterItem) => void;
 }
 
 export function HomePage({
@@ -20,6 +23,9 @@ export function HomePage({
   featuredRows,
   sortMode,
   onSortModeChange,
+  onRemoveFromContinueWatching,
+  onAddToFavorites,
+  onMarkPlayed,
 }: HomePageProps) {
   void sortMode;
   void onSortModeChange;
@@ -31,12 +37,16 @@ export function HomePage({
       </div>
 
       {continueWatching && continueWatching.length > 0 && (
-        <ContinueWatchingRow title="继续观看" items={continueWatching} />
+        <ContinueWatchingRow
+          title="继续观看"
+          items={continueWatching}
+          onRemoveFromContinueWatching={onRemoveFromContinueWatching}
+          onAddToFavorites={onAddToFavorites}
+          onMarkPlayed={onMarkPlayed}
+        />
       )}
 
-      {libraries && libraries.length > 0 && (
-        <LibraryCardRow title="媒体库" items={libraries} />
-      )}
+      {libraries && libraries.length > 0 && <LibraryCardRow title="媒体库" items={libraries} />}
 
       {featuredRows.filter((row) => row.items.length > 0).map((row) => (
         <PosterRow

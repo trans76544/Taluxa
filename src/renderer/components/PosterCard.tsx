@@ -22,6 +22,7 @@ interface PosterCardProps {
   communityRating?: number | null;
   productionYear?: number | null;
   progressPercent?: number;
+  onContextMenu?: React.MouseEventHandler<HTMLAnchorElement>;
 }
 
 function getPosterCandidates(
@@ -57,6 +58,7 @@ export function PosterCard({
   communityRating,
   productionYear,
   progressPercent,
+  onContextMenu,
 }: PosterCardProps) {
   const candidates = getPosterCandidates(posterUrl, imageCandidates);
   const [candidateIndex, setCandidateIndex] = useState(0);
@@ -73,7 +75,13 @@ export function PosterCard({
       : null;
 
   return (
-    <Link className={`poster-card ${landscape ? 'poster-card--landscape' : ''} ${className}`} to={href} state={state} onClick={onClick}>
+    <Link
+      className={`poster-card ${landscape ? 'poster-card--landscape' : ''} ${className}`}
+      to={href}
+      state={state}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+    >
       <div className="poster-card__image-container">
         {activePosterUrl ? (
           <img

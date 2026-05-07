@@ -46,11 +46,13 @@ export interface LegacyPersistedState {
   activeAccountId?: string | null;
 }
 
+type PersistedProgressPatch = Partial<Record<string, PlaybackProgress | null>>;
+
 export type PersistedStatePatch = Partial<
   Omit<PersistedState, 'settings' | 'progressByItemId' | 'homeCacheByKey'>
 > & {
   settings?: PersistedSettingsPatch;
-  progressByItemId?: Partial<Record<string, PlaybackProgress>>;
+  progressByItemId?: PersistedProgressPatch;
   homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
   clearHomeCache?: boolean;
   serverUrl?: string;
@@ -70,13 +72,13 @@ function isAccountScopedProgressKey(key: string): boolean {
 }
 
 function createScopedProgressPatch(
-  progressByItemId: Partial<Record<string, PlaybackProgress>>,
+  progressByItemId: PersistedProgressPatch,
   activeAccountId: string | null
-): Partial<Record<string, PlaybackProgress>> {
-  const nextProgressByItemId: Partial<Record<string, PlaybackProgress>> = {};
+): PersistedProgressPatch {
+  const nextProgressByItemId: PersistedProgressPatch = {};
 
   for (const [itemId, progress] of Object.entries(progressByItemId)) {
-    if (!progress) {
+    if (progress === undefined) {
       continue;
     }
 
@@ -259,6 +261,11 @@ export function mergePersistedState(
   for (const [itemId, progress] of Object.entries(
     createScopedProgressPatch(partial.progressByItemId ?? {}, activeAccountId)
   )) {
+    if (progress === null) {
+      delete progressByItemId[itemId];
+      continue;
+    }
+
     if (progress) {
       progressByItemId[itemId] = progress;
     }

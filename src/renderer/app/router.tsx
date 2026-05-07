@@ -11,8 +11,11 @@ import {
 import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchItemsByIds, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
+  addFavoriteItem,
   buildDirectPlaybackStreamSource,
   fetchPlaybackStreamSource,
+  hideItemFromContinueWatching,
+  markItemPlayed,
   reportPlaybackProgress,
   type PlaybackStreamSource,
 } from '@shared/api/emby/playback';
@@ -38,6 +41,7 @@ import {
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
   type HomeLibraryCard,
+  type HomePosterItem,
   type HomePosterRow,
 } from '@shared/api/emby/home';
 import {
@@ -205,6 +209,90 @@ interface HomeRouteData {
   continueWatching: ReturnType<typeof buildContinueWatchingItems>;
   libraries: HomeLibraryCard[];
   featuredRows: HomePosterRow[];
+}
+
+function getItemIdFromItemHref(href: string): string | null {
+  const match = href.match(/\/item\/([^/?#]+)/u);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getContinueWatchingPlaybackItemId(item: HomePosterItem): string {
+  return item.state?.resumeEpisodeId?.trim() || item.id;
+}
+
+function getContinueWatchingFavoriteItemId(item: HomePosterItem): string {
+  if (item.state?.resumeEpisodeId) {
+    return getItemIdFromItemHref(item.href) ?? item.id;
+  }
+
+  return item.id;
+}
+
+function getRuntimeSeconds(runtimeTicks: number | null | undefined): number {
+  return typeof runtimeTicks === 'number' && runtimeTicks > 0
+    ? Math.round(runtimeTicks / 10000000)
+    : 0;
+}
+
+function formatContinueWatchingEpisodeSubtitle(episode: LibraryEpisode): string {
+  const episodeName = episode.name.trim();
+
+  if (
+    typeof episode.parentIndexNumber === 'number' &&
+    typeof episode.indexNumber === 'number'
+  ) {
+    return `S${episode.parentIndexNumber}E${episode.indexNumber}${
+      episodeName ? ` - ${episodeName}` : ''
+    }`;
+  }
+
+  if (typeof episode.indexNumber === 'number') {
+    return `E${episode.indexNumber}${episodeName ? ` - ${episodeName}` : ''}`;
+  }
+
+  return episodeName;
+}
+
+function createContinueWatchingItemForEpisode(
+  currentItem: HomePosterItem,
+  episode: LibraryEpisode,
+  seasonId: string
+): HomePosterItem {
+  return {
+    id: episode.id,
+    title: currentItem.title,
+    subtitle: formatContinueWatchingEpisodeSubtitle(episode),
+    posterUrl: episode.posterUrl || currentItem.posterUrl,
+    imageCandidates: episode.imageCandidates ?? currentItem.imageCandidates,
+    href: currentItem.href,
+    state: {
+      title: currentItem.title,
+      serverPositionTicks: episode.serverPositionTicks,
+      resumeEpisodeId: episode.id,
+      resumeSeasonId: seasonId,
+      ...(typeof episode.parentIndexNumber === 'number'
+        ? { resumeSeasonIndex: episode.parentIndexNumber }
+        : {}),
+    },
+  };
+}
+
+function sortSeasonsByIndex(seasons: LibrarySeason[]): LibrarySeason[] {
+  return [...seasons].sort((left, right) => {
+    const leftIndex = typeof left.indexNumber === 'number' ? left.indexNumber : Number.MAX_SAFE_INTEGER;
+    const rightIndex = typeof right.indexNumber === 'number' ? right.indexNumber : Number.MAX_SAFE_INTEGER;
+
+    return leftIndex - rightIndex || left.name.localeCompare(right.name);
+  });
+}
+
+function sortEpisodesByIndex(episodes: LibraryEpisode[]): LibraryEpisode[] {
+  return [...episodes].sort((left, right) => {
+    const leftIndex = typeof left.indexNumber === 'number' ? left.indexNumber : Number.MAX_SAFE_INTEGER;
+    const rightIndex = typeof right.indexNumber === 'number' ? right.indexNumber : Number.MAX_SAFE_INTEGER;
+
+    return leftIndex - rightIndex || left.name.localeCompare(right.name);
+  });
 }
 
 function isCompleteHomeCacheEntry(
@@ -749,6 +837,183 @@ function LibrariesRoute() {
     }
   }
 
+  function getProgressStorageKey(itemId: string): string {
+    return resolvedActiveAccountId
+      ? createAccountScopedProgressKey(resolvedActiveAccountId, itemId)
+      : itemId;
+  }
+
+  async function persistContinueWatchingProgressPatch(
+    progressByItemId: Record<string, PlaybackProgress | null>
+  ) {
+    await window.embyDesktop.storage.write({
+      clearHomeCache: true,
+      progressByItemId,
+    });
+  }
+
+  async function findNextContinueWatchingEpisode(item: HomePosterItem): Promise<{
+    episode: LibraryEpisode;
+    seasonId: string;
+  } | null> {
+    if (!sessionUserId || !sessionAccessToken || !item.state?.resumeEpisodeId) {
+      return null;
+    }
+
+    const seriesId = getItemIdFromItemHref(item.href);
+
+    if (!seriesId) {
+      return null;
+    }
+
+    const seasons = sortSeasonsByIndex(
+      await fetchSeasons(serverUrl, sessionUserId, seriesId, sessionAccessToken)
+    );
+    const currentSeasonIndex = seasons.findIndex((season) => {
+      if (item.state?.resumeSeasonId && season.id === item.state.resumeSeasonId) {
+        return true;
+      }
+
+      return (
+        typeof item.state?.resumeSeasonIndex === 'number' &&
+        season.indexNumber === item.state.resumeSeasonIndex
+      );
+    });
+    const startSeasonIndex = currentSeasonIndex >= 0 ? currentSeasonIndex : 0;
+
+    for (let seasonIndex = startSeasonIndex; seasonIndex < seasons.length; seasonIndex += 1) {
+      const season = seasons[seasonIndex];
+      const episodes = sortEpisodesByIndex(
+        await fetchEpisodes(serverUrl, sessionUserId, seriesId, season.id, sessionAccessToken)
+      );
+
+      if (episodes.length === 0) {
+        continue;
+      }
+
+      if (seasonIndex === startSeasonIndex) {
+        const currentEpisodeIndex = episodes.findIndex(
+          (episode) => episode.id === item.state?.resumeEpisodeId
+        );
+
+        if (currentEpisodeIndex >= 0 && currentEpisodeIndex < episodes.length - 1) {
+          return {
+            episode: episodes[currentEpisodeIndex + 1],
+            seasonId: season.id,
+          };
+        }
+
+        continue;
+      }
+
+      return {
+        episode: episodes[0],
+        seasonId: season.id,
+      };
+    }
+
+    return null;
+  }
+
+  async function handleRemoveFromContinueWatching(item: HomePosterItem) {
+    if (!sessionUserId || !sessionAccessToken) {
+      return;
+    }
+
+    const itemId = getContinueWatchingPlaybackItemId(item);
+
+    try {
+      await hideItemFromContinueWatching({
+        serverUrl,
+        userId: sessionUserId,
+        itemId,
+        accessToken: sessionAccessToken,
+      });
+      setContinueWatching((currentItems) =>
+        currentItems.filter((currentItem) => currentItem.id !== item.id)
+      );
+      await persistContinueWatchingProgressPatch({
+        [getProgressStorageKey(itemId)]: null,
+      });
+      setErrorMessage('');
+    } catch {
+      setErrorMessage('无法从继续观看中移除，请稍后重试。');
+    }
+  }
+
+  async function handleAddContinueWatchingFavorite(item: HomePosterItem) {
+    if (!sessionUserId || !sessionAccessToken) {
+      return;
+    }
+
+    try {
+      await addFavoriteItem({
+        serverUrl,
+        userId: sessionUserId,
+        itemId: getContinueWatchingFavoriteItemId(item),
+        accessToken: sessionAccessToken,
+      });
+      setErrorMessage('');
+    } catch {
+      setErrorMessage('无法添加到收藏，请稍后重试。');
+    }
+  }
+
+  async function handleMarkContinueWatchingPlayed(item: HomePosterItem) {
+    if (!sessionUserId || !sessionAccessToken) {
+      return;
+    }
+
+    const itemId = getContinueWatchingPlaybackItemId(item);
+
+    try {
+      await markItemPlayed({
+        serverUrl,
+        userId: sessionUserId,
+        itemId,
+        accessToken: sessionAccessToken,
+      });
+
+      const nextEpisode = item.state?.resumeEpisodeId
+        ? await findNextContinueWatchingEpisode(item)
+        : null;
+
+      if (!nextEpisode) {
+        setContinueWatching((currentItems) =>
+          currentItems.filter((currentItem) => currentItem.id !== item.id)
+        );
+        await persistContinueWatchingProgressPatch({
+          [getProgressStorageKey(itemId)]: null,
+        });
+        setErrorMessage('');
+        return;
+      }
+
+      const nextItem = createContinueWatchingItemForEpisode(
+        item,
+        nextEpisode.episode,
+        nextEpisode.seasonId
+      );
+      setContinueWatching((currentItems) =>
+        dedupeContinueWatchingPosterItems(
+          currentItems.map((currentItem) => (currentItem.id === item.id ? nextItem : currentItem))
+        )
+      );
+      await persistContinueWatchingProgressPatch({
+        [getProgressStorageKey(itemId)]: null,
+        [getProgressStorageKey(nextEpisode.episode.id)]: {
+          itemId: nextEpisode.episode.id,
+          positionSeconds: 0,
+          durationSeconds: getRuntimeSeconds(nextEpisode.episode.runtimeTicks),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      setErrorMessage('');
+    } catch {
+      setErrorMessage('无法标记为已播放，请稍后重试。');
+    }
+  }
+
   useEffect(() => {
     const currentUserId = sessionUserId;
     const currentAccessToken = sessionAccessToken;
@@ -982,6 +1247,9 @@ function LibrariesRoute() {
           featuredRows={featuredRows}
           sortMode={settings.librarySortMode}
           onSortModeChange={handleSortModeChange}
+          onRemoveFromContinueWatching={handleRemoveFromContinueWatching}
+          onAddToFavorites={handleAddContinueWatchingFavorite}
+          onMarkPlayed={handleMarkContinueWatchingPlayed}
         />
       ) : null}
     </AuthenticatedLayout>

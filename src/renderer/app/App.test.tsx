@@ -28,6 +28,9 @@ const fetchSeasonsMock = vi.hoisted(() => vi.fn());
 const fetchEpisodesMock = vi.hoisted(() => vi.fn());
 const fetchPlaybackStreamSourceMock = vi.hoisted(() => vi.fn());
 const reportPlaybackProgressMock = vi.hoisted(() => vi.fn());
+const markItemPlayedMock = vi.hoisted(() => vi.fn());
+const hideItemFromContinueWatchingMock = vi.hoisted(() => vi.fn());
+const addFavoriteItemMock = vi.hoisted(() => vi.fn());
 const fetchServerInfoMock = vi.hoisted(() => vi.fn());
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
@@ -58,6 +61,9 @@ vi.mock('@shared/api/emby/playback', async () => {
     ...actual,
     fetchPlaybackStreamSource: fetchPlaybackStreamSourceMock,
     reportPlaybackProgress: reportPlaybackProgressMock,
+    markItemPlayed: markItemPlayedMock,
+    hideItemFromContinueWatching: hideItemFromContinueWatchingMock,
+    addFavoriteItem: addFavoriteItemMock,
   };
 });
 
@@ -371,6 +377,9 @@ describe('App', () => {
       })
     );
     reportPlaybackProgressMock.mockResolvedValue(undefined);
+    markItemPlayedMock.mockResolvedValue(undefined);
+    hideItemFromContinueWatchingMock.mockResolvedValue(undefined);
+    addFavoriteItemMock.mockResolvedValue(undefined);
     fetchServerInfoMock.mockResolvedValue({ serverName: null });
     window.location.hash = '';
   });
@@ -1194,6 +1203,169 @@ describe('App', () => {
           sortMode: 'latest_added',
         }
       );
+    });
+  });
+
+  it('moves a continue watching episode to the next episode when marked played from the context menu', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(account.id, 'episode-1')]: {
+            itemId: 'episode-1',
+            positionSeconds: 300,
+            durationSeconds: 1800,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    fetchItemsByIdsMock.mockResolvedValue([
+      {
+        id: 'episode-1',
+        name: 'Pilot',
+        type: 'Episode',
+        seriesId: 'series-1',
+        seriesName: 'Series 1',
+        parentId: 'season-1',
+        parentIndexNumber: 1,
+        indexNumber: 1,
+        posterUrl: 'https://demo.emby.local/Items/episode-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 3000000000,
+        communityRating: null,
+        productionYear: 2026,
+      },
+    ]);
+    fetchSeasonsMock.mockResolvedValue([
+      {
+        id: 'season-1',
+        name: 'Season 1',
+        indexNumber: 1,
+        posterUrl: null,
+      },
+    ]);
+    fetchEpisodesMock.mockResolvedValue([
+      {
+        id: 'episode-1',
+        name: 'Pilot',
+        overview: '',
+        indexNumber: 1,
+        parentIndexNumber: 1,
+        posterUrl: 'https://demo.emby.local/Items/episode-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 3000000000,
+        mediaSources: [],
+      },
+      {
+        id: 'episode-2',
+        name: 'Second Case',
+        overview: '',
+        indexNumber: 2,
+        parentIndexNumber: 1,
+        posterUrl: 'https://demo.emby.local/Items/episode-2/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: null,
+        mediaSources: [],
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /S1E1 - Pilot/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '标记为已播放' }));
+
+    await waitFor(() => {
+      expect(markItemPlayedMock).toHaveBeenCalledWith({
+        serverUrl: 'https://demo.emby.local',
+        userId: 'user-1',
+        itemId: 'episode-1',
+        accessToken: 'token-123',
+      });
+    });
+    expect(await screen.findByRole('link', { name: /S1E2 - Second Case/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /S1E1 - Pilot/ })).not.toBeInTheDocument();
+    expect(storage.write).toHaveBeenCalledWith({
+      clearHomeCache: true,
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'episode-1')]: null,
+        [createAccountScopedProgressKey(account.id, 'episode-2')]: expect.objectContaining({
+          itemId: 'episode-2',
+          positionSeconds: 0,
+          durationSeconds: 1800,
+        }),
+      },
+    });
+  });
+
+  it('removes a continue watching movie from the context menu', async () => {
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(account.id, 'movie-1')]: {
+            itemId: 'movie-1',
+            positionSeconds: 300,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    fetchItemsByIdsMock.mockResolvedValue([
+      {
+        id: 'movie-1',
+        name: 'Movie 1',
+        type: 'Movie',
+        posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 36000000000,
+        serverPositionTicks: 3000000000,
+        communityRating: null,
+        productionYear: 2026,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /Movie 1/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '从继续观看中移除' }));
+
+    await waitFor(() => {
+      expect(hideItemFromContinueWatchingMock).toHaveBeenCalledWith({
+        serverUrl: 'https://demo.emby.local',
+        userId: 'user-1',
+        itemId: 'movie-1',
+        accessToken: 'token-123',
+      });
+    });
+    expect(screen.queryByRole('link', { name: /Movie 1/ })).not.toBeInTheDocument();
+    expect(storage.write).toHaveBeenCalledWith({
+      clearHomeCache: true,
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'movie-1')]: null,
+      },
     });
   });
 

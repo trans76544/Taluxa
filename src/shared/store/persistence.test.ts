@@ -742,6 +742,56 @@ describe('persistence', () => {
     });
   });
 
+  it('removes scoped progress entries when a progress patch value is null', () => {
+    const activeAccountId = 'https://demo.emby.local::user-1';
+
+    const next = mergePersistedState(
+      {
+        progressByItemId: {
+          'item-1': null,
+        },
+      },
+      {
+        accounts: [
+          {
+            id: activeAccountId,
+            serverUrl: 'https://demo.emby.local',
+            userId: 'user-1',
+            userName: 'Alice',
+            accessToken: 'token-123',
+            lastUsedAt: '2026-04-21T00:00:00.000Z',
+          },
+        ],
+        activeAccountId,
+        settings: createEmptyPersistedState().settings,
+        progressByItemId: {
+          [createAccountScopedProgressKey(activeAccountId, 'item-1')]: {
+            itemId: 'item-1',
+            positionSeconds: 240,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+          [createAccountScopedProgressKey(activeAccountId, 'item-2')]: {
+            itemId: 'item-2',
+            positionSeconds: 120,
+            durationSeconds: 3600,
+            updatedAt: '2026-04-22T09:00:00.000Z',
+          },
+        },
+        homeCacheByKey: {},
+      }
+    );
+
+    expect(next.progressByItemId).toEqual({
+      [createAccountScopedProgressKey(activeAccountId, 'item-2')]: {
+        itemId: 'item-2',
+        positionSeconds: 120,
+        durationSeconds: 3600,
+        updatedAt: '2026-04-22T09:00:00.000Z',
+      },
+    });
+  });
+
   it('reads scoped progress for the active account and falls back to legacy unscoped entries', () => {
     const activeAccountId = 'https://demo.emby.local::user-1';
 
