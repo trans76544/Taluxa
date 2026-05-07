@@ -7,11 +7,28 @@ import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
 
 export interface PlayerLaunchInput {
+  episodeSelector?: PlayerEpisodeSelector;
   httpHeaders?: Record<string, string>;
   itemId: string;
   streamUrl: string;
   title: string;
   startSeconds?: number;
+}
+
+export interface PlayerEpisodeSelector {
+  currentItemId: string;
+  episodes: PlayerEpisodeSelectorItem[];
+}
+
+export interface PlayerEpisodeSelectorItem {
+  durationSeconds?: number | null;
+  itemId: string;
+  thumbnailHeight?: number | null;
+  thumbnailPath?: string | null;
+  thumbnailStride?: number | null;
+  thumbnailUrl?: string | null;
+  thumbnailWidth?: number | null;
+  title: string;
 }
 
 export interface PlayerProgressEvent {
@@ -29,6 +46,8 @@ contextBridge.exposeInMainWorld('embyDesktop', {
   player: {
     launch: (input: PlayerLaunchInput) =>
       ipcRenderer.invoke('player:launch', input) as Promise<void>,
+    switchEpisode: (input: PlayerLaunchInput) =>
+      ipcRenderer.invoke('player:switch-episode', input) as Promise<void>,
     preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) =>
       ipcRenderer.invoke('player:preflight', input) as Promise<void>,
     onProgress: (listener: (event: PlayerProgressEvent) => void) => {
@@ -40,6 +59,17 @@ contextBridge.exposeInMainWorld('embyDesktop', {
 
       return () => {
         ipcRenderer.removeListener('player:progress', handleProgress);
+      };
+    },
+    onEpisodeSelect: (listener: (itemId: string) => void) => {
+      const handleEpisodeSelect = (_event: Electron.IpcRendererEvent, itemId: string) => {
+        listener(itemId);
+      };
+
+      ipcRenderer.on('player:episode-select', handleEpisodeSelect);
+
+      return () => {
+        ipcRenderer.removeListener('player:episode-select', handleEpisodeSelect);
       };
     },
   },

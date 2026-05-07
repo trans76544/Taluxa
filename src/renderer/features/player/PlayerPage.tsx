@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 
 export interface PlayerPageProps {
+  episodeSelector?: PlayerEpisodeSelector;
   httpHeaders?: Record<string, string>;
   itemId: string;
+  launchRequestId?: number;
   title: string;
   streamUrl: string;
   initialPositionSeconds: number;
+  onEpisodeSelect?: (itemId: string) => void;
   onProgress: (input: {
     itemId: string;
     positionSeconds: number;
@@ -14,6 +17,7 @@ export interface PlayerPageProps {
 }
 
 type PlayerLaunch = Window['embyDesktop']['player']['launch'];
+type PlayerEpisodeSelector = NonNullable<Parameters<PlayerLaunch>[0]['episodeSelector']>;
 
 const pendingLaunchKeysByBridge = new WeakMap<PlayerLaunch, Set<string>>();
 
@@ -21,9 +25,11 @@ function createLaunchKey({
   httpHeaders,
   initialPositionSeconds,
   itemId,
+  episodeSelector,
   streamUrl,
   title,
 }: {
+  episodeSelector?: PlayerEpisodeSelector;
   httpHeaders: Record<string, string>;
   initialPositionSeconds: number;
   itemId: string;
@@ -31,6 +37,7 @@ function createLaunchKey({
   title: string;
 }): string {
   return JSON.stringify({
+    episodeSelector,
     httpHeaders,
     initialPositionSeconds,
     itemId,
@@ -53,27 +60,34 @@ function getPendingLaunchKeys(launch: PlayerLaunch): Set<string> {
 }
 
 export function PlayerPage({
+  episodeSelector,
   httpHeaders = {},
   itemId,
+  launchRequestId,
   title,
   streamUrl,
   initialPositionSeconds,
+  onEpisodeSelect,
   onProgress,
 }: PlayerPageProps) {
   const [launchError, setLaunchError] = useState('');
+  const launchKey =
+    launchRequestId === undefined
+      ? createLaunchKey({
+          episodeSelector,
+          httpHeaders,
+          initialPositionSeconds,
+          itemId,
+          streamUrl,
+          title,
+        })
+      : String(launchRequestId);
 
   useEffect(() => {
     let cancelled = false;
 
     setLaunchError('');
     const launch = window.embyDesktop.player.launch;
-    const launchKey = createLaunchKey({
-      httpHeaders,
-      initialPositionSeconds,
-      itemId,
-      streamUrl,
-      title,
-    });
     const pendingLaunchKeys = getPendingLaunchKeys(launch);
 
     if (pendingLaunchKeys.has(launchKey)) {
@@ -85,6 +99,7 @@ export function PlayerPage({
     pendingLaunchKeys.add(launchKey);
 
     launch({
+        episodeSelector,
         httpHeaders,
         itemId,
         title,
@@ -110,7 +125,7 @@ export function PlayerPage({
     return () => {
       cancelled = true;
     };
-  }, [httpHeaders, initialPositionSeconds, itemId, streamUrl, title]);
+  }, [launchKey]);
 
   useEffect(() => {
     return window.embyDesktop.player.onProgress((event) => {
@@ -121,6 +136,18 @@ export function PlayerPage({
       void onProgress(event);
     });
   }, [itemId, onProgress]);
+
+  useEffect(() => {
+    if (!onEpisodeSelect || typeof window.embyDesktop.player.onEpisodeSelect !== 'function') {
+      return undefined;
+    }
+
+    return window.embyDesktop.player.onEpisodeSelect((nextItemId) => {
+      if (nextItemId !== itemId) {
+        onEpisodeSelect(nextItemId);
+      }
+    });
+  }, [itemId, onEpisodeSelect]);
 
   if (launchError) {
     return (

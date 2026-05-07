@@ -21,7 +21,9 @@ declare global {
       };
       player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;
+        switchEpisode: (input: PlayerLaunchInput) => Promise<void>;
         preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;
+        onEpisodeSelect: (listener: (itemId: string) => void) => () => void;
         onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
       };
       imageCache: {

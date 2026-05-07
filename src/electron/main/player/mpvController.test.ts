@@ -48,6 +48,7 @@ describe('MpvController', () => {
     '\\u5f39\\u5e55\\u6e90\\u8bf7\\u6c42\\u5931\\u8d25\\uff0c\\u8bf7\\u68c0\\u67e5\\u5f39\\u5e55 API \\u5730\\u5740\\u6216\\u51ed\\u8bc1';
   const luaUtf8Bytes = (value: string) =>
     `b(${Array.from(Buffer.from(value, 'utf8')).join(', ')})`;
+  const toLuaLongStringForTest = (value: string) => `[=[${value}]=]`;
 
   let existingPaths: Set<string>;
 
@@ -382,6 +383,189 @@ describe('MpvController', () => {
       )
     );
     expect(uiScript).not.toEqual(expect.stringContaining("'[ ]', 30"));
+  });
+
+  it('renders an episode picker button for series playback and forwards episode selections', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    const onEpisodeSelect = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      onEpisodeSelect,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput({
+        itemId: 'episode-2',
+        episodeSelector: {
+          currentItemId: 'episode-2',
+          episodes: [
+            {
+              itemId: 'episode-1',
+              title: 'S1E1 - First Case',
+              durationSeconds: 3000,
+              thumbnailUrl: 'https://demo.emby.local/Items/episode-1/Images/Primary',
+            },
+            {
+              itemId: 'episode-2',
+              title: 'S1E2 - Second Case',
+              durationSeconds: 2580,
+              thumbnailUrl: 'https://demo.emby.local/Items/episode-2/Images/Primary',
+            },
+          ],
+        },
+      }),
+      createProxySettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const uiScript = String(writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1]);
+    expect(uiScript).toContain('local episode_selector_enabled = #episode_items > 0');
+    expect(uiScript).toContain('local episode_scroll_offset = 0');
+    expect(uiScript).toContain('local episode_icon_size = size * 1.42');
+    expect(uiScript).toContain("add_icon_button(out, 'episodes', layout.episodes_x, button_y, bottom_icon_button, bottom_button_height, 'episodes')");
+    expect(uiScript).toContain('local function draw_episode_panel(out)');
+    expect(uiScript).toContain("add_button(out, 'episode-option', panel_x, item_y, panel_width, item_height, '', 1, episode.item_id)");
+    expect(uiScript).toContain('local thumbnail_overlay_id = 40 + visible_slot');
+    expect(uiScript).toContain('local function sync_episode_thumbnail_overlays(active_overlay_ids)');
+    expect(uiScript).toContain('if episode_thumbnail_overlay_ids[overlay_id] == overlay_key then');
+    expect(uiScript).not.toContain('5200 + index');
+    expect(uiScript).not.toContain('clear_episode_thumbnail_overlays()\n  clamp_episode_scroll()');
+    expect(uiScript).toContain('local function scroll_episode_panel(delta)');
+    expect(uiScript).toContain('if episode_panel_open then');
+    expect(uiScript).toContain('scroll_episode_panel(delta)');
+    expect(uiScript).toContain("request_episode_switch(tostring(button.value))");
+    expect(uiScript).toContain("mp.register_script_message('taluxa-active-episode'");
+    expect(uiScript).toContain('is_current = true');
+    expect(uiScript).toContain(toLuaLongStringForTest('S1E2 - Second Case'));
+    expect(uiScript).toContain(toLuaLongStringForTest('43min'));
+
+    ipcClient.emit(
+      'data',
+      Buffer.from(
+        `${JSON.stringify({
+          event: 'client-message',
+          args: ['taluxa-select-episode', 'episode-1'],
+        })}\n`
+      )
+    );
+
+    expect(onEpisodeSelect).toHaveBeenCalledWith('episode-1');
+  });
+
+  it('switches a selected episode inside the active mpv process', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput({ itemId: 'episode-1' }),
+      createProxySettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+    ipcClient.write.mockClear();
+
+    await controller.switchEpisode(
+      createLaunchInput({
+        httpHeaders: {
+          Authorization: 'MediaBrowser Token="token-123"',
+        },
+        itemId: 'episode-2',
+        startSeconds: 18,
+        streamUrl: 'https://example.com/episode-2.mp4',
+        title: 'Series 1 - S1E2 - Second Case',
+      }),
+      createProxySettings()
+    );
+
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({
+        command: [
+          'set_property',
+          'http-header-fields',
+          ['Authorization: MediaBrowser Token="token-123"'],
+        ],
+      })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({
+        command: [
+          'loadfile',
+          'https://example.com/episode-2.mp4',
+          'replace',
+          -1,
+          {
+            start: '18',
+            'force-media-title': 'Series 1 - S1E2 - Second Case',
+          },
+        ],
+      })}\n`
+    );
+    expect(ipcClient.write).toHaveBeenCalledWith(
+      `${JSON.stringify({
+        command: [
+          'script-message',
+          'taluxa-active-episode',
+          'episode-2',
+          'Series 1 - S1E2 - Second Case',
+          'Series 1',
+          'S1E2 - Second Case',
+        ],
+      })}\n`
+    );
+  });
+
+  it('does not render the episode picker button for movie playback', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const uiScript = String(writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1]);
+    expect(uiScript).toContain('local episode_selector_enabled = #episode_items > 0');
+    expect(uiScript).toContain('local episode_items = {}');
   });
 
   it('loads a generated ASS danmaku subtitle file when comments are available', async () => {

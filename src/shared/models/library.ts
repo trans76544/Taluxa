@@ -96,6 +96,7 @@ export interface LibraryEpisode {
   indexNumber: number;
   parentIndexNumber: number;
   posterUrl: string | null;
+  imageCandidates?: LibraryImageCandidate[];
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
   mediaSources: LibraryItemMediaSource[];

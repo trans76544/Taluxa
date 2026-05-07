@@ -1,4 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeImage, protocol, screen, session } from 'electron';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readPersistedState, registerStorageIpc, writeSettingsPatchFromMain } from './ipc/storage';
 import { registerImageCacheIpc } from './ipc/imageCache';
@@ -49,12 +51,20 @@ const mpvController = new MpvController({
       logger: (message) => console.info(message),
     }),
   getWindowMaximizeBounds: getMpvWindowMaximizeBounds,
+  onEpisodeSelect: (itemId) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('player:episode-select', itemId);
+    }
+  },
   onPlayerSettingsPatch: async (settingsPatch) => {
     await writeSettingsPatchFromMain(settingsPatch);
   },
   onProgress: sendPlayerProgress,
 });
 const hlsProxyServer = new HlsProxyServer((url, init) => session.defaultSession.fetch(url, init));
+const MPV_EPISODE_THUMBNAIL_WIDTH = 128;
+const MPV_EPISODE_THUMBNAIL_HEIGHT = 72;
+const MPV_EPISODE_THUMBNAIL_TIMEOUT_MS = 700;
 
 function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
   return resolution === 'original' ? null : resolution;
@@ -94,6 +104,98 @@ async function prepareLaunchInput(input: LaunchMpvInput): Promise<LaunchMpvInput
       httpHeaders: input.httpHeaders ?? {},
       streamUrl: input.streamUrl,
     }),
+  };
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Timed out preparing thumbnail')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function prepareEpisodeThumbnail(
+  imageCache: ImageCache,
+  thumbnailDir: string,
+  itemId: string,
+  thumbnailUrl: string
+) {
+  const { filePath } = await imageCache.resolve(thumbnailUrl);
+  const sourceBytes = await readFile(filePath);
+  const image = nativeImage
+    .createFromBuffer(sourceBytes)
+    .resize({ width: MPV_EPISODE_THUMBNAIL_WIDTH, height: MPV_EPISODE_THUMBNAIL_HEIGHT });
+  const bitmap = image.toBitmap();
+
+  if (bitmap.length === 0) {
+    throw new Error('Thumbnail bitmap was empty');
+  }
+
+  await mkdir(thumbnailDir, { recursive: true });
+
+  const cacheKey = createHash('sha256')
+    .update(JSON.stringify({ itemId, thumbnailUrl }))
+    .digest('hex');
+  const thumbnailPath = join(thumbnailDir, `${cacheKey}.bgra`);
+  await writeFile(thumbnailPath, bitmap);
+
+  return {
+    thumbnailHeight: MPV_EPISODE_THUMBNAIL_HEIGHT,
+    thumbnailPath,
+    thumbnailStride: MPV_EPISODE_THUMBNAIL_WIDTH * 4,
+    thumbnailWidth: MPV_EPISODE_THUMBNAIL_WIDTH,
+  };
+}
+
+async function prepareEpisodeSelectorThumbnails(
+  input: LaunchMpvInput,
+  imageCache: ImageCache,
+  thumbnailDir: string
+): Promise<LaunchMpvInput> {
+  const episodeSelector = input.episodeSelector;
+
+  if (!episodeSelector) {
+    return input;
+  }
+
+  const episodes = await Promise.all(
+    episodeSelector.episodes.map(async (episode) => {
+      const thumbnailUrl = episode.thumbnailUrl?.trim();
+
+      if (!thumbnailUrl) {
+        return episode;
+      }
+
+      try {
+        return {
+          ...episode,
+          ...(await withTimeout(
+            prepareEpisodeThumbnail(imageCache, thumbnailDir, episode.itemId, thumbnailUrl),
+            MPV_EPISODE_THUMBNAIL_TIMEOUT_MS
+          )),
+        };
+      } catch {
+        return episode;
+      }
+    })
+  );
+
+  return {
+    ...input,
+    episodeSelector: {
+      ...episodeSelector,
+      episodes,
+    },
   };
 }
 
@@ -152,9 +254,29 @@ app.whenReady().then(() => {
       registerImageCacheIpc(imageCache);
       ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) => {
         const settings = readPersistedState().settings;
+        const preparedInput = await prepareEpisodeSelectorThumbnails(
+          await prepareLaunchInput(input),
+          imageCache,
+          join(app.getPath('userData'), 'mpv-episode-thumbnails')
+        );
 
         return mpvController.launch(
-          await prepareLaunchInput(input),
+          preparedInput,
+          settings.proxy,
+          {
+            playback: settings.playback,
+            subtitles: settings.subtitles,
+            danmakuServers: settings.danmakuServers,
+            danmaku: settings.danmaku,
+          }
+        );
+      });
+      ipcMain.handle('player:switch-episode', async (_event, input: LaunchMpvInput) => {
+        const settings = readPersistedState().settings;
+        const preparedInput = await prepareLaunchInput(input);
+
+        return mpvController.switchEpisode(
+          preparedInput,
           settings.proxy,
           {
             playback: settings.playback,

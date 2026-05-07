@@ -90,13 +90,22 @@ interface PlayerProgressEvent {
 
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
   const progressListeners = new Set<(event: PlayerProgressEvent) => void>();
+  const episodeSelectListeners = new Set<(itemId: string) => void>();
   const launch = vi.fn().mockResolvedValue(undefined);
+  const switchEpisode = vi.fn().mockResolvedValue(undefined);
   const preflight = vi.fn().mockResolvedValue(undefined);
   const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
     progressListeners.add(listener);
 
     return () => {
       progressListeners.delete(listener);
+    };
+  });
+  const onEpisodeSelect = vi.fn((listener: (itemId: string) => void) => {
+    episodeSelectListeners.add(listener);
+
+    return () => {
+      episodeSelectListeners.delete(listener);
     };
   });
   const read = vi.fn().mockResolvedValue(state);
@@ -119,6 +128,8 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     },
     player: {
       launch,
+      switchEpisode,
+      onEpisodeSelect,
       preflight,
       onProgress,
     },
@@ -137,6 +148,8 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
 
   return {
     launch,
+    switchEpisode,
+    onEpisodeSelect,
     preflight,
     onProgress,
     read,
@@ -149,6 +162,11 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     emitProgress(event: PlayerProgressEvent) {
       for (const listener of progressListeners) {
         listener(event);
+      }
+    },
+    emitEpisodeSelect(itemId: string) {
+      for (const listener of episodeSelectListeners) {
+        listener(itemId);
       }
     },
   };
@@ -1717,6 +1735,12 @@ describe('App', () => {
         indexNumber: 1,
         parentIndexNumber: 1,
         posterUrl: null,
+        imageCandidates: [
+          {
+            kind: 'thumb',
+            url: 'https://demo.emby.local/Items/episode-1/Images/Thumb',
+          },
+        ],
         runtimeTicks: 600000000,
         serverPositionTicks: null,
         mediaSources: [],
@@ -1728,6 +1752,12 @@ describe('App', () => {
         indexNumber: 2,
         parentIndexNumber: 1,
         posterUrl: null,
+        imageCandidates: [
+          {
+            kind: 'thumb',
+            url: 'https://demo.emby.local/Items/episode-2/Images/Thumb',
+          },
+        ],
         runtimeTicks: 600000000,
         serverPositionTicks: null,
         mediaSources: [],
@@ -1754,11 +1784,42 @@ describe('App', () => {
     await waitFor(() => {
       expect(storage.launch).toHaveBeenCalledWith(
         expect.objectContaining({
+          episodeSelector: {
+            currentItemId: 'episode-2',
+            episodes: [
+              expect.objectContaining({
+                durationSeconds: 60,
+                itemId: 'episode-1',
+                thumbnailUrl: 'https://demo.emby.local/Items/episode-1/Images/Thumb',
+                title: 'S1E1 - First Case',
+              }),
+              expect.objectContaining({
+                durationSeconds: 60,
+                itemId: 'episode-2',
+                title: 'S1E2 - Second Case',
+              }),
+            ],
+          },
           itemId: 'episode-2',
           title: 'Series 1 - S1:E2 - Second Case',
         })
       );
     });
+
+    act(() => {
+      storage.emitEpisodeSelect('episode-1');
+    });
+
+    await waitFor(() => {
+      expect(storage.switchEpisode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'episode-1',
+          title: 'Series 1 - S1E1 - First Case',
+        })
+      );
+    });
+    expect(storage.switchEpisode.mock.calls[0]?.[0]).not.toHaveProperty('episodeSelector');
+    expect(storage.launch).toHaveBeenCalledTimes(1);
   });
 
   it('loads featured rows with the persisted home-screen sort mode', async () => {

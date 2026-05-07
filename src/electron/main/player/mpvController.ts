@@ -22,11 +22,28 @@ import {
 } from './danmaku';
 
 export interface LaunchMpvInput {
+  episodeSelector?: LaunchMpvEpisodeSelector;
   httpHeaders?: Record<string, string>;
   itemId: string;
   streamUrl: string;
   title: string;
   startSeconds?: number;
+}
+
+export interface LaunchMpvEpisodeSelector {
+  currentItemId: string;
+  episodes: LaunchMpvEpisodeSelectorItem[];
+}
+
+export interface LaunchMpvEpisodeSelectorItem {
+  durationSeconds?: number | null;
+  itemId: string;
+  thumbnailHeight?: number | null;
+  thumbnailPath?: string | null;
+  thumbnailStride?: number | null;
+  thumbnailUrl?: string | null;
+  thumbnailWidth?: number | null;
+  title: string;
 }
 
 export interface MpvProgressSnapshot {
@@ -199,13 +216,72 @@ function toLuaSingleQuotedString(value: string): string {
   return `'${value.replace(/\\/gu, '\\\\').replace(/'/gu, "\\'")}'`;
 }
 
+function formatEpisodeDurationLabel(durationSeconds: number | null | undefined): string {
+  if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return '';
+  }
+
+  return `${Math.max(1, Math.round(durationSeconds / 60))}min`;
+}
+
+function normalizeEpisodeSelector(
+  episodeSelector: LaunchMpvEpisodeSelector | undefined
+): LaunchMpvEpisodeSelector | null {
+  const currentItemId = episodeSelector?.currentItemId?.trim();
+  const episodes =
+    episodeSelector?.episodes
+      .map((episode) => ({
+        ...episode,
+        itemId: episode.itemId.trim(),
+        title: episode.title.trim(),
+      }))
+      .filter((episode) => episode.itemId && episode.title) ?? [];
+
+  if (!currentItemId || episodes.length === 0) {
+    return null;
+  }
+
+  return {
+    currentItemId,
+    episodes,
+  };
+}
+
+function toLuaEpisodeItems(episodeSelector: LaunchMpvEpisodeSelector | undefined): string {
+  const normalizedSelector = normalizeEpisodeSelector(episodeSelector);
+
+  if (!normalizedSelector) {
+    return '{}';
+  }
+
+  const rows = normalizedSelector.episodes.map((episode) => {
+    const durationLabel = formatEpisodeDurationLabel(episode.durationSeconds);
+
+    return [
+      '  {',
+      `    item_id = ${toLuaLongString(episode.itemId)},`,
+      `    title = ${toLuaLongString(escapeAssText(episode.title))},`,
+      `    duration = ${toLuaLongString(escapeAssText(durationLabel))},`,
+      `    thumbnail_height = ${episode.thumbnailHeight ?? 0},`,
+      `    thumbnail_path = ${toLuaLongString(episode.thumbnailPath ?? '')},`,
+      `    thumbnail_stride = ${episode.thumbnailStride ?? 0},`,
+      `    thumbnail_url = ${toLuaLongString(episode.thumbnailUrl ?? '')},`,
+      `    thumbnail_width = ${episode.thumbnailWidth ?? 0},`,
+      `    is_current = ${episode.itemId === normalizedSelector.currentItemId ? 'true' : 'false'},`,
+      '  },',
+    ].join('\n');
+  });
+
+  return `{\n${rows.join('\n')}\n}`;
+}
+
 function splitPlaybackTitle(title: string): { displayTitle: string; displaySubtitle: string } {
   const parts = title
     .split(' - ')
     .map((part) => part.trim())
     .filter(Boolean);
 
-  if (parts.length >= 3 && /^S\d+\s*:\s*E\d+/iu.test(parts[1])) {
+  if (parts.length >= 3 && /^S\d+\s*:?\s*E\d+/iu.test(parts[1])) {
     return {
       displayTitle: parts[0],
       displaySubtitle: parts.slice(1).join(' - '),
@@ -218,7 +294,11 @@ function splitPlaybackTitle(title: string): { displayTitle: string; displaySubti
   };
 }
 
-function createMpvUiScript(title: string, playerSettings: LaunchPlayerSettings): string {
+function createMpvUiScript(
+  title: string,
+  playerSettings: LaunchPlayerSettings,
+  episodeSelector?: LaunchMpvEpisodeSelector
+): string {
   const { displayTitle, displaySubtitle } = splitPlaybackTitle(title);
 
   return String.raw`
@@ -290,6 +370,11 @@ local display_subtitle = ${toLuaLongString(escapeAssText(displaySubtitle))}
 local scale_mode = ${toLuaSingleQuotedString(playerSettings.playback.scaleMode)}
 local font_family = ${toLuaSingleQuotedString(playerSettings.subtitles.fontFamily)}
 local SPEED_OPTIONS = {'0.5', '0.75', '1', '1.25', '1.5', '2', '3', '4', '5'}
+local episode_items = ${toLuaEpisodeItems(episodeSelector)}
+local episode_selector_enabled = #episode_items > 0
+local episode_panel_open = false
+local episode_scroll_offset = 0
+local episode_thumbnail_overlay_ids = {}
 local audio_tracks = {}
 local buttons = {}
 local cache_speed = 0
@@ -372,7 +457,7 @@ local function mark_controls_active()
 end
 
 local function should_show_controls()
-  return paused or menu_open ~= nil or mp.get_time() <= controls_visible_until
+  return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until
 end
 
 local function track_mouse_activity()
@@ -512,6 +597,23 @@ local function draw_control_icon(out, icon, cx, cy)
     append_line(out, cx - corner, cy + corner, cx - corner, cy + inset, thickness, color, 0)
     append_line(out, cx + corner, cy + corner, cx + inset, cy + corner, thickness, color, 0)
     append_line(out, cx + corner, cy + corner, cx + corner, cy + inset, thickness, color, 0)
+  elseif icon == 'episodes' then
+    local episode_icon_size = size * 1.42
+    local episode_half = episode_icon_size / 2
+    local episode_thickness = math.max(thickness, round_coord(2.2 * BOTTOM_BUTTON_SCALE))
+    append_line(out, cx - episode_half * 0.46, cy - episode_half * 0.36, cx + episode_half * 0.08, cy - episode_half * 0.36, episode_thickness, color, 0)
+    append_line(out, cx - episode_half * 0.46, cy, cx + episode_half * 0.08, cy, episode_thickness, color, 0)
+    append_line(out, cx - episode_half * 0.46, cy + episode_half * 0.36, cx + episode_half * 0.08, cy + episode_half * 0.36, episode_thickness, color, 0)
+    out[#out + 1] = string.format(
+      '{\\an7\\pos(0,0)\\bord0\\shad0\\alpha&H00&\\c&H%s&\\p1}m %d %d l %d %d l %d %d{\\p0}',
+      color,
+      round_coord(cx + episode_half * 0.26),
+      round_coord(cy - episode_half * 0.28),
+      round_coord(cx + episode_half * 0.58),
+      round_coord(cy),
+      round_coord(cx + episode_half * 0.26),
+      round_coord(cy + episode_half * 0.28)
+    )
   end
 end
 
@@ -537,6 +639,8 @@ local function get_bottom_layout(width)
   local right_speed_gap = round_coord(26 * BOTTOM_GAP_SCALE)
   local right_gap = round_coord(10 * BOTTOM_GAP_SCALE)
   local right_fullscreen_gap = round_coord(92 * BOTTOM_GAP_SCALE)
+  local episode_button_width = episode_selector_enabled and icon_width or 0
+  local episode_button_gap = episode_selector_enabled and right_gap or 0
   local volume_width = 152
   local prev_x = 24
   local play_x = prev_x + icon_width + left_gap
@@ -548,17 +652,24 @@ local function get_bottom_layout(width)
     right_speed_gap +
     icon_width * 5 +
     right_gap * 3 +
+    episode_button_width +
+    episode_button_gap +
     right_fullscreen_gap
   local speed_x = width - 36 - right_group_width
   local audio_x = speed_x + speed_width + right_speed_gap
   local sub_x = audio_x + icon_width + right_gap
   local danmaku_x = sub_x + icon_width + right_gap
   local settings_x = danmaku_x + icon_width + right_gap
+  local episodes_x = settings_x + icon_width + right_gap
   local fullscreen_x = settings_x + icon_width + right_fullscreen_gap
+  if episode_selector_enabled then
+    fullscreen_x = episodes_x + icon_width + right_fullscreen_gap
+  end
 
   return {
     audio_x = audio_x,
     danmaku_x = danmaku_x,
+    episodes_x = episodes_x,
     fullscreen_x = fullscreen_x,
     icon_width = icon_width,
     mute_x = mute_x,
@@ -889,6 +1000,175 @@ local function draw_options_menu(out)
   end
 end
 
+local function clear_episode_thumbnail_overlays()
+  for overlay_id, _ in pairs(episode_thumbnail_overlay_ids) do
+    mp.commandv('overlay-remove', tostring(overlay_id))
+  end
+  episode_thumbnail_overlay_ids = {}
+end
+
+local function remove_episode_thumbnail_overlay(overlay_id)
+  if episode_thumbnail_overlay_ids[overlay_id] then
+    mp.commandv('overlay-remove', tostring(overlay_id))
+    episode_thumbnail_overlay_ids[overlay_id] = nil
+  end
+end
+
+local function add_episode_thumbnail_overlay(overlay_id, x, y, episode)
+  if not episode.thumbnail_path or episode.thumbnail_path == '' then
+    remove_episode_thumbnail_overlay(overlay_id)
+    return false
+  end
+  if not episode.thumbnail_width or episode.thumbnail_width <= 0 then
+    remove_episode_thumbnail_overlay(overlay_id)
+    return false
+  end
+  if not episode.thumbnail_height or episode.thumbnail_height <= 0 then
+    remove_episode_thumbnail_overlay(overlay_id)
+    return false
+  end
+  if not episode.thumbnail_stride or episode.thumbnail_stride <= 0 then
+    remove_episode_thumbnail_overlay(overlay_id)
+    return false
+  end
+  local overlay_key = table.concat({
+    tostring(x),
+    tostring(y),
+    episode.thumbnail_path,
+    tostring(episode.thumbnail_width),
+    tostring(episode.thumbnail_height),
+    tostring(episode.thumbnail_stride)
+  }, '|')
+  if episode_thumbnail_overlay_ids[overlay_id] == overlay_key then
+    return true
+  end
+  remove_episode_thumbnail_overlay(overlay_id)
+  mp.commandv(
+    'overlay-add',
+    tostring(overlay_id),
+    tostring(x),
+    tostring(y),
+    episode.thumbnail_path,
+    '0',
+    'bgra',
+    tostring(episode.thumbnail_width),
+    tostring(episode.thumbnail_height),
+    tostring(episode.thumbnail_stride)
+  )
+  episode_thumbnail_overlay_ids[overlay_id] = overlay_key
+  return true
+end
+
+local function sync_episode_thumbnail_overlays(active_overlay_ids)
+  local stale_overlay_ids = {}
+  for overlay_id, _ in pairs(episode_thumbnail_overlay_ids) do
+    if not active_overlay_ids[overlay_id] then
+      stale_overlay_ids[#stale_overlay_ids + 1] = overlay_id
+    end
+  end
+  for _, overlay_id in ipairs(stale_overlay_ids) do
+    remove_episode_thumbnail_overlay(overlay_id)
+  end
+end
+
+local function get_episode_visible_capacity()
+  local start_y = 42
+  local item_height = 88
+  return math.max(1, math.floor((UI_HEIGHT - start_y - 14) / item_height))
+end
+
+local function clamp_episode_scroll()
+  local max_scroll = math.max(0, #episode_items - get_episode_visible_capacity())
+  episode_scroll_offset = math.floor(clamp(episode_scroll_offset, 0, max_scroll))
+end
+
+local function draw_episode_panel(out)
+  if not episode_panel_open or not episode_selector_enabled then
+    clear_episode_thumbnail_overlays()
+    return
+  end
+
+  clamp_episode_scroll()
+
+  local width = UI_WIDTH
+  local height = UI_HEIGHT
+  local panel_width = 398
+  local panel_x = width - panel_width
+  local panel_y = 0
+  local item_height = 88
+  local thumb_width = 128
+  local thumb_height = 72
+  local item_gap = 10
+  local content_x = panel_x + 10
+  local start_y = panel_y + 42
+  append_box(out, panel_x, panel_y, width, height, '050505', 70)
+  add_button(out, 'episode-panel-close', panel_x + 8, panel_y + 8, 36, 28, '×', 22)
+
+  local active_overlay_ids = {}
+  local visible_slot = 0
+  for index = episode_scroll_offset + 1, #episode_items do
+    local episode = episode_items[index]
+    visible_slot = visible_slot + 1
+    local item_y = start_y + (visible_slot - 1) * item_height
+    if item_y < height - 14 and item_y + thumb_height > panel_y then
+      add_button(out, 'episode-option', panel_x, item_y, panel_width, item_height, '', 1, episode.item_id)
+      if episode.is_current then
+        append_outline_box(out, panel_x + 6, item_y - 4, width - 12, item_y + thumb_height + 4, 2, BLUE, 0)
+      end
+      if not episode.thumbnail_path or episode.thumbnail_path == '' then
+        append_box(out, content_x, item_y, content_x + thumb_width, item_y + thumb_height, '2A2A2A', 30)
+      end
+      append_outline_box(out, content_x, item_y, content_x + thumb_width, item_y + thumb_height, 1, '3A3A3A', 80)
+      local thumbnail_overlay_id = 40 + visible_slot
+      if add_episode_thumbnail_overlay(thumbnail_overlay_id, content_x, item_y, episode) then
+        active_overlay_ids[thumbnail_overlay_id] = true
+      end
+      local text_x = content_x + thumb_width + item_gap
+      local title_color = episode.is_current and 'B08DFF' or 'FFFFFF'
+      append_text(out, text_x, item_y + 22, 4, 18, episode.title, title_color, 0, true)
+      if episode.duration and episode.duration ~= '' then
+        append_text(out, text_x, item_y + 46, 4, 15, episode.duration, 'FFFFFF', 0, false)
+      end
+    else
+      break
+    end
+  end
+  sync_episode_thumbnail_overlays(active_overlay_ids)
+end
+
+local function set_active_episode(item_id, next_title, next_display_title, next_display_subtitle)
+  if not item_id or item_id == '' then return end
+  for _, episode in ipairs(episode_items) do
+    episode.is_current = episode.item_id == item_id
+  end
+  if next_display_title and next_display_title ~= '' then
+    display_title = next_display_title
+    display_subtitle = next_display_subtitle or ''
+  elseif next_title and next_title ~= '' then
+    display_title = next_title
+    display_subtitle = ''
+  end
+end
+
+local function request_episode_switch(item_id)
+  if not item_id or item_id == '' then return end
+  for _, episode in ipairs(episode_items) do
+    if episode.item_id == item_id then
+      if not episode.is_current then
+        mp.commandv('script-message', 'taluxa-select-episode', item_id)
+      end
+      return
+    end
+  end
+end
+
+local function scroll_episode_panel(delta)
+  if not episode_panel_open then return end
+  local max_scroll = math.max(0, #episode_items - get_episode_visible_capacity())
+  local step = delta > 0 and -3 or 3
+  episode_scroll_offset = math.floor(clamp(episode_scroll_offset + step, 0, max_scroll))
+end
+
 local function append_cache_ranges(out, bar_left, bar_right, bar_y)
   if not cache_state or duration <= 0 then return end
 
@@ -968,9 +1248,13 @@ local function draw_controls()
   add_button(out, 'sub', layout.sub_x, button_y, bottom_icon_button, bottom_button_height, 'CC', 22)
   add_button(out, 'danmaku', layout.danmaku_x, button_y, bottom_icon_button, bottom_button_height, 'DM', 22)
   add_button(out, 'settings', layout.settings_x, button_y, bottom_icon_button, bottom_button_height, '\226\154\153', 32)
+  if episode_selector_enabled then
+    add_icon_button(out, 'episodes', layout.episodes_x, button_y, bottom_icon_button, bottom_button_height, 'episodes')
+  end
   add_icon_button(out, 'fullscreen', layout.fullscreen_x, button_y, bottom_icon_button, bottom_button_height, 'fullscreen')
 
   draw_options_menu(out)
+  draw_episode_panel(out)
 
   append_text(out, width - 20, 68, 3, 14, format_speed(cache_speed), 'FFFFFF', 0, false)
   local window_button_width = 44
@@ -1007,8 +1291,9 @@ local function handle_click()
   end
   local id, button = button_at(pos.x or 0, pos.y or 0)
   if not id then
-    if menu_open then
+    if menu_open or episode_panel_open then
       menu_open = nil
+      episode_panel_open = false
       draw_controls()
     else
       draw_controls()
@@ -1018,10 +1303,12 @@ local function handle_click()
 
   if id == 'seek' and duration > 0 then
     menu_open = nil
+    episode_panel_open = false
     local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)
     mp.commandv('set', 'time-pos', duration * ratio)
   elseif id == 'volume' then
     menu_open = nil
+    episode_panel_open = false
     local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)
     mp.commandv('set', 'volume', math.floor(ratio * 100))
   elseif id == 'speed-option' then
@@ -1032,6 +1319,12 @@ local function handle_click()
       mp.commandv('set', 'aid', tostring(button.value))
     end
     menu_open = nil
+  elseif id == 'episode-option' then
+    menu_open = nil
+    episode_panel_open = false
+    request_episode_switch(tostring(button.value))
+  elseif id == 'episode-panel-close' then
+    episode_panel_open = false
   elseif id == 'settings-scale' then
     menu_open = 'scale'
   elseif id == 'scale-option' then
@@ -1062,23 +1355,29 @@ local function handle_click()
     end
   elseif id == 'prev' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('playlist-prev')
   elseif id == 'play' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('cycle', 'pause')
   elseif id == 'next' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('playlist-next')
   elseif id == 'mute' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('cycle', 'mute')
   elseif id == 'speed' then
+    episode_panel_open = false
     if menu_open == 'speed' then
       menu_open = nil
     else
       menu_open = 'speed'
     end
   elseif id == 'audio' then
+    episode_panel_open = false
     if menu_open == 'audio' then
       menu_open = nil
     else
@@ -1086,25 +1385,34 @@ local function handle_click()
     end
   elseif id == 'sub' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('cycle', 'sid')
   elseif id == 'danmaku' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('cycle', 'secondary-sid')
     mp.commandv('show-text', TEXT.toggle_notice, '1200')
   elseif id == 'settings' then
+    episode_panel_open = false
     if menu_open == 'settings' then
       menu_open = nil
     else
       menu_open = 'settings'
     end
+  elseif id == 'episodes' then
+    menu_open = nil
+    episode_panel_open = not episode_panel_open
   elseif id == 'fullscreen' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('cycle', 'fullscreen')
   elseif id == 'minimize' then
     menu_open = nil
+    episode_panel_open = false
     mp.commandv('set', 'window-minimized', 'yes')
   elseif id == 'maximize' then
     menu_open = nil
+    episode_panel_open = false
     local is_maximized = mp.get_property_bool('window-maximized') and 'yes' or 'no'
     mp.commandv('script-message', 'taluxa-toggle-window-maximize', is_maximized)
   elseif id == 'close' then
@@ -1115,6 +1423,11 @@ end
 
 local function handle_wheel(delta)
   mark_controls_active()
+  if episode_panel_open then
+    scroll_episode_panel(delta)
+    draw_controls()
+    return
+  end
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
   if pos then
     local id = button_at(pos.x or 0, pos.y or 0)
@@ -1141,6 +1454,12 @@ mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_click)
 mp.add_forced_key_binding('WHEEL_UP', 'taluxa-wheel-up', function() handle_wheel(1) end)
 mp.add_forced_key_binding('WHEEL_DOWN', 'taluxa-wheel-down', function() handle_wheel(-1) end)
 mp.add_periodic_timer(1, draw_controls)
+mp.register_script_message('taluxa-active-episode', function(item_id, next_title, next_display_title, next_display_subtitle)
+  set_active_episode(tostring(item_id or ''), tostring(next_title or ''), tostring(next_display_title or ''), tostring(next_display_subtitle or ''))
+  position = 0
+  duration = 0
+  draw_controls()
+end)
 apply_scale_mode(scale_mode, false)
 apply_subtitle_settings(false)
 update_audio_tracks(mp.get_property_native('track-list'))
@@ -1165,6 +1484,7 @@ export interface MpvControllerOptions {
   isPackaged?: boolean;
   maxConnectAttempts?: number;
   moduleDir?: string;
+  onEpisodeSelect?: (itemId: string) => void;
   onPlayerSettingsPatch?: (patch: PlayerSettingsPatch) => void | Promise<void>;
   onProgress?: (snapshot: MpvProgressSnapshot) => void;
   readTextFile?: (targetPath: string) => string;
@@ -1252,23 +1572,44 @@ function getPlaybackProxyArgs(streamUrl: string, proxy: ProxySettings): string[]
   return getProxyArgs(proxy);
 }
 
-function getHttpHeaderArgs(httpHeaders: Record<string, string> | undefined): string[] {
-  const headerEntries = Object.entries(httpHeaders ?? {}).filter(
+function getHttpHeaderFields(httpHeaders: Record<string, string> | undefined): string[] {
+  return Object.entries(httpHeaders ?? {})
+    .filter(
     ([name, value]) => name.trim() && value.trim()
-  );
+    )
+    .map(([name, value]) => `${name.trim()}: ${value.trim()}`);
+}
 
-  if (headerEntries.length === 0) {
+function getHttpHeaderArgs(httpHeaders: Record<string, string> | undefined): string[] {
+  const headerFields = getHttpHeaderFields(httpHeaders);
+
+  if (headerFields.length === 0) {
     return [];
   }
 
   return [
-    `--http-header-fields=${headerEntries
-      .map(([name, value]) => `${name.trim()}: ${value.trim()}`)
-      .join(',')}`,
-    `--demuxer-lavf-o=headers=${headerEntries
-      .map(([name, value]) => `${name.trim()}: ${value.trim()}`)
-      .join('\r\n')}\r\n`,
+    `--http-header-fields=${headerFields.join(',')}`,
+    `--demuxer-lavf-o=headers=${headerFields.join('\r\n')}\r\n`,
   ];
+}
+
+function getPlaybackProxyValue(streamUrl: string, proxy: ProxySettings): string | null {
+  if (isLocalHttpUrl(streamUrl) || proxy.mode === 'direct') {
+    return '';
+  }
+
+  if (isCustomProxyConfigured(proxy)) {
+    return proxy.customProxyUrl.trim();
+  }
+
+  return null;
+}
+
+function createLoadFileOptions(input: LaunchMpvInput): Record<string, string> {
+  return {
+    start: String(normalizeStartSeconds(input.startSeconds)),
+    'force-media-title': input.title,
+  };
 }
 
 function appendDiagnosticSegment(message: string, label: string, detail: string): string {
@@ -1465,6 +1806,8 @@ export class MpvController {
 
   private readonly getWindowMaximizeBounds: () => MpvWindowBounds | null;
 
+  private readonly onEpisodeSelect: (itemId: string) => void;
+
   private ipcEndpointCounter = 0;
 
   private readonly isPackaged: boolean;
@@ -1515,6 +1858,7 @@ export class MpvController {
     this.isPackaged = options.isPackaged ?? process.env.NODE_ENV === 'production';
     this.maxConnectAttempts = options.maxConnectAttempts ?? 20;
     this.moduleDir = options.moduleDir ?? path.dirname(fileURLToPath(import.meta.url));
+    this.onEpisodeSelect = options.onEpisodeSelect ?? (() => undefined);
     this.onPlayerSettingsPatch = options.onPlayerSettingsPatch ?? (() => undefined);
     this.onProgress = options.onProgress ?? (() => undefined);
     this.readTextFile =
@@ -1552,7 +1896,10 @@ export class MpvController {
     const danmakuFilePath = this.createDanmakuFilePath(sessionId);
     const logFilePath = this.createLogFilePath(sessionId);
     this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
-    this.writeTextFile(uiScriptFilePath, createMpvUiScript(input.title, normalizedPlayerSettings));
+    this.writeTextFile(
+      uiScriptFilePath,
+      createMpvUiScript(input.title, normalizedPlayerSettings, input.episodeSelector)
+    );
     const args = [
       '--force-window=yes',
       '--border=no',
@@ -1672,6 +2019,63 @@ export class MpvController {
       child.once('spawn', handleSpawn);
       child.once('error', handleError);
     });
+  }
+
+  async switchEpisode(
+    input: LaunchMpvInput,
+    proxy: ProxySettings,
+    playerSettings?: Partial<LaunchPlayerSettings>
+  ): Promise<void> {
+    const session = this.activeSession;
+
+    if (!session) {
+      throw new Error('mpv is not running.');
+    }
+
+    const normalizedPlayerSettings = normalizeLaunchPlayerSettings(playerSettings);
+    const proxyValue = getPlaybackProxyValue(input.streamUrl, proxy);
+
+    session.itemId = input.itemId;
+    session.positionSeconds = null;
+    session.durationSeconds = 0;
+    session.danmakuComments = [];
+    session.danmakuSettings = normalizedPlayerSettings.danmaku;
+    session.hasDanmakuSubtitle = false;
+
+    this.queueSessionCommand(session.sessionId, [
+      'set_property',
+      'http-header-fields',
+      getHttpHeaderFields(input.httpHeaders),
+    ]);
+
+    if (proxyValue !== null) {
+      this.queueSessionCommand(session.sessionId, ['set_property', 'http-proxy', proxyValue]);
+    }
+
+    const { displayTitle, displaySubtitle } = splitPlaybackTitle(input.title);
+
+    this.queueSessionCommand(session.sessionId, [
+      'loadfile',
+      input.streamUrl,
+      'replace',
+      -1,
+      createLoadFileOptions(input),
+    ]);
+    this.queueSessionCommand(session.sessionId, [
+      'script-message',
+      'taluxa-active-episode',
+      input.itemId,
+      input.title,
+      displayTitle,
+      displaySubtitle,
+    ]);
+    this.startDanmakuLookup(
+      session.sessionId,
+      input,
+      normalizedPlayerSettings.danmakuServers,
+      session.danmakuFilePath,
+      normalizedPlayerSettings.danmaku
+    );
   }
 
   private clearActiveSession(): void {
@@ -1982,6 +2386,10 @@ export class MpvController {
 
           if (name === 'taluxa-toggle-window-maximize') {
             this.toggleWindowMaximize(session, rawPatch);
+          }
+
+          if (name === 'taluxa-select-episode' && typeof rawPatch === 'string' && rawPatch.trim()) {
+            this.onEpisodeSelect(rawPatch.trim());
           }
 
           continue;

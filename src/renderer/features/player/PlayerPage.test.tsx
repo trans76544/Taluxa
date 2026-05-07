@@ -11,6 +11,7 @@ interface PlayerProgressEvent {
 
 function mockPlayerBridge() {
   const listeners = new Set<(event: PlayerProgressEvent) => void>();
+  const episodeSelectListeners = new Set<(itemId: string) => void>();
   const launch = vi.fn(() => new Promise<void>(() => undefined));
   const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
     listeners.add(listener);
@@ -19,17 +20,31 @@ function mockPlayerBridge() {
       listeners.delete(listener);
     };
   });
+  const onEpisodeSelect = vi.fn((listener: (itemId: string) => void) => {
+    episodeSelectListeners.add(listener);
+
+    return () => {
+      episodeSelectListeners.delete(listener);
+    };
+  });
 
   window.embyDesktop = {
     player: {
       launch,
+      onEpisodeSelect,
       onProgress,
     },
   } as unknown as Window['embyDesktop'];
 
   return {
     launch,
+    onEpisodeSelect,
     onProgress,
+    emitEpisodeSelect(itemId: string) {
+      for (const listener of episodeSelectListeners) {
+        listener(itemId);
+      }
+    },
     emitProgress(event: PlayerProgressEvent) {
       for (const listener of listeners) {
         listener(event);
@@ -103,6 +118,99 @@ describe('PlayerPage', () => {
     });
   });
 
+  it('launches mpv with episode selector data and forwards episode selections', async () => {
+    const { emitEpisodeSelect, launch, onEpisodeSelect } = mockPlayerBridge();
+    const handleEpisodeSelect = vi.fn();
+
+    render(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="episode-2"
+        title="Series 1 - S1:E2 - Second Case"
+        streamUrl="https://demo.emby.local/Videos/episode-2/stream.mp4?static=true&api_key=token-123"
+        initialPositionSeconds={42}
+        episodeSelector={{
+          currentItemId: 'episode-2',
+          episodes: [
+            {
+              itemId: 'episode-1',
+              title: 'S1E1 - First Case',
+              durationSeconds: 3000,
+              thumbnailUrl: 'https://demo.emby.local/Items/episode-1/Images/Primary',
+            },
+            {
+              itemId: 'episode-2',
+              title: 'S1E2 - Second Case',
+              durationSeconds: 2580,
+              thumbnailUrl: 'https://demo.emby.local/Items/episode-2/Images/Primary',
+            },
+          ],
+        }}
+        onEpisodeSelect={handleEpisodeSelect}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          episodeSelector: {
+            currentItemId: 'episode-2',
+            episodes: expect.arrayContaining([
+              expect.objectContaining({
+                itemId: 'episode-2',
+                title: 'S1E2 - Second Case',
+                durationSeconds: 2580,
+              }),
+            ]),
+          },
+        })
+      );
+    });
+    expect(onEpisodeSelect).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      emitEpisodeSelect('episode-1');
+    });
+
+    expect(handleEpisodeSelect).toHaveBeenCalledWith('episode-1');
+  });
+
+  it('still launches mpv when the episode select bridge is not available', async () => {
+    const { launch } = mockPlayerBridge();
+    delete (window.embyDesktop.player as Partial<Window['embyDesktop']['player']>).onEpisodeSelect;
+
+    render(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="episode-2"
+        title="Series 1 - S1:E2 - Second Case"
+        streamUrl="https://demo.emby.local/Videos/episode-2/stream.mp4?static=true&api_key=token-123"
+        initialPositionSeconds={42}
+        episodeSelector={{
+          currentItemId: 'episode-2',
+          episodes: [
+            {
+              itemId: 'episode-2',
+              title: 'S1E2 - Second Case',
+              durationSeconds: 2580,
+            },
+          ],
+        }}
+        onEpisodeSelect={vi.fn()}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'episode-2',
+        })
+      );
+    });
+  });
+
   it('does not launch mpv twice for the same playback input', async () => {
     const { launch } = mockPlayerBridge();
     const props = {
@@ -119,6 +227,50 @@ describe('PlayerPage', () => {
 
     await waitFor(() => {
       expect(launch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not relaunch mpv when the active episode changes inside the same launch request', async () => {
+    const { emitProgress, launch } = mockPlayerBridge();
+    const onProgress = vi.fn();
+    const sharedProps = {
+      httpHeaders: {},
+      initialPositionSeconds: 0,
+      launchRequestId: 7,
+      onProgress,
+    };
+
+    const { rerender } = render(
+      <PlayerPage
+        {...sharedProps}
+        itemId="episode-1"
+        title="Series 1 - S1E1 - First Case"
+        streamUrl="https://demo.emby.local/Videos/episode-1/stream.mp4?static=true&api_key=token-123"
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <PlayerPage
+        {...sharedProps}
+        itemId="episode-2"
+        title="Series 1 - S1E2 - Second Case"
+        streamUrl="https://demo.emby.local/Videos/episode-2/stream.mp4?static=true&api_key=token-123"
+      />
+    );
+
+    act(() => {
+      emitProgress({ itemId: 'episode-2', positionSeconds: 20, durationSeconds: 1200 });
+    });
+
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith({
+      itemId: 'episode-2',
+      positionSeconds: 20,
+      durationSeconds: 1200,
     });
   });
 

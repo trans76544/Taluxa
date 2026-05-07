@@ -81,6 +81,10 @@ interface PlaybackSelection {
   audioStreamIndex?: number | null;
 }
 
+type PlayerEpisodeSelector = NonNullable<
+  Parameters<Window['embyDesktop']['player']['launch']>[0]['episodeSelector']
+>;
+
 interface ItemRouteState {
   title?: string;
   serverPositionTicks?: number | null;
@@ -148,6 +152,47 @@ function isFastDirectPlaybackMediaSource(mediaSource: LibraryItemMediaSource): b
     videoCodec === 'h265';
 
   return hasProgressiveContainer && !needsSeekHeavyDemuxing;
+}
+
+function formatEpisodeSelectorTitle(episode: LibraryEpisode): string {
+  return `S${episode.parentIndexNumber}E${episode.indexNumber} - ${episode.name}`;
+}
+
+function runtimeTicksToSeconds(runtimeTicks: number | null): number | null {
+  if (typeof runtimeTicks !== 'number' || runtimeTicks <= 0) {
+    return null;
+  }
+
+  return Math.round(runtimeTicks / 10000000);
+}
+
+function pickEpisodeThumbnailUrl(episode: LibraryEpisode): string | null {
+  return (
+    episode.imageCandidates?.find((image) => image.kind === 'thumb')?.url ??
+    episode.posterUrl ??
+    episode.imageCandidates?.find((image) => image.kind === 'primary')?.url ??
+    episode.imageCandidates?.find((image) => image.kind === 'backdrop')?.url ??
+    null
+  );
+}
+
+function createEpisodeSelector(
+  currentItemId: string,
+  episodes: LibraryEpisode[]
+): PlayerEpisodeSelector | undefined {
+  if (episodes.length === 0 || !episodes.some((episode) => episode.id === currentItemId)) {
+    return undefined;
+  }
+
+  return {
+    currentItemId,
+    episodes: episodes.map((episode) => ({
+      durationSeconds: runtimeTicksToSeconds(episode.runtimeTicks),
+      itemId: episode.id,
+      thumbnailUrl: pickEpisodeThumbnailUrl(episode),
+      title: formatEpisodeSelectorTitle(episode),
+    })),
+  };
 }
 
 function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
@@ -295,7 +340,9 @@ function ItemDetailsRoute() {
 
   const [playbackSource, setPlaybackSource] = useState<PlaybackStreamSource | null>(null);
   const [playbackItemId, setPlaybackItemId] = useState('');
+  const [playbackLaunchId, setPlaybackLaunchId] = useState(0);
   const [playbackTitle, setPlaybackTitle] = useState('');
+  const [playbackEpisodeSelector, setPlaybackEpisodeSelector] = useState<PlayerEpisodeSelector | undefined>(undefined);
   const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
 
@@ -318,6 +365,7 @@ function ItemDetailsRoute() {
     setPlaybackSource(null);
     setPlaybackItemId('');
     setPlaybackTitle('');
+    setPlaybackEpisodeSelector(undefined);
     setPlaybackErrorMessage('');
 
     async function loadData() {
@@ -381,7 +429,9 @@ function ItemDetailsRoute() {
     setPlaybackErrorMessage('');
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
+    setPlaybackLaunchId((current) => current + 1);
     setPlaybackTitle(selection?.title?.trim() || details?.name || '');
+    setPlaybackEpisodeSelector(details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined);
 
     try {
       const playbackMediaSources =
@@ -423,6 +473,76 @@ function ItemDetailsRoute() {
       setPlaybackSource(nextSource);
     } catch (err) {
       setPlaybackSource(null);
+      setPlaybackErrorMessage('Could not prepare desktop playback.');
+    }
+  }
+
+  async function handleEpisodeSelect(nextItemId: string) {
+    const episode = episodes.find((candidate) => candidate.id === nextItemId);
+
+    if (!episode || !details || details.type !== 'Series') {
+      return;
+    }
+
+    const nextTitle = `${details.name} - ${formatEpisodeSelectorTitle(episode)}`;
+
+    if (typeof window.embyDesktop.player.switchEpisode !== 'function') {
+      await handlePlay(episode.id, episode.serverPositionTicks, {
+        title: nextTitle,
+      });
+      return;
+    }
+
+    setPlaybackErrorMessage('');
+
+    try {
+      const selectedMediaSource = pickPlaybackMediaSource(episode.mediaSources);
+      const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
+        ? buildDirectPlaybackStreamSource({
+            serverUrl,
+            userId: session!.userId,
+            itemId: episode.id,
+            accessToken: session!.accessToken,
+            mediaSourceId: selectedMediaSource.id,
+          })
+        : null;
+      const [persistedState, nextSource] = await Promise.all([
+        window.embyDesktop.storage.read(),
+        directSource ??
+          fetchPlaybackStreamSource({
+            serverUrl,
+            userId: session!.userId,
+            itemId: episode.id,
+            accessToken: session!.accessToken,
+          }),
+      ]);
+      await waitForFastPlaybackPreflight(nextSource);
+
+      const progressByItemId = getPersistedProgressByItemIdForAccount(
+        persistedState.progressByItemId,
+        resolvedActiveAccountId
+      );
+      const savedPositionSeconds = progressByItemId[episode.id]?.positionSeconds ?? null;
+      const nextInitialPositionSeconds = getResumePositionSeconds({
+        savedPositionSeconds,
+        serverPositionTicks: episode.serverPositionTicks,
+      });
+      const nextEpisodeSelector = createEpisodeSelector(episode.id, episodes);
+
+      await window.embyDesktop.player.switchEpisode({
+        httpHeaders: nextSource.httpHeaders,
+        itemId: episode.id,
+        title: nextTitle,
+        streamUrl: nextSource.streamUrl,
+        startSeconds: nextInitialPositionSeconds,
+      });
+
+      setPlaybackItemId(episode.id);
+      setPlaybackTitle(nextTitle);
+      setPlaybackEpisodeSelector(nextEpisodeSelector);
+      setInitialPositionSeconds(nextInitialPositionSeconds);
+      setPlaybackSource(nextSource);
+    } catch {
       setPlaybackErrorMessage('Could not prepare desktop playback.');
     }
   }
@@ -495,9 +615,12 @@ function ItemDetailsRoute() {
         <PlayerPage
           httpHeaders={playbackSource.httpHeaders}
           itemId={playbackItemId}
+          launchRequestId={playbackLaunchId}
           title={playbackTitle || details.name}
           streamUrl={playbackSource.streamUrl}
           initialPositionSeconds={initialPositionSeconds}
+          episodeSelector={playbackEpisodeSelector}
+          onEpisodeSelect={handleEpisodeSelect}
           onProgress={handleProgress}
         />
       ) : null}

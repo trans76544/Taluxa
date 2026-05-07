@@ -1,6 +1,13 @@
 import { createEmbyRequest } from './client';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
-import type { LibraryItem, LibraryView, LibraryItemDetails, LibrarySeason, LibraryEpisode } from '@shared/models/library';
+import type {
+  LibraryEpisode,
+  LibraryImageCandidate,
+  LibraryItem,
+  LibraryItemDetails,
+  LibrarySeason,
+  LibraryView,
+} from '@shared/models/library';
 import type { LibrarySortMode } from '@shared/models/settings';
 
 interface EmbyLibraryViewPayload {
@@ -60,6 +67,36 @@ function hasText(value: unknown): value is string {
 function buildImageUrl(serverUrl: string, itemId: string, imageType: 'Primary' | 'Thumb' | 'Backdrop'): string {
   const normalizedServerUrl = normalizeServerUrl(serverUrl);
   return `${normalizedServerUrl}/Items/${itemId}/Images/${imageType}`;
+}
+
+function buildExistingImageCandidates(
+  serverUrl: string,
+  item: { Id: string; ImageTags?: Record<string, string> | null; BackdropImageTags?: string[] | null }
+): LibraryImageCandidate[] {
+  const candidates: LibraryImageCandidate[] = [];
+
+  if (item.ImageTags?.Thumb) {
+    candidates.push({
+      url: buildImageUrl(serverUrl, item.Id, 'Thumb'),
+      kind: 'thumb',
+    });
+  }
+
+  if (item.ImageTags?.Primary) {
+    candidates.push({
+      url: buildImageUrl(serverUrl, item.Id, 'Primary'),
+      kind: 'primary',
+    });
+  }
+
+  if (Array.isArray(item.BackdropImageTags) && item.BackdropImageTags.length > 0) {
+    candidates.push({
+      url: buildImageUrl(serverUrl, item.Id, 'Backdrop'),
+      kind: 'backdrop',
+    });
+  }
+
+  return candidates;
 }
 
 function normalizeSearchText(value: string): string {
@@ -463,6 +500,7 @@ export async function fetchEpisodes(
     runtimeTicks: item.RunTimeTicks || null,
     serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
     posterUrl: item.ImageTags?.Primary ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary` : null,
+    imageCandidates: buildExistingImageCandidates(normalizedServerUrl, item),
     mediaSources: mapMediaSources(item),
   }));
 }

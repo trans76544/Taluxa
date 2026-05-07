@@ -249,6 +249,12 @@ describe('fetchEpisodes', () => {
         ],
       }),
     ]);
+    expect(episodes[0].imageCandidates).toEqual([
+      {
+        url: 'https://demo.emby.local/Items/episode-1/Images/Primary',
+        kind: 'primary',
+      },
+    ]);
   });
 
   it('maps Emby episode parent metadata for resume cards', () => {
