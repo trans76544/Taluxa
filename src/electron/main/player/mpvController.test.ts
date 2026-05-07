@@ -1339,7 +1339,6 @@ describe('MpvController', () => {
     expect(script).toContain('add_button(out, option.id, x, item_y, menu_width, item_height, label, menu_text_size, option.value)');
     expect(script).toContain("append_text(out, x + menu_width - 14, item_y + math.floor(item_height / 2) + 1, 6, menu_suffix_size, option.suffix, 'CFCFCF', 0, false)");
     expect(script).toContain(`scale_mode = ${luaUtf8Bytes('\u7f29\u653e\u6a21\u5f0f')}`);
-    expect(script).toContain(`skip_intro = ${luaUtf8Bytes('\u8df3\u8fc7\u7247\u5934/\u7247\u5c3e')}`);
     expect(script).toContain(`subtitle_settings = ${luaUtf8Bytes('\u5b57\u5e55\u8bbe\u7f6e')}`);
     expect(script).toContain(`danmaku_settings = ${luaUtf8Bytes('\u5f39\u5e55\u8bbe\u7f6e')}`);
     expect(script).toContain(`statistics = ${luaUtf8Bytes('\u7edf\u8ba1\u4fe1\u606f')}`);
@@ -1347,7 +1346,10 @@ describe('MpvController', () => {
     expect(script).toContain(`stretch = ${luaUtf8Bytes('\u62c9\u4f38')}`);
     expect(script).toContain(`crop = ${luaUtf8Bytes('\u88c1\u526a')}`);
     expect(script).not.toContain('Scale Mode');
+    expect(script).not.toContain('Anime4K');
+    expect(script).not.toContain('PRO');
     expect(script).not.toContain('Skip Intro/Ending');
+    expect(script).not.toContain('skip_intro');
     expect(script).not.toContain('Subtitle Settings');
     expect(script).not.toContain('Danmaku Settings');
     expect(script).not.toContain('Statistics');

@@ -320,7 +320,6 @@ local function b(...)
 end
 local TEXT = {
   scale_mode = b(231, 188, 169, 230, 148, 190, 230, 168, 161, 229, 188, 143),
-  skip_intro = b(232, 183, 179, 232, 191, 135, 231, 137, 135, 229, 164, 180, 47, 231, 137, 135, 229, 176, 190),
   subtitle_settings = b(229, 173, 151, 229, 185, 149, 232, 174, 190, 231, 189, 174),
   danmaku_settings = b(229, 188, 185, 229, 185, 149, 232, 174, 190, 231, 189, 174),
   statistics = b(231, 187, 159, 232, 174, 161, 228, 191, 161, 230, 129, 175),
@@ -826,10 +825,9 @@ local function localize_options(options, menu_name)
     end
   elseif menu_name == 'settings' then
     options[1].label = TEXT.scale_mode
-    options[3].label = TEXT.skip_intro
-    options[4].label = TEXT.subtitle_settings
-    options[5].label = TEXT.danmaku_settings
-    options[6].label = TEXT.statistics
+    options[2].label = TEXT.subtitle_settings
+    options[3].label = TEXT.danmaku_settings
+    options[4].label = TEXT.statistics
   elseif menu_name == 'scale' then
     for _, option in ipairs(options) do
       if option.value == 'fit' then
@@ -920,8 +918,6 @@ local function draw_options_menu(out)
   elseif menu_open == 'settings' then
     options = {
       { id = 'settings-scale', label = TEXT.scale_mode, suffix = '>' },
-      { id = 'disabled', label = 'Anime4K', suffix = 'PRO' },
-      { id = 'disabled', label = TEXT.skip_intro, suffix = 'PRO' },
       { id = 'settings-subtitles', label = TEXT.subtitle_settings },
       { id = 'settings-danmaku', label = TEXT.danmaku_settings },
       { id = 'settings-stats', label = TEXT.statistics },
