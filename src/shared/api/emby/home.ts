@@ -52,8 +52,62 @@ export function buildContinueWatchingItems(args: {
     .filter(
       (entry): entry is { item: LibraryItem; progress: PlaybackProgress } => Boolean(entry.item)
     )
+    .filter(createLatestPerTitleFilter())
     .slice(0, 8)
     .map(({ item, progress }) => buildContinueWatchingItem(item, progress));
+}
+
+export function dedupeContinueWatchingPosterItems(items: HomePosterItem[]): HomePosterItem[] {
+  const seenKeys = new Set<string>();
+  const nextItems: HomePosterItem[] = [];
+
+  for (const item of items) {
+    const dedupeKey = getCachedContinueWatchingDedupeKey(item);
+
+    if (seenKeys.has(dedupeKey)) {
+      continue;
+    }
+
+    seenKeys.add(dedupeKey);
+    nextItems.push(item);
+  }
+
+  return nextItems;
+}
+
+function createLatestPerTitleFilter() {
+  const seenKeys = new Set<string>();
+
+  return ({ item }: { item: LibraryItem; progress: PlaybackProgress }) => {
+    const dedupeKey = getContinueWatchingDedupeKey(item);
+
+    if (seenKeys.has(dedupeKey)) {
+      return false;
+    }
+
+    seenKeys.add(dedupeKey);
+    return true;
+  };
+}
+
+function getContinueWatchingDedupeKey(item: LibraryItem): string {
+  if (item.type === 'Episode') {
+    const seriesKey = item.seriesId?.trim() || item.seriesName?.trim();
+
+    if (seriesKey) {
+      return `series:${seriesKey}`;
+    }
+  }
+
+  return `item:${item.id}`;
+}
+
+function getCachedContinueWatchingDedupeKey(item: HomePosterItem): string {
+  if (item.state?.resumeEpisodeId) {
+    return `series:${item.href}`;
+  }
+
+  return `item:${item.href || item.id}`;
 }
 
 function buildContinueWatchingItem(

@@ -1197,6 +1197,63 @@ describe('App', () => {
     });
   });
 
+  it('dedupes cached continue watching episodes when rendering a fresh home cache', async () => {
+    const account = createSavedAccount();
+    const homeCacheKey = `home-cache::${account.id}::latest_added`;
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        homeCacheByKey: {
+          [homeCacheKey]: createCachedHomeEntry({
+            cachedAt: new Date(Date.now()).toISOString(),
+            continueWatching: [
+              {
+                id: 'episode-2',
+                title: 'Series A',
+                subtitle: 'S1E2 - Latest Episode',
+                posterUrl: 'https://demo.emby.local/Items/episode-2/Images/Primary',
+                imageCandidates: [],
+                href: '/item/series-1',
+                state: {
+                  title: 'Series A',
+                  resumeEpisodeId: 'episode-2',
+                  resumeSeasonId: 'season-1',
+                },
+              },
+              {
+                id: 'episode-1',
+                title: 'Series A',
+                subtitle: 'S1E1 - Earlier Episode',
+                posterUrl: 'https://demo.emby.local/Items/episode-1/Images/Primary',
+                imageCandidates: [],
+                href: '/item/series-1',
+                state: {
+                  title: 'Series A',
+                  resumeEpisodeId: 'episode-1',
+                  resumeSeasonId: 'season-1',
+                },
+              },
+            ],
+          }),
+        },
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /S1E2 - Latest Episode/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /S1E1 - Earlier Episode/ })).not.toBeInTheDocument();
+    expect(fetchViewsMock).not.toHaveBeenCalled();
+  });
+
   it('replaces cached home label when a friendly server name becomes available', async () => {
     const account = createSavedAccount();
     const homeCacheKey = `home-cache::${account.id}::latest_added`;

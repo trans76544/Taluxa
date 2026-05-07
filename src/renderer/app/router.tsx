@@ -35,6 +35,7 @@ import type {
 } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
+  dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
   type HomeLibraryCard,
   type HomePosterRow,
@@ -881,7 +882,7 @@ function LibrariesRoute() {
           renderHomeData({
             accountLabel: cacheEntry.accountLabel,
             continueWatching: Array.isArray(cacheEntry.continueWatching)
-              ? cacheEntry.continueWatching
+              ? dedupeContinueWatchingPosterItems(cacheEntry.continueWatching)
               : [],
             libraries: Array.isArray(cacheEntry.libraries) ? cacheEntry.libraries : [],
             featuredRows: Array.isArray(cacheEntry.featuredRows) ? cacheEntry.featuredRows : [],
