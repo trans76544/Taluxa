@@ -294,4 +294,110 @@ describe('ItemDetailsPage', () => {
     const playedCard = screen.getByRole('link', { name: /2\. Solved Case/ });
     expect(playedCard.querySelector('.poster-card__played-indicator')).not.toBeNull();
   });
+
+  it('runs favorite and played actions for movie details', () => {
+    const onAddToFavorites = vi.fn();
+    const onMarkPlayed = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+          onAddToFavorites={onAddToFavorites}
+          onMarkPlayed={onMarkPlayed}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as played' }));
+
+    expect(onAddToFavorites).toHaveBeenCalledWith('movie-1');
+    expect(onMarkPlayed).toHaveBeenCalledWith('movie-1');
+  });
+
+  it('runs favorite and played actions for the selected series episode', () => {
+    const onAddToFavorites = vi.fn();
+    const onMarkPlayed = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[
+            createEpisode(),
+            createEpisode({
+              id: 'episode-2',
+              name: 'Second Case',
+              indexNumber: 2,
+            }),
+          ]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+          onAddToFavorites={onAddToFavorites}
+          onMarkPlayed={onMarkPlayed}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: /2\. Second Case/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as played' }));
+
+    expect(onAddToFavorites).toHaveBeenCalledWith('episode-2');
+    expect(onMarkPlayed).toHaveBeenCalledWith('episode-2');
+  });
+
+  it('opens a right-click menu for episode card favorite and played actions', () => {
+    const onAddToFavorites = vi.fn();
+    const onMarkPlayed = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[
+            createEpisode(),
+            createEpisode({
+              id: 'episode-2',
+              name: 'Second Case',
+              indexNumber: 2,
+            }),
+          ]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+          onAddToFavorites={onAddToFavorites}
+          onMarkPlayed={onMarkPlayed}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.contextMenu(screen.getByRole('link', { name: /2\. Second Case/ }), {
+      clientX: 220,
+      clientY: 140,
+    });
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to favorites' }));
+    expect(onAddToFavorites).toHaveBeenCalledWith('episode-2');
+
+    fireEvent.contextMenu(screen.getByRole('link', { name: /2\. Second Case/ }), {
+      clientX: 220,
+      clientY: 140,
+    });
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Mark as played' }));
+    expect(onMarkPlayed).toHaveBeenCalledWith('episode-2');
+  });
 });

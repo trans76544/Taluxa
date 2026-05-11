@@ -690,10 +690,6 @@ function ItemDetailsRoute() {
                 : progressItemId]: nextProgress,
             },
           });
-          setEpisodeProgressByItemId((currentProgress) => ({
-            ...currentProgress,
-            [progressItemId]: nextProgress,
-          }));
         } catch {}
         try {
           await reportPlaybackProgress({
@@ -706,6 +702,68 @@ function ItemDetailsRoute() {
       });
 
     await progressSyncQueueRef.current;
+  }
+
+  async function handleAddDetailFavorite(actionItemId: string) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      await addFavoriteItem({
+        serverUrl,
+        userId: session.userId,
+        itemId: actionItemId,
+        accessToken: session.accessToken,
+      });
+      setPlaybackErrorMessage('');
+    } catch {
+      setPlaybackErrorMessage('Could not add to favorites.');
+    }
+  }
+
+  async function handleMarkDetailPlayed(actionItemId: string) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      await markItemPlayed({
+        serverUrl,
+        userId: session.userId,
+        itemId: actionItemId,
+        accessToken: session.accessToken,
+      });
+
+      try {
+        await window.embyDesktop.storage.write({
+          clearHomeCache: true,
+          progressByItemId: {
+            [resolvedActiveAccountId
+              ? createAccountScopedProgressKey(resolvedActiveAccountId, actionItemId)
+              : actionItemId]: null,
+          },
+        });
+      } catch {
+        // The server action succeeded; stale local resume data can be refreshed later.
+      }
+
+      setEpisodeProgressByItemId((currentProgress) => {
+        const { [actionItemId]: _playedProgress, ...remainingProgress } = currentProgress;
+        return remainingProgress;
+      });
+      setEpisodes((currentEpisodes) =>
+        currentEpisodes.map((episode) =>
+          episode.id === actionItemId ? { ...episode, played: true } : episode
+        )
+      );
+      setDetails((currentDetails) =>
+        currentDetails?.id === actionItemId ? { ...currentDetails, played: true } : currentDetails
+      );
+      setPlaybackErrorMessage('');
+    } catch {
+      setPlaybackErrorMessage('Could not mark as played.');
+    }
   }
 
   if (isLoading) {
@@ -743,6 +801,8 @@ function ItemDetailsRoute() {
         episodeProgressByItemId={episodeProgressByItemId}
         onSelectSeason={setSelectedSeasonId}
         onPlay={handlePlay}
+        onAddToFavorites={handleAddDetailFavorite}
+        onMarkPlayed={handleMarkDetailPlayed}
       />
     </AuthenticatedLayout>
   );

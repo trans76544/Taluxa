@@ -2056,6 +2056,199 @@ describe('App', () => {
     expect(storage.launch).toHaveBeenCalledTimes(1);
   });
 
+  it('marks movie details as played from the detail action button', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    fetchItemDetailsMock.mockResolvedValueOnce(createMovieDetails({ id: 'movie-1' }));
+    window.location.hash = '#/item/movie-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as played' }));
+
+    await waitFor(() => {
+      expect(markItemPlayedMock).toHaveBeenCalledWith({
+        serverUrl: 'https://demo.emby.local',
+        userId: 'user-1',
+        itemId: 'movie-1',
+        accessToken: 'token-123',
+      });
+    });
+  });
+
+  it('adds selected series episodes to favorites from the detail action button', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    fetchItemDetailsMock.mockResolvedValue({
+      id: 'series-1',
+      name: 'Series 1',
+      posterUrl: 'https://demo.emby.local/Items/series-1/Images/Primary',
+      imageCandidates: [],
+      runtimeTicks: null,
+      serverPositionTicks: null,
+      communityRating: null,
+      productionYear: 2026,
+      type: 'Series',
+      overview: 'A test series.',
+      genres: [],
+      officialRating: '',
+      people: [],
+      studios: [],
+      externalUrls: [],
+      mediaSources: [],
+      backdropUrl: null,
+    });
+    fetchSeasonsMock.mockResolvedValue([
+      {
+        id: 'season-1',
+        name: 'Season 1',
+        indexNumber: 1,
+        posterUrl: null,
+      },
+    ]);
+    fetchEpisodesMock.mockResolvedValue([
+      {
+        id: 'episode-1',
+        name: 'First Case',
+        overview: '',
+        indexNumber: 1,
+        parentIndexNumber: 1,
+        posterUrl: null,
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+        mediaSources: [],
+      },
+      {
+        id: 'episode-2',
+        name: 'Second Case',
+        overview: '',
+        indexNumber: 2,
+        parentIndexNumber: 1,
+        posterUrl: null,
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+        mediaSources: [],
+      },
+    ]);
+    window.location.hash = '#/item/series-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+
+    await waitFor(() => {
+      expect(addFavoriteItemMock).toHaveBeenCalledWith({
+        serverUrl: 'https://demo.emby.local',
+        userId: 'user-1',
+        itemId: 'episode-2',
+        accessToken: 'token-123',
+      });
+    });
+  });
+
+  it('adds right-clicked series episodes to favorites from the episode card menu', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    fetchItemDetailsMock.mockResolvedValue({
+      id: 'series-1',
+      name: 'Series 1',
+      posterUrl: 'https://demo.emby.local/Items/series-1/Images/Primary',
+      imageCandidates: [],
+      runtimeTicks: null,
+      serverPositionTicks: null,
+      communityRating: null,
+      productionYear: 2026,
+      type: 'Series',
+      overview: 'A test series.',
+      genres: [],
+      officialRating: '',
+      people: [],
+      studios: [],
+      externalUrls: [],
+      mediaSources: [],
+      backdropUrl: null,
+    });
+    fetchSeasonsMock.mockResolvedValue([
+      {
+        id: 'season-1',
+        name: 'Season 1',
+        indexNumber: 1,
+        posterUrl: null,
+      },
+    ]);
+    fetchEpisodesMock.mockResolvedValue([
+      {
+        id: 'episode-1',
+        name: 'First Case',
+        overview: '',
+        indexNumber: 1,
+        parentIndexNumber: 1,
+        posterUrl: null,
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+        mediaSources: [],
+      },
+      {
+        id: 'episode-2',
+        name: 'Second Case',
+        overview: '',
+        indexNumber: 2,
+        parentIndexNumber: 1,
+        posterUrl: null,
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+        mediaSources: [],
+      },
+    ]);
+    window.location.hash = '#/item/series-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('link', { name: /2\. Second Case/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add to favorites' }));
+
+    await waitFor(() => {
+      expect(addFavoriteItemMock).toHaveBeenCalledWith({
+        serverUrl: 'https://demo.emby.local',
+        userId: 'user-1',
+        itemId: 'episode-2',
+        accessToken: 'token-123',
+      });
+    });
+  });
+
   it('loads featured rows with the persisted home-screen sort mode', async () => {
     const account = createSavedAccount();
     mockStorageRead(

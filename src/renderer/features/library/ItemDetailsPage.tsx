@@ -25,6 +25,14 @@ interface ItemDetailsPageProps {
   episodeProgressByItemId?: Record<string, PlaybackProgress>;
   onSelectSeason: (seasonId: string) => void;
   onPlay: (itemId: string, resumeTicks?: number | null, selection?: PlaybackSelection) => void;
+  onAddToFavorites?: (itemId: string) => void;
+  onMarkPlayed?: (itemId: string) => void;
+}
+
+interface EpisodeContextMenuState {
+  episode: LibraryEpisode;
+  x: number;
+  y: number;
 }
 
 function formatRuntime(runtimeTicks: number | null) {
@@ -182,6 +190,8 @@ export function ItemDetailsPage({
   episodeProgressByItemId = {},
   onSelectSeason,
   onPlay,
+  onAddToFavorites,
+  onMarkPlayed,
 }: ItemDetailsPageProps) {
   const isSeries = details.type === 'Series';
   const runtimeLabel = formatRuntime(details.runtimeTicks);
@@ -189,6 +199,9 @@ export function ItemDetailsPage({
     details.mediaSources[0]?.id ?? ''
   );
   const [selectedEpisodeId, setSelectedEpisodeId] = useState('');
+  const [episodeContextMenu, setEpisodeContextMenu] = useState<EpisodeContextMenuState | null>(
+    null
+  );
   const selectedEpisode = useMemo(
     () =>
       episodes.find((episode) => episode.id === selectedEpisodeId) ??
@@ -229,6 +242,32 @@ export function ItemDetailsPage({
     setSelectedAudioValue(getDefaultAudioValue(selectedMediaSource));
   }, [selectedMediaSource]);
 
+  useEffect(() => {
+    if (!episodeContextMenu) {
+      return;
+    }
+
+    function closeContextMenu() {
+      setEpisodeContextMenu(null);
+    }
+
+    function closeContextMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        closeContextMenu();
+      }
+    }
+
+    window.addEventListener('click', closeContextMenu);
+    window.addEventListener('blur', closeContextMenu);
+    window.addEventListener('keydown', closeContextMenuOnEscape);
+
+    return () => {
+      window.removeEventListener('click', closeContextMenu);
+      window.removeEventListener('blur', closeContextMenu);
+      window.removeEventListener('keydown', closeContextMenuOnEscape);
+    };
+  }, [episodeContextMenu]);
+
   const selectedAudioStreamIndex =
     selectedAudioValue.trim() === '' ? null : Number(selectedAudioValue);
   const playbackSelection = selectedMediaSource
@@ -250,6 +289,38 @@ export function ItemDetailsPage({
             title: formatEpisodePlaybackTitle(details.name, selectedEpisode),
           }
         : undefined;
+  const actionItemId = isSeries ? selectedEpisode?.id : details.id;
+
+  function runItemAction(action: ((itemId: string) => void) | undefined) {
+    if (!actionItemId || !action) {
+      return;
+    }
+
+    action(actionItemId);
+  }
+
+  function openEpisodeContextMenu(event: React.MouseEvent, episode: LibraryEpisode) {
+    event.preventDefault();
+    setSelectedEpisodeId(episode.id);
+
+    const menuWidth = 180;
+    const menuHeight = 88;
+    const x = Math.min(event.clientX, Math.max(0, window.innerWidth - menuWidth));
+    const y = Math.min(event.clientY, Math.max(0, window.innerHeight - menuHeight));
+
+    setEpisodeContextMenu({ episode, x, y });
+  }
+
+  function runEpisodeContextAction(action: ((itemId: string) => void) | undefined) {
+    const episodeId = episodeContextMenu?.episode.id;
+    setEpisodeContextMenu(null);
+
+    if (!episodeId || !action) {
+      return;
+    }
+
+    action(episodeId);
+  }
 
   return (
     <div className="item-details-page">
@@ -305,9 +376,27 @@ export function ItemDetailsPage({
               </div>
             )}
             <div className="action-icons">
-              <button className="icon-btn">🔍</button>
-              <button className="icon-btn">♡</button>
-              <button className="icon-btn">✓</button>
+              <button type="button" className="icon-btn" aria-label="Search" title="Search">🔍</button>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Add to favorites"
+                title="Add to favorites"
+                disabled={!actionItemId}
+                onClick={() => runItemAction(onAddToFavorites)}
+              >
+                ♡
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Mark as played"
+                title="Mark as played"
+                disabled={!actionItemId}
+                onClick={() => runItemAction(onMarkPlayed)}
+              >
+                ✓
+              </button>
             </div>
           </div>
         </div>
@@ -369,6 +458,7 @@ export function ItemDetailsPage({
                       e.preventDefault();
                       setSelectedEpisodeId(eps.id);
                     }}
+                    onContextMenu={(event) => openEpisodeContextMenu(event, eps)}
                     className={selectedEpisode?.id === eps.id ? 'episode-active' : ''}
                     state={{}}
                   />
@@ -501,6 +591,33 @@ export function ItemDetailsPage({
         </section>
 
       </div>
+      {episodeContextMenu ? (
+        <div
+          className="continue-context-menu episode-context-menu"
+          role="menu"
+          style={{ left: episodeContextMenu.x, top: episodeContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            aria-label="Add to favorites"
+            onClick={() => runEpisodeContextAction(onAddToFavorites)}
+          >
+            <span className="context-menu-icon context-menu-icon--favorite" aria-hidden="true" />
+            <span>添加到收藏</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            aria-label="Mark as played"
+            onClick={() => runEpisodeContextAction(onMarkPlayed)}
+          >
+            <span className="context-menu-icon context-menu-icon--played" aria-hidden="true" />
+            <span>标记为已播放</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
