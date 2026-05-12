@@ -21,6 +21,7 @@ const loginMock = vi.hoisted(() => vi.fn());
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
+const fetchResumeItemsMock = vi.hoisted(() => vi.fn());
 const fetchSearchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemDetailsMock = vi.hoisted(() => vi.fn());
 const fetchSimilarItemsMock = vi.hoisted(() => vi.fn());
@@ -45,6 +46,7 @@ vi.mock('@shared/api/emby/library', () => ({
   fetchViews: fetchViewsMock,
   fetchItems: fetchItemsMock,
   fetchItemsByIds: fetchItemsByIdsMock,
+  fetchResumeItems: fetchResumeItemsMock,
   fetchSearchItems: fetchSearchItemsMock,
   fetchItemDetails: fetchItemDetailsMock,
   fetchSimilarItems: fetchSimilarItemsMock,
@@ -356,6 +358,7 @@ describe('App', () => {
     fetchViewsMock.mockResolvedValue([]);
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
+    fetchResumeItemsMock.mockResolvedValue([]);
     fetchItemDetailsMock.mockImplementation(async (_serverUrl: string, _userId: string, itemId: string) =>
       createMovieDetails({ id: itemId })
     );
@@ -916,7 +919,7 @@ describe('App', () => {
     expect(storage.launch).not.toHaveBeenCalled();
   });
 
-  it('loads continue watching items from non-featured libraries when local progress exists', async () => {
+  it('does not load continue watching items from local progress when Emby resume is empty', async () => {
     const aliceAccount = createSavedAccount();
     const bobAccount = createSavedAccount({
       id: 'https://backup.emby.local::user-2',
@@ -970,24 +973,7 @@ describe('App', () => {
         collectionType: 'movies',
       },
     ]);
-    fetchItemsByIdsMock.mockResolvedValue([
-      {
-        id: 'doc-item',
-        name: 'Planet Earth',
-        posterUrl: 'https://demo.emby.local/Items/doc-item/Images/Primary',
-        imageCandidates: [],
-        runtimeTicks: 18000000000,
-        serverPositionTicks: 3000000000,
-      },
-      {
-        id: 'bob-item',
-        name: 'Bob Resume',
-        posterUrl: 'https://demo.emby.local/Items/bob-item/Images/Primary',
-        imageCandidates: [],
-        runtimeTicks: 12000000000,
-        serverPositionTicks: 4200000000,
-      },
-    ]);
+    fetchResumeItemsMock.mockResolvedValue([]);
     fetchItemsMock.mockImplementation(async (_serverUrl: string, _userId: string, parentId: string) => {
       return [
         {
@@ -1009,16 +995,80 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(await screen.findByRole('heading', { name: '继续观看' })).toBeInTheDocument();
-    expect(await screen.findByRole('link', { name: /Planet Earth/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '媒体库' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '继续观看' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Planet Earth/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Bob Resume/ })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchItemsMock).toHaveBeenCalledTimes(4));
-    expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
+    expect(fetchItemsByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it('loads continue watching items from Emby resume without local progress supplements', async () => {
+    const account = createSavedAccount();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        progressByItemId: {
+          [createAccountScopedProgressKey(account.id, 'local-movie')]: {
+            itemId: 'local-movie',
+            positionSeconds: 120,
+            durationSeconds: 1800,
+            updatedAt: '2026-04-22T08:00:00.000Z',
+          },
+        },
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+    ]);
+    fetchResumeItemsMock.mockResolvedValue([
+      {
+        id: 'server-movie',
+        name: 'Server Movie',
+        posterUrl: 'https://demo.emby.local/Items/server-movie/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 20000000000,
+        serverPositionTicks: 5000000000,
+        communityRating: null,
+        productionYear: 2026,
+        type: 'Movie',
+      },
+    ]);
+    fetchItemsMock.mockResolvedValue([
+      {
+        id: 'featured-movie',
+        name: 'Featured Movie',
+        posterUrl: 'https://demo.emby.local/Items/featured-movie/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 600000000,
+        serverPositionTicks: null,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Server Movie/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Local Movie/ })).not.toBeInTheDocument();
+    expect(fetchResumeItemsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
-      ['doc-item'],
-      'token-123'
+      'token-123',
+      8
     );
+    expect(fetchItemsByIdsMock).not.toHaveBeenCalled();
   });
 
   it('opens episode resume cards on the parent series details and selects the resumed episode', async () => {
@@ -1039,7 +1089,7 @@ describe('App', () => {
       })
     );
 
-    fetchItemsByIdsMock.mockResolvedValue([
+    fetchResumeItemsMock.mockResolvedValue([
       {
         id: 'episode-14',
         name: '尘都无法忘记',
@@ -1228,7 +1278,7 @@ describe('App', () => {
       })
     );
 
-    fetchItemsByIdsMock.mockResolvedValue([
+    fetchResumeItemsMock.mockResolvedValue([
       {
         id: 'episode-1',
         name: 'Pilot',
@@ -1332,7 +1382,7 @@ describe('App', () => {
       })
     );
 
-    fetchItemsByIdsMock.mockResolvedValue([
+    fetchResumeItemsMock.mockResolvedValue([
       {
         id: 'movie-1',
         name: 'Movie 1',
@@ -1377,6 +1427,7 @@ describe('App', () => {
   it('dedupes cached continue watching episodes when rendering a fresh home cache', async () => {
     const account = createSavedAccount();
     const homeCacheKey = `home-cache::${account.id}::latest_added`;
+    const resumeDeferred = createDeferred<unknown[]>();
 
     mockStorageRead(
       createPersistedState({
@@ -1417,6 +1468,7 @@ describe('App', () => {
         },
       })
     );
+    fetchResumeItemsMock.mockReturnValue(resumeDeferred.promise);
 
     window.location.hash = '#/libraries';
 
@@ -1429,6 +1481,98 @@ describe('App', () => {
     expect(await screen.findByRole('link', { name: /S1E2 - Latest Episode/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /S1E1 - Earlier Episode/ })).not.toBeInTheDocument();
     expect(fetchViewsMock).not.toHaveBeenCalled();
+  });
+
+  it('refreshes continue watching even when the home cache is fresh', async () => {
+    const account = createSavedAccount();
+    const homeCacheKey = `home-cache::${account.id}::latest_added`;
+    const resumeDeferred = createDeferred<unknown[]>();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+        homeCacheByKey: {
+          [homeCacheKey]: createCachedHomeEntry({
+            cachedAt: new Date(Date.now()).toISOString(),
+            continueWatching: [
+              {
+                id: 'old-resume',
+                title: 'Old Resume',
+                subtitle: 'S1E1 - Old',
+                posterUrl: 'https://demo.emby.local/Items/old-resume/Images/Primary',
+                imageCandidates: [],
+                href: '/item/old-series',
+                progressPercent: 10,
+                state: {
+                  title: 'Old Resume',
+                  resumeEpisodeId: 'old-resume',
+                },
+              },
+            ],
+          }),
+        },
+      })
+    );
+    fetchResumeItemsMock.mockReturnValue(resumeDeferred.promise);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Old Resume/ })).toBeInTheDocument();
+
+    resumeDeferred.resolve([
+      {
+        id: 'black-night',
+        name: 'é»‘å¤œå‘Šç™½',
+        type: 'Episode',
+        seriesId: 'black-night-series',
+        seriesName: 'é»‘å¤œå‘Šç™½',
+        parentId: 'black-night-season',
+        parentIndexNumber: 1,
+        indexNumber: 22,
+        posterUrl: 'https://demo.emby.local/Items/black-night/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 3000000000,
+        lastPlayedAt: '2026-04-23T08:00:00.000Z',
+        communityRating: null,
+        productionYear: 2026,
+      },
+      {
+        id: 'bocchi',
+        name: 'å­¤ç‹¬çš„è½¬æœº',
+        type: 'Episode',
+        seriesId: 'bocchi-series',
+        seriesName: 'å­¤ç‹¬æ‘‡æ»š!',
+        parentId: 'bocchi-season',
+        parentIndexNumber: 1,
+        indexNumber: 1,
+        posterUrl: 'https://demo.emby.local/Items/bocchi/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 1200000000,
+        lastPlayedAt: '2026-04-22T08:00:00.000Z',
+        communityRating: null,
+        productionYear: 2026,
+      },
+    ]);
+
+    expect(await screen.findByRole('link', { name: /S1E22/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /S1E1/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Old Resume/ })).not.toBeInTheDocument();
+    expect(fetchViewsMock).not.toHaveBeenCalled();
+    expect(fetchResumeItemsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'token-123',
+      8
+    );
   });
 
   it('replaces cached home label when a friendly server name becomes available', async () => {
@@ -1807,6 +1951,35 @@ describe('App', () => {
             },
           ]
     );
+    fetchResumeItemsMock.mockImplementation(async (serverUrl: string) =>
+      serverUrl === aliceAccount.serverUrl
+        ? [
+            {
+              id: 'alice-server-item',
+              name: 'Server Resume',
+              posterUrl: 'https://demo.emby.local/Items/alice-server-item/Images/Primary',
+              imageCandidates: [],
+              runtimeTicks: 20000000000,
+              serverPositionTicks: 5000000000,
+              communityRating: null,
+              productionYear: 2026,
+              type: 'Movie',
+            },
+          ]
+        : [
+            {
+              id: 'bob-server-item',
+              name: 'Bob Server Resume',
+              posterUrl: 'https://backup.emby.local/Items/bob-server-item/Images/Primary',
+              imageCandidates: [],
+              runtimeTicks: 24000000000,
+              serverPositionTicks: 2400000000,
+              communityRating: null,
+              productionYear: 2016,
+              type: 'Movie',
+            },
+          ]
+    );
 
     window.location.hash = '#/aggregate';
 
@@ -1819,21 +1992,12 @@ describe('App', () => {
     expect(await screen.findByRole('navigation', { name: '聚合视界' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Shrek' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'OkEmby' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /黑夜告白/ })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /怪奇物语/ })).toBeInTheDocument();
+    expect(screen.getByText('Server Resume')).toBeInTheDocument();
+    expect(screen.getByText('Bob Server Resume')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /alice-item/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /bob-item/ })).not.toBeInTheDocument();
 
-    expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
-      aliceAccount.serverUrl,
-      aliceAccount.userId,
-      ['alice-item'],
-      aliceAccount.accessToken
-    );
-    expect(fetchItemsByIdsMock).toHaveBeenCalledWith(
-      bobAccount.serverUrl,
-      bobAccount.userId,
-      ['bob-item'],
-      bobAccount.accessToken
-    );
+    expect(fetchItemsByIdsMock).not.toHaveBeenCalled();
   });
 
   it('opens item details when a featured home item is clicked', async () => {

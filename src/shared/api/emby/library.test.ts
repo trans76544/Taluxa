@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchEpisodes, fetchItems, fetchSearchItems, mapItemsResponse, mapViewsResponse } from './library';
+import {
+  fetchEpisodes,
+  fetchItems,
+  fetchResumeItems,
+  fetchSearchItems,
+  mapItemsResponse,
+  mapViewsResponse,
+} from './library';
 
 const fetchMock = vi.fn();
 
@@ -170,6 +177,62 @@ describe('fetchItems', () => {
     const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestUrl.searchParams.get('SortBy')).toBe('PremiereDate,ProductionYear,SortName');
     expect(requestUrl.searchParams.get('SortOrder')).toBe('Descending,Descending,Ascending');
+  });
+});
+
+describe('fetchResumeItems', () => {
+  it('queries Emby resume items with user data and episode metadata', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        Items: [
+          {
+            Id: 'episode-1',
+            Name: 'Resume Episode',
+            Type: 'Episode',
+            SeriesId: 'series-1',
+            SeriesName: 'Series 1',
+            ParentId: 'season-1',
+            ParentIndexNumber: 1,
+            IndexNumber: 2,
+            RunTimeTicks: 18000000000,
+            UserData: {
+              PlaybackPositionTicks: 6000000000,
+              LastPlayedDate: '2026-04-22T08:00:00.000Z',
+            },
+          },
+        ],
+      }),
+    });
+
+    const items = await fetchResumeItems(
+      'https://demo.emby.local',
+      'user-1',
+      'token-1',
+      12
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.pathname).toBe('/Users/user-1/Items/Resume');
+    expect(requestUrl.searchParams.get('Limit')).toBe('12');
+    expect(requestUrl.searchParams.get('IncludeItemTypes')).toBe('Movie,Episode');
+    expect(requestUrl.searchParams.get('EnableUserData')).toBe('true');
+    expect(requestUrl.searchParams.get('Fields')).toBe('ProductionYear,SeriesInfo');
+    expect(items[0]).toEqual(
+      expect.objectContaining({
+        id: 'episode-1',
+        type: 'Episode',
+        seriesId: 'series-1',
+        seriesName: 'Series 1',
+        parentId: 'season-1',
+        parentIndexNumber: 1,
+        indexNumber: 2,
+        serverPositionTicks: 6000000000,
+        lastPlayedAt: '2026-04-22T08:00:00.000Z',
+      })
+    );
   });
 });
 

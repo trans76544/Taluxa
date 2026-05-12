@@ -9,7 +9,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
-import { fetchItems, fetchItemsByIds, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
+import { fetchItems, fetchItemsByIds, fetchResumeItems, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
   addFavoriteItem,
   buildDirectPlaybackStreamSource,
@@ -38,6 +38,7 @@ import type {
 } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
+  buildServerContinueWatchingItems,
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
   type HomeLibraryCard,
@@ -1116,19 +1117,11 @@ function LibrariesRoute() {
     setErrorMessage('');
     setHasRenderedHomeSnapshot(false);
 
-    async function refreshHomeData(persistedState: PersistedState): Promise<HomeRouteData> {
+    async function refreshHomeData(): Promise<HomeRouteData> {
       const nextViews = await fetchViews(serverUrl, userId, accessToken);
-      const progressByItemId = getPersistedProgressByItemIdForAccount(
-        persistedState.progressByItemId,
-        resolvedActiveAccountId
-      );
       const featuredViews = pickFeaturedViews(nextViews);
-      const continueWatchingIds = Object.values(progressByItemId)
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .slice(0, 8)
-        .map((progress) => progress.itemId);
-      const [continueWatchingItems, previewEntries] = await Promise.all([
-        fetchItemsByIds(serverUrl, userId, continueWatchingIds, accessToken),
+      const [serverResumeItems, previewEntries] = await Promise.all([
+        fetchResumeItems(serverUrl, userId, accessToken, 8).catch(() => []),
         Promise.all(
           nextViews.map(
             async (view): Promise<[string, LibraryItem[]]> => [
@@ -1144,23 +1137,10 @@ function LibrariesRoute() {
       const previewItemsByViewId = new Map(
         previewEntries.map(([viewId, items]) => [viewId, items.slice(0, 8)])
       );
-      const itemsById: Record<string, LibraryItem> = {};
-
-      for (const items of previewItemsByViewId.values()) {
-        for (const item of items) {
-          itemsById[item.id] = item;
-        }
-      }
-
-      for (const item of continueWatchingItems) {
-        itemsById[item.id] = item;
-      }
-
       return {
         accountLabel: currentHomeAccountLabelRef.current,
-        continueWatching: buildContinueWatchingItems({
-          progressByItemId,
-          itemsById,
+        continueWatching: buildServerContinueWatchingItems({
+          serverItems: serverResumeItems,
         }),
         libraries: nextViews.map((view) => ({
           id: view.id,
@@ -1207,6 +1187,20 @@ function LibrariesRoute() {
       setIsLoading(false);
     }
 
+    async function refreshContinueWatchingData(): Promise<HomePosterItem[] | null> {
+      const serverResumeItems = await fetchResumeItems(serverUrl, userId, accessToken, 8).catch(
+        () => null
+      );
+
+      if (!serverResumeItems) {
+        return null;
+      }
+
+      return buildServerContinueWatchingItems({
+        serverItems: serverResumeItems,
+      });
+    }
+
     async function loadHomeData() {
       let renderedCache = false;
 
@@ -1241,10 +1235,31 @@ function LibrariesRoute() {
           hasCompleteCacheEntry &&
           isHomeCacheFresh(cacheEntry.cachedAt, Date.now(), settings.cache.dataCacheTtlDays)
         ) {
+          const refreshedContinueWatching = await refreshContinueWatchingData();
+
+          if (!cancelled && refreshedContinueWatching) {
+            setContinueWatching(refreshedContinueWatching);
+
+            if (cacheKey) {
+              void Promise.resolve()
+                .then(() =>
+                  window.embyDesktop.storage.write({
+                    homeCacheByKey: {
+                      [cacheKey]: {
+                        ...cacheEntry,
+                        continueWatching: refreshedContinueWatching,
+                      },
+                    },
+                  })
+                )
+                .catch(() => undefined);
+            }
+          }
+
           return;
         }
 
-        const nextHomeData = await refreshHomeData(persistedState);
+        const nextHomeData = await refreshHomeData();
 
         if (cancelled) {
           return;
@@ -1443,37 +1458,19 @@ function AggregateRoute() {
       .then(async (persistedState) => {
         const nextRows = await Promise.all(
           accounts.map(async (account): Promise<LoadedAggregatePosterRow> => {
-            const progressByItemId = getPersistedProgressByItemIdForAccount(
-              persistedState.progressByItemId,
-              account.id
-            );
-            const continueWatchingIds = Object.values(progressByItemId)
-              .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-              .slice(0, 8)
-              .map((progress) => progress.itemId);
-
-            const continueWatchingItems =
-              continueWatchingIds.length > 0
-                ? await fetchItemsByIds(
-                    account.serverUrl,
-                    account.userId,
-                    continueWatchingIds,
-                    account.accessToken
-                  ).catch(() => [])
-                : [];
-            const itemsById: Record<string, LibraryItem> = {};
-
-            for (const item of continueWatchingItems) {
-              itemsById[item.id] = item;
-            }
+            const serverResumeItems = await fetchResumeItems(
+              account.serverUrl,
+              account.userId,
+              account.accessToken,
+              8
+            ).catch(() => []);
 
             return {
               id: account.id,
               serverUrl: account.serverUrl,
               title: account.serverUrl,
-              items: buildContinueWatchingItems({
-                progressByItemId,
-                itemsById,
+              items: buildServerContinueWatchingItems({
+                serverItems: serverResumeItems,
               }).map((item): AggregatePosterItem => ({
                 ...item,
                 accountId: account.id,

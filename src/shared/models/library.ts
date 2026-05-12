@@ -22,6 +22,7 @@ export interface LibraryItem {
   imageCandidates: LibraryImageCandidate[];
   runtimeTicks: number | null;
   serverPositionTicks: number | null;
+  lastPlayedAt?: string | null;
   played?: boolean;
   communityRating: number | null;
   productionYear: number | null;

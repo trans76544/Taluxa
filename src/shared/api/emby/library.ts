@@ -39,6 +39,7 @@ interface EmbyLibraryItemPayload {
     ProductionYear?: number | null;
     UserData?: {
       PlaybackPositionTicks?: number | null;
+      LastPlayedDate?: string | null;
       Played?: boolean | null;
     };
   }>;
@@ -58,6 +59,7 @@ interface EmbyLibraryItem {
   ProductionYear?: number | null;
   UserData?: {
     PlaybackPositionTicks?: number | null;
+    LastPlayedDate?: string | null;
     Played?: boolean | null;
   };
 }
@@ -176,6 +178,9 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
           typeof item.UserData?.PlaybackPositionTicks === 'number'
             ? item.UserData.PlaybackPositionTicks
             : null,
+        ...(hasText(item.UserData?.LastPlayedDate)
+          ? { lastPlayedAt: item.UserData.LastPlayedDate.trim() }
+          : {}),
         ...(typeof item.UserData?.Played === 'boolean' ? { played: item.UserData.Played } : {}),
       };
     });
@@ -370,6 +375,35 @@ export async function fetchItemsByIds(
 
   if (!response.ok) {
     throw new Error(`Failed to load Emby items (${response.status})`);
+  }
+
+  return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);
+}
+
+export async function fetchResumeItems(
+  serverUrl: string,
+  userId: string,
+  accessToken: string,
+  limit: number = 8
+): Promise<LibraryItem[]> {
+  const query = new URLSearchParams({
+    Limit: String(limit),
+    IncludeItemTypes: 'Movie,Episode',
+    EnableUserData: 'true',
+    EnableImages: 'true',
+    ImageTypeLimit: '1',
+    Fields: 'ProductionYear,SeriesInfo',
+  });
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items/Resume?${query.toString()}`,
+    {
+      accessToken,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to load Emby resume items (${response.status})`);
   }
 
   return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);

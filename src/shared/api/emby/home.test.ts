@@ -1,11 +1,75 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildServerContinueWatchingItems,
   buildContinueWatchingItems,
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
 } from './home';
 
 describe('home helpers', () => {
+  it('builds continue watching from server resume items only', () => {
+    expect(
+      buildServerContinueWatchingItems({
+        serverItems: [
+          {
+            id: 'server-movie',
+            name: 'Server Movie',
+            posterUrl: 'https://demo.local/server-movie.jpg',
+            imageCandidates: [],
+            runtimeTicks: 20000000000,
+            serverPositionTicks: 5000000000,
+            communityRating: null,
+            productionYear: 2026,
+            type: 'Movie',
+          },
+        ],
+      }).map((item) => ({
+        id: item.id,
+        title: item.title,
+        progressPercent: item.progressPercent,
+      }))
+    ).toEqual([
+      {
+        id: 'server-movie',
+        title: 'Server Movie',
+        progressPercent: 25,
+      },
+    ]);
+  });
+
+  it('sorts server resume items from most recently watched to earliest', () => {
+    expect(
+      buildServerContinueWatchingItems({
+        serverItems: [
+          {
+            id: 'older-movie',
+            name: 'Older Movie',
+            posterUrl: 'https://demo.local/older-movie.jpg',
+            imageCandidates: [],
+            runtimeTicks: 20000000000,
+            serverPositionTicks: 5000000000,
+            lastPlayedAt: '2026-04-21T08:00:00.000Z',
+            communityRating: null,
+            productionYear: 2026,
+            type: 'Movie',
+          },
+          {
+            id: 'newer-movie',
+            name: 'Newer Movie',
+            posterUrl: 'https://demo.local/newer-movie.jpg',
+            imageCandidates: [],
+            runtimeTicks: 20000000000,
+            serverPositionTicks: 5000000000,
+            lastPlayedAt: '2026-04-22T08:00:00.000Z',
+            communityRating: null,
+            productionYear: 2026,
+            type: 'Movie',
+          },
+        ],
+      }).map((item) => item.id)
+    ).toEqual(['newer-movie', 'older-movie']);
+  });
+
   it('builds continue watching items from the newest saved progress first and shows movie years', () => {
     expect(
       buildContinueWatchingItems({

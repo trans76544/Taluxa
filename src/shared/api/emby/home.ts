@@ -57,6 +57,22 @@ export function buildContinueWatchingItems(args: {
     .map(({ item, progress }) => buildContinueWatchingItem(item, progress));
 }
 
+export function buildServerContinueWatchingItems(args: {
+  serverItems: LibraryItem[];
+}): HomePosterItem[] {
+  return args.serverItems
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => compareServerResumeItems(left, right))
+    .map((item, index) => {
+      const progress = createProgressFromServerItem(item.item, index);
+
+      return progress ? buildContinueWatchingItem(item.item, progress) : null;
+    })
+    .filter((item): item is HomePosterItem => Boolean(item))
+    .filter(createCachedContinueWatchingDedupeFilter())
+    .slice(0, 8);
+}
+
 export function dedupeContinueWatchingPosterItems(items: HomePosterItem[]): HomePosterItem[] {
   const seenKeys = new Set<string>();
   const nextItems: HomePosterItem[] = [];
@@ -73,6 +89,66 @@ export function dedupeContinueWatchingPosterItems(items: HomePosterItem[]): Home
   }
 
   return nextItems;
+}
+
+function createProgressFromServerItem(
+  item: LibraryItem,
+  index: number
+): PlaybackProgress | null {
+  if (
+    typeof item.serverPositionTicks !== 'number' ||
+    typeof item.runtimeTicks !== 'number' ||
+    item.serverPositionTicks <= 0 ||
+    item.runtimeTicks <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    itemId: item.id,
+    positionSeconds: Math.floor(item.serverPositionTicks / 10000000),
+    durationSeconds: Math.max(1, Math.round(item.runtimeTicks / 10000000)),
+    updatedAt: `server-resume-${String(index).padStart(4, '0')}`,
+  };
+}
+
+function compareServerResumeItems(
+  left: { item: LibraryItem; index: number },
+  right: { item: LibraryItem; index: number }
+): number {
+  const leftTime = getResumeSortTime(left.item);
+  const rightTime = getResumeSortTime(right.item);
+
+  if (leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+
+  return left.index - right.index;
+}
+
+function getResumeSortTime(item: LibraryItem): number {
+  if (!item.lastPlayedAt) {
+    return 0;
+  }
+
+  const timestamp = Date.parse(item.lastPlayedAt);
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function createCachedContinueWatchingDedupeFilter() {
+  const seenKeys = new Set<string>();
+
+  return (item: HomePosterItem) => {
+    const dedupeKey = getCachedContinueWatchingDedupeKey(item);
+
+    if (seenKeys.has(dedupeKey)) {
+      return false;
+    }
+
+    seenKeys.add(dedupeKey);
+    return true;
+  };
 }
 
 function createLatestPerTitleFilter() {
