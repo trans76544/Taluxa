@@ -1065,8 +1065,7 @@ describe('App', () => {
     expect(fetchResumeItemsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
-      'token-123',
-      8
+      'token-123'
     );
     expect(fetchItemsByIdsMock).not.toHaveBeenCalled();
   });
@@ -1570,8 +1569,7 @@ describe('App', () => {
     expect(fetchResumeItemsMock).toHaveBeenCalledWith(
       'https://demo.emby.local',
       'user-1',
-      'token-123',
-      8
+      'token-123'
     );
   });
 
@@ -1998,6 +1996,16 @@ describe('App', () => {
     expect(screen.queryByRole('link', { name: /bob-item/ })).not.toBeInTheDocument();
 
     expect(fetchItemsByIdsMock).not.toHaveBeenCalled();
+    expect(fetchResumeItemsMock).toHaveBeenCalledWith(
+      aliceAccount.serverUrl,
+      aliceAccount.userId,
+      aliceAccount.accessToken
+    );
+    expect(fetchResumeItemsMock).toHaveBeenCalledWith(
+      bobAccount.serverUrl,
+      bobAccount.userId,
+      bobAccount.accessToken
+    );
   });
 
   it('opens item details when a featured home item is clicked', async () => {

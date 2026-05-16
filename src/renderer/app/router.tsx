@@ -1121,7 +1121,7 @@ function LibrariesRoute() {
       const nextViews = await fetchViews(serverUrl, userId, accessToken);
       const featuredViews = pickFeaturedViews(nextViews);
       const [serverResumeItems, previewEntries] = await Promise.all([
-        fetchResumeItems(serverUrl, userId, accessToken, 8).catch(() => []),
+        fetchResumeItems(serverUrl, userId, accessToken).catch(() => []),
         Promise.all(
           nextViews.map(
             async (view): Promise<[string, LibraryItem[]]> => [
@@ -1188,7 +1188,7 @@ function LibrariesRoute() {
     }
 
     async function refreshContinueWatchingData(): Promise<HomePosterItem[] | null> {
-      const serverResumeItems = await fetchResumeItems(serverUrl, userId, accessToken, 8).catch(
+      const serverResumeItems = await fetchResumeItems(serverUrl, userId, accessToken).catch(
         () => null
       );
 
@@ -1461,8 +1461,7 @@ function AggregateRoute() {
             const serverResumeItems = await fetchResumeItems(
               account.serverUrl,
               account.userId,
-              account.accessToken,
-              8
+              account.accessToken
             ).catch(() => []);
 
             return {

@@ -206,18 +206,15 @@ describe('fetchResumeItems', () => {
       }),
     });
 
-    const items = await fetchResumeItems(
-      'https://demo.emby.local',
-      'user-1',
-      'token-1',
-      12
-    );
+    const items = await fetchResumeItems('https://demo.emby.local', 'user-1', 'token-1');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestUrl.pathname).toBe('/Users/user-1/Items/Resume');
-    expect(requestUrl.searchParams.get('Limit')).toBe('12');
+    expect(requestUrl.searchParams.has('Limit')).toBe(false);
     expect(requestUrl.searchParams.get('IncludeItemTypes')).toBe('Movie,Episode');
+    expect(requestUrl.searchParams.get('SortBy')).toBe('DatePlayed');
+    expect(requestUrl.searchParams.get('SortOrder')).toBe('Descending');
     expect(requestUrl.searchParams.get('EnableUserData')).toBe('true');
     expect(requestUrl.searchParams.get('Fields')).toBe('ProductionYear,SeriesInfo');
     expect(items[0]).toEqual(

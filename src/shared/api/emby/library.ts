@@ -383,12 +383,12 @@ export async function fetchItemsByIds(
 export async function fetchResumeItems(
   serverUrl: string,
   userId: string,
-  accessToken: string,
-  limit: number = 8
+  accessToken: string
 ): Promise<LibraryItem[]> {
   const query = new URLSearchParams({
-    Limit: String(limit),
     IncludeItemTypes: 'Movie,Episode',
+    SortBy: 'DatePlayed',
+    SortOrder: 'Descending',
     EnableUserData: 'true',
     EnableImages: 'true',
     ImageTypeLimit: '1',

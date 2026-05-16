@@ -53,7 +53,6 @@ export function buildContinueWatchingItems(args: {
       (entry): entry is { item: LibraryItem; progress: PlaybackProgress } => Boolean(entry.item)
     )
     .filter(createLatestPerTitleFilter())
-    .slice(0, 8)
     .map(({ item, progress }) => buildContinueWatchingItem(item, progress));
 }
 
@@ -69,8 +68,7 @@ export function buildServerContinueWatchingItems(args: {
       return progress ? buildContinueWatchingItem(item.item, progress) : null;
     })
     .filter((item): item is HomePosterItem => Boolean(item))
-    .filter(createCachedContinueWatchingDedupeFilter())
-    .slice(0, 8);
+    .filter(createCachedContinueWatchingDedupeFilter());
 }
 
 export function dedupeContinueWatchingPosterItems(items: HomePosterItem[]): HomePosterItem[] {

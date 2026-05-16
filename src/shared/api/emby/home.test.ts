@@ -70,6 +70,25 @@ describe('home helpers', () => {
     ).toEqual(['newer-movie', 'older-movie']);
   });
 
+  it('does not cap server continue watching items at eight cards', () => {
+    expect(
+      buildServerContinueWatchingItems({
+        serverItems: Array.from({ length: 9 }, (_, index) => ({
+          id: `server-movie-${index + 1}`,
+          name: `Server Movie ${index + 1}`,
+          posterUrl: `https://demo.local/server-movie-${index + 1}.jpg`,
+          imageCandidates: [],
+          runtimeTicks: 20000000000,
+          serverPositionTicks: 5000000000,
+          lastPlayedAt: `2026-04-${String(22 - index).padStart(2, '0')}T08:00:00.000Z`,
+          communityRating: null,
+          productionYear: 2026,
+          type: 'Movie',
+        })),
+      })
+    ).toHaveLength(9);
+  });
+
   it('builds continue watching items from the newest saved progress first and shows movie years', () => {
     expect(
       buildContinueWatchingItems({
@@ -168,6 +187,43 @@ describe('home helpers', () => {
         },
       },
     ]);
+  });
+
+  it('does not cap local continue watching items at eight cards', () => {
+    const progressByItemId = Object.fromEntries(
+      Array.from({ length: 9 }, (_, index) => [
+        `item-${index + 1}`,
+        {
+          itemId: `item-${index + 1}`,
+          positionSeconds: 120,
+          durationSeconds: 1800,
+          updatedAt: `2026-04-${String(22 - index).padStart(2, '0')}T10:00:00.000Z`,
+        },
+      ])
+    );
+    const itemsById = Object.fromEntries(
+      Array.from({ length: 9 }, (_, index) => [
+        `item-${index + 1}`,
+        {
+          id: `item-${index + 1}`,
+          name: `Movie ${index + 1}`,
+          posterUrl: `https://demo.local/poster-${index + 1}.jpg`,
+          imageCandidates: [],
+          runtimeTicks: 18000000000,
+          serverPositionTicks: 1200000000,
+          communityRating: null,
+          productionYear: 2026,
+          type: 'Movie',
+        },
+      ])
+    );
+
+    expect(
+      buildContinueWatchingItems({
+        progressByItemId,
+        itemsById,
+      })
+    ).toHaveLength(9);
   });
 
   it('picks every featured library view in order', () => {
