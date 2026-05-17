@@ -9,7 +9,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { login } from '@shared/api/emby/auth';
-import { fetchItems, fetchItemsByIds, fetchResumeItems, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
+import { fetchItems, fetchItemsByIds, fetchResumeItems, fetchResumableItems, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
   addFavoriteItem,
   buildDirectPlaybackStreamSource,
@@ -1120,8 +1120,9 @@ function LibrariesRoute() {
     async function refreshHomeData(): Promise<HomeRouteData> {
       const nextViews = await fetchViews(serverUrl, userId, accessToken);
       const featuredViews = pickFeaturedViews(nextViews);
-      const [serverResumeItems, previewEntries] = await Promise.all([
+      const [serverResumeItems, serverResumableItems, previewEntries] = await Promise.all([
         fetchResumeItems(serverUrl, userId, accessToken).catch(() => []),
+        fetchResumableItems(serverUrl, userId, accessToken).catch(() => []),
         Promise.all(
           nextViews.map(
             async (view): Promise<[string, LibraryItem[]]> => [
@@ -1140,7 +1141,7 @@ function LibrariesRoute() {
       return {
         accountLabel: currentHomeAccountLabelRef.current,
         continueWatching: buildServerContinueWatchingItems({
-          serverItems: serverResumeItems,
+          serverItems: [...serverResumeItems, ...serverResumableItems],
         }),
         libraries: nextViews.map((view) => ({
           id: view.id,
@@ -1188,16 +1189,17 @@ function LibrariesRoute() {
     }
 
     async function refreshContinueWatchingData(): Promise<HomePosterItem[] | null> {
-      const serverResumeItems = await fetchResumeItems(serverUrl, userId, accessToken).catch(
-        () => null
-      );
+      const [serverResumeItems, serverResumableItems] = await Promise.all([
+        fetchResumeItems(serverUrl, userId, accessToken).catch(() => null),
+        fetchResumableItems(serverUrl, userId, accessToken).catch(() => null),
+      ]);
 
-      if (!serverResumeItems) {
+      if (!serverResumeItems && !serverResumableItems) {
         return null;
       }
 
       return buildServerContinueWatchingItems({
-        serverItems: serverResumeItems,
+        serverItems: [...(serverResumeItems ?? []), ...(serverResumableItems ?? [])],
       });
     }
 
@@ -1458,18 +1460,21 @@ function AggregateRoute() {
       .then(async (persistedState) => {
         const nextRows = await Promise.all(
           accounts.map(async (account): Promise<LoadedAggregatePosterRow> => {
-            const serverResumeItems = await fetchResumeItems(
-              account.serverUrl,
-              account.userId,
-              account.accessToken
-            ).catch(() => []);
+            const [serverResumeItems, serverResumableItems] = await Promise.all([
+              fetchResumeItems(account.serverUrl, account.userId, account.accessToken).catch(
+                () => []
+              ),
+              fetchResumableItems(account.serverUrl, account.userId, account.accessToken).catch(
+                () => []
+              ),
+            ]);
 
             return {
               id: account.id,
               serverUrl: account.serverUrl,
               title: account.serverUrl,
               items: buildServerContinueWatchingItems({
-                serverItems: serverResumeItems,
+                serverItems: [...serverResumeItems, ...serverResumableItems],
               }).map((item): AggregatePosterItem => ({
                 ...item,
                 accountId: account.id,

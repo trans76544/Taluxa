@@ -1278,6 +1278,14 @@ local function button_at(x, y)
   return nil, nil
 end
 
+local function is_center_play_pause_area(x, y)
+  local left = UI_WIDTH * 0.2
+  local right = UI_WIDTH * 0.8
+  local top = UI_HEIGHT * 0.18
+  local bottom = UI_HEIGHT * 0.78
+  return x >= left and x <= right and y >= top and y <= bottom
+end
+
 local function handle_click()
   mark_controls_active()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
@@ -1290,6 +1298,9 @@ local function handle_click()
     if menu_open or episode_panel_open then
       menu_open = nil
       episode_panel_open = false
+      draw_controls()
+    elseif is_center_play_pause_area(pos.x or 0, pos.y or 0) then
+      mp.commandv('cycle', 'pause')
       draw_controls()
     else
       draw_controls()

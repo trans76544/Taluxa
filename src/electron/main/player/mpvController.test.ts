@@ -1158,6 +1158,18 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
+      expect.stringContaining('local function is_center_play_pause_area(x, y)')
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("elseif is_center_play_pause_area(pos.x or 0, pos.y or 0) then")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
+      expect.stringContaining("mp.commandv('cycle', 'pause')")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      uiScriptPath,
       expect.stringContaining("mp.add_forced_key_binding('MBTN_LEFT'")
     );
     expect(writeTextFile).toHaveBeenCalledWith(

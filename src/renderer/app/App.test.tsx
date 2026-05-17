@@ -22,6 +22,7 @@ const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemsByIdsMock = vi.hoisted(() => vi.fn());
 const fetchResumeItemsMock = vi.hoisted(() => vi.fn());
+const fetchResumableItemsMock = vi.hoisted(() => vi.fn());
 const fetchSearchItemsMock = vi.hoisted(() => vi.fn());
 const fetchItemDetailsMock = vi.hoisted(() => vi.fn());
 const fetchSimilarItemsMock = vi.hoisted(() => vi.fn());
@@ -47,6 +48,7 @@ vi.mock('@shared/api/emby/library', () => ({
   fetchItems: fetchItemsMock,
   fetchItemsByIds: fetchItemsByIdsMock,
   fetchResumeItems: fetchResumeItemsMock,
+  fetchResumableItems: fetchResumableItemsMock,
   fetchSearchItems: fetchSearchItemsMock,
   fetchItemDetails: fetchItemDetailsMock,
   fetchSimilarItems: fetchSimilarItemsMock,
@@ -359,6 +361,7 @@ describe('App', () => {
     fetchItemsMock.mockResolvedValue([]);
     fetchItemsByIdsMock.mockResolvedValue([]);
     fetchResumeItemsMock.mockResolvedValue([]);
+    fetchResumableItemsMock.mockResolvedValue([]);
     fetchItemDetailsMock.mockImplementation(async (_serverUrl: string, _userId: string, itemId: string) =>
       createMovieDetails({ id: itemId })
     );
@@ -1068,6 +1071,60 @@ describe('App', () => {
       'token-123'
     );
     expect(fetchItemsByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it('shows server-side resumable episode data when the Emby resume endpoint is empty', async () => {
+    const account = createSavedAccount();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([]);
+    fetchResumeItemsMock.mockResolvedValue([]);
+    fetchResumableItemsMock.mockResolvedValue([
+      {
+        id: 'episode-progress',
+        name: '天屎驾到真案降临',
+        type: 'Episode',
+        seriesId: 'series-progress',
+        seriesName: '低智商犯罪',
+        parentId: 'season-1',
+        parentIndexNumber: 1,
+        indexNumber: 1,
+        posterUrl: 'https://demo.emby.local/Items/episode-progress/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: 18000000000,
+        serverPositionTicks: 6000000000,
+        lastPlayedAt: '2026-04-22T08:00:00.000Z',
+        communityRating: null,
+        productionYear: 2026,
+      },
+    ]);
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /低智商犯罪/ })).toBeInTheDocument();
+    expect(await screen.findByText(/S1E1/)).toBeInTheDocument();
+    expect(fetchResumeItemsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'token-123'
+    );
+    expect(fetchResumableItemsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'token-123'
+    );
   });
 
   it('opens episode resume cards on the parent series details and selects the resumed episode', async () => {

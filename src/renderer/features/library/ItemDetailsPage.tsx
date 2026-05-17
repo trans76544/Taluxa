@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PosterCard } from '@renderer/components/PosterCard';
 import type {
   LibraryEpisode,
+  LibraryImageCandidate,
   LibraryItem,
   LibraryItemDetails,
   LibraryItemMediaSource,
@@ -133,6 +134,26 @@ function getDefaultAudioValue(source: LibraryItemMediaSource | undefined) {
 
 function formatEpisodePlaybackTitle(seriesName: string, episode: LibraryEpisode) {
   return `${seriesName} - S${episode.parentIndexNumber}:E${episode.indexNumber} - ${episode.name}`;
+}
+
+function getEpisodePosterUrl(episode: LibraryEpisode, seriesPosterUrl: string | null) {
+  return episode.posterUrl || seriesPosterUrl || '';
+}
+
+function getEpisodeImageCandidates(
+  episode: LibraryEpisode,
+  seriesPosterUrl: string | null
+): LibraryImageCandidate[] {
+  const imageCandidates = [...(episode.imageCandidates ?? [])];
+
+  if (seriesPosterUrl) {
+    imageCandidates.push({
+      url: seriesPosterUrl,
+      kind: 'primary',
+    });
+  }
+
+  return imageCandidates;
 }
 
 function getProgressPercentFromSeconds(
@@ -449,8 +470,8 @@ export function ItemDetailsPage({
                     landscape
                     title={`${eps.indexNumber}. ${eps.name}`}
                     subtitle={formatRuntime(eps.runtimeTicks) || 'Ready to play'}
-                    posterUrl={eps.posterUrl || ''}
-                    imageCandidates={[]} // Not used immediately
+                    posterUrl={getEpisodePosterUrl(eps, details.posterUrl)}
+                    imageCandidates={getEpisodeImageCandidates(eps, details.posterUrl)}
                     href="#" // Prevent navigation
                     progressPercent={getEpisodeProgressPercent(eps, episodeProgressByItemId[eps.id])}
                     played={eps.played === true}

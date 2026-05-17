@@ -409,6 +409,37 @@ export async function fetchResumeItems(
   return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);
 }
 
+export async function fetchResumableItems(
+  serverUrl: string,
+  userId: string,
+  accessToken: string
+): Promise<LibraryItem[]> {
+  const query = new URLSearchParams({
+    Recursive: 'true',
+    IncludeItemTypes: 'Movie,Episode',
+    Filters: 'IsResumable',
+    SortBy: 'DatePlayed',
+    SortOrder: 'Descending',
+    EnableUserData: 'true',
+    EnableImages: 'true',
+    ImageTypeLimit: '1',
+    Fields: 'ProductionYear,SeriesInfo',
+  });
+  const response = await createEmbyRequest(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
+    {
+      accessToken,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to load Emby resumable items (${response.status})`);
+  }
+
+  return mapItemsResponse((await response.json()) as EmbyLibraryItemPayload, serverUrl);
+}
+
 export async function fetchItemDetails(
   serverUrl: string,
   userId: string,

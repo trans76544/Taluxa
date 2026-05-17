@@ -295,6 +295,51 @@ describe('ItemDetailsPage', () => {
     expect(playedCard.querySelector('.poster-card__played-indicator')).not.toBeNull();
   });
 
+  it('uses the series poster when an episode poster is missing or fails to load', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails({
+            posterUrl: 'https://demo.local/series-primary.jpg',
+          })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[
+            createEpisode({
+              id: 'episode-1',
+              name: 'Missing Poster',
+              posterUrl: null,
+            }),
+            createEpisode({
+              id: 'episode-2',
+              name: 'Broken Poster',
+              indexNumber: 2,
+              posterUrl: 'https://demo.local/episode-2-primary.jpg',
+            }),
+          ]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('img', { name: '1. Missing Poster' })).toHaveAttribute(
+      'src',
+      'https://demo.local/series-primary.jpg'
+    );
+
+    const brokenEpisodeImage = screen.getByRole('img', { name: '2. Broken Poster' });
+    expect(brokenEpisodeImage).toHaveAttribute(
+      'src',
+      'https://demo.local/episode-2-primary.jpg'
+    );
+
+    fireEvent.error(brokenEpisodeImage);
+
+    expect(brokenEpisodeImage).toHaveAttribute('src', 'https://demo.local/series-primary.jpg');
+  });
+
   it('runs favorite and played actions for movie details', () => {
     const onAddToFavorites = vi.fn();
     const onMarkPlayed = vi.fn();

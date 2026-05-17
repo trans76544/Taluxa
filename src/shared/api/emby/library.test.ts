@@ -3,6 +3,7 @@ import {
   fetchEpisodes,
   fetchItems,
   fetchResumeItems,
+  fetchResumableItems,
   fetchSearchItems,
   mapItemsResponse,
   mapViewsResponse,
@@ -226,6 +227,55 @@ describe('fetchResumeItems', () => {
         parentId: 'season-1',
         parentIndexNumber: 1,
         indexNumber: 2,
+        serverPositionTicks: 6000000000,
+        lastPlayedAt: '2026-04-22T08:00:00.000Z',
+      })
+    );
+  });
+});
+
+describe('fetchResumableItems', () => {
+  it('queries Emby item user data for resumable movies and episodes without a limit', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        Items: [
+          {
+            Id: 'episode-1',
+            Name: 'Progress Episode',
+            Type: 'Episode',
+            SeriesId: 'series-1',
+            SeriesName: 'Series 1',
+            ParentId: 'season-1',
+            ParentIndexNumber: 1,
+            IndexNumber: 1,
+            RunTimeTicks: 18000000000,
+            UserData: {
+              PlaybackPositionTicks: 6000000000,
+              LastPlayedDate: '2026-04-22T08:00:00.000Z',
+            },
+          },
+        ],
+      }),
+    });
+
+    const items = await fetchResumableItems('https://demo.emby.local', 'user-1', 'token-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.pathname).toBe('/Users/user-1/Items');
+    expect(requestUrl.searchParams.has('Limit')).toBe(false);
+    expect(requestUrl.searchParams.get('Recursive')).toBe('true');
+    expect(requestUrl.searchParams.get('IncludeItemTypes')).toBe('Movie,Episode');
+    expect(requestUrl.searchParams.get('Filters')).toBe('IsResumable');
+    expect(requestUrl.searchParams.get('SortBy')).toBe('DatePlayed');
+    expect(requestUrl.searchParams.get('SortOrder')).toBe('Descending');
+    expect(requestUrl.searchParams.get('EnableUserData')).toBe('true');
+    expect(items[0]).toEqual(
+      expect.objectContaining({
+        id: 'episode-1',
+        type: 'Episode',
         serverPositionTicks: 6000000000,
         lastPlayedAt: '2026-04-22T08:00:00.000Z',
       })
