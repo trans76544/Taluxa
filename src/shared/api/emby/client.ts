@@ -2,16 +2,20 @@ import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 
 export interface EmbyRequestInit extends RequestInit {
   accessToken?: string;
+  fetcher?: EmbyFetch;
 }
 
+export type EmbyFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
 const EMBY_AUTH_HEADER =
-  'MediaBrowser Client="Taluxa", Device="Windows Desktop", DeviceId="taluxa-desktop", Version="0.1.0"';
+  'Emby Client="Taluxa", Device="Windows Desktop", DeviceId="taluxa-desktop", Version="0.1.0"';
 
 export function createEmbyRequest(
   serverUrl: string,
   path: string,
   init: EmbyRequestInit = {}
 ): Promise<Response> {
+  const { accessToken, fetcher = fetch, ...requestInit } = init;
   const normalizedServerUrl = normalizeServerUrl(serverUrl);
   if (!normalizedServerUrl) {
     throw new Error('Server URL is required');
@@ -25,12 +29,12 @@ export function createEmbyRequest(
 
   headers.set('X-Emby-Authorization', EMBY_AUTH_HEADER);
 
-  if (init.accessToken) {
-    headers.set('X-Emby-Token', init.accessToken);
+  if (accessToken) {
+    headers.set('X-Emby-Token', accessToken);
   }
 
-  return fetch(requestUrl, {
-    ...init,
+  return fetcher(requestUrl, {
+    ...requestInit,
     headers,
   });
 }

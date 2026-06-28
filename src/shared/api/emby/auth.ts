@@ -1,4 +1,4 @@
-import { createEmbyRequest } from './client';
+import { createEmbyRequest, type EmbyFetch } from './client';
 
 export interface EmbyLoginInput {
   serverUrl: string;
@@ -24,9 +24,23 @@ function hasText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-export async function login(input: EmbyLoginInput): Promise<EmbyLoginSession> {
+async function readFailureMessage(response: Response): Promise<string> {
+  try {
+    const message = (await response.text()).replace(/\s+/gu, ' ').trim();
+
+    return message.slice(0, 240);
+  } catch {
+    return '';
+  }
+}
+
+export async function login(
+  input: EmbyLoginInput,
+  fetcher?: EmbyFetch
+): Promise<EmbyLoginSession> {
   const response = await createEmbyRequest(input.serverUrl, '/Users/AuthenticateByName', {
     method: 'POST',
+    fetcher,
     headers: {
       'Content-Type': 'application/json',
     },
@@ -37,7 +51,13 @@ export async function login(input: EmbyLoginInput): Promise<EmbyLoginSession> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to sign in to Emby (${response.status})`);
+    const message = await readFailureMessage(response);
+
+    throw new Error(
+      message
+        ? `Failed to sign in to Emby (${response.status}): ${message}`
+        : `Failed to sign in to Emby (${response.status})`
+    );
   }
 
   const result = (await response.json()) as EmbyLoginResponse;

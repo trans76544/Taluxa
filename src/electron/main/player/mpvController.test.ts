@@ -447,6 +447,11 @@ describe('MpvController', () => {
     expect(uiScript).toContain('if episode_panel_open then');
     expect(uiScript).toContain('scroll_episode_panel(delta)');
     expect(uiScript).toContain("request_episode_switch(tostring(button.value))");
+    expect(uiScript).toContain('local function request_relative_episode_switch(offset)');
+    expect(uiScript).toContain('request_relative_episode_switch(-1)');
+    expect(uiScript).toContain('request_relative_episode_switch(1)');
+    expect(uiScript).not.toContain("mp.commandv('playlist-prev')");
+    expect(uiScript).not.toContain("mp.commandv('playlist-next')");
     expect(uiScript).toContain("mp.register_script_message('taluxa-active-episode'");
     expect(uiScript).toContain('is_current = true');
     expect(uiScript).toContain(toLuaLongStringForTest('S1E2 - Second Case'));

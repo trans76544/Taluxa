@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readPersistedState, registerStorageIpc, writeSettingsPatchFromMain } from './ipc/storage';
 import { registerImageCacheIpc } from './ipc/imageCache';
+import { registerAuthIpc } from './ipc/auth';
 import { ImageCache, IMAGE_CACHE_PROTOCOL } from './image/imageCache';
 import { registerImageCacheProtocol } from './image/protocol';
 import { applyProxySettings, applyProxySettingsWithFallback } from './network/proxy';
@@ -250,6 +251,9 @@ app.whenReady().then(() => {
         },
       });
       registerWindowControlIpc();
+      registerAuthIpc((url, init) =>
+        session.defaultSession.fetch(url instanceof URL ? url.toString() : url, init)
+      );
       registerImageCacheProtocol(imageCache);
       registerImageCacheIpc(imageCache);
       ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) => {

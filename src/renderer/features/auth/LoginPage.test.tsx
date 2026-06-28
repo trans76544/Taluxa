@@ -53,4 +53,28 @@ describe('LoginPage', () => {
       password: 'secret',
     });
   });
+
+  it('toggles password visibility without changing the password value', () => {
+    render(<LoginPage onSubmit={vi.fn()} />);
+
+    const passwordInput = screen.getByLabelText('Password');
+    const toggleButton = screen.getByRole('button', { name: 'Show password' });
+
+    fireEvent.change(passwordInput, {
+      target: { value: 'secret' },
+    });
+
+    expect(passwordInput).toHaveAttribute('type', 'password');
+
+    fireEvent.click(toggleButton);
+
+    expect(passwordInput).toHaveAttribute('type', 'text');
+    expect(passwordInput).toHaveValue('secret');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide password' }));
+
+    expect(passwordInput).toHaveAttribute('type', 'password');
+    expect(passwordInput).toHaveValue('secret');
+  });
 });

@@ -15,6 +15,7 @@ export function LoginPage({ onSubmit, hasRememberedAccounts = false }: LoginPage
   const [serverUrl, setServerUrl] = useState('');
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,17 +63,29 @@ export function LoginPage({ onSubmit, hasRememberedAccounts = false }: LoginPage
             />
           </label>
 
-          <label className="field">
-            <span>Password</span>
-            <input
-              className="field-input"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              name="password"
-              autoComplete="current-password"
-            />
-          </label>
+          <div className="field">
+            <label htmlFor="password">Password</label>
+            <div className="password-field">
+              <input
+                id="password"
+                className="field-input password-field__input"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type={isPasswordVisible ? 'text' : 'password'}
+                name="password"
+                autoComplete="current-password"
+              />
+              <button
+                className="password-field__toggle"
+                type="button"
+                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+                aria-pressed={isPasswordVisible}
+                onClick={() => setIsPasswordVisible((current) => !current)}
+              >
+                {isPasswordVisible ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </div>
 
           <button className="primary-button" type="submit">
             Sign in

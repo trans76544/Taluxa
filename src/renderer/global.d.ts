@@ -6,6 +6,7 @@ import type {
   PlayerLaunchInput,
   PlayerProgressEvent,
 } from '../electron/preload/index';
+import type { EmbyLoginInput, EmbyLoginSession } from '@shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/imageCache';
 
@@ -18,6 +19,9 @@ declare global {
         minimize: () => void;
         maximize: () => void;
         close: () => void;
+      };
+      auth: {
+        login: (input: EmbyLoginInput) => Promise<EmbyLoginSession>;
       };
       player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;

@@ -8,7 +8,6 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom';
-import { login } from '@shared/api/emby/auth';
 import { fetchItems, fetchItemsByIds, fetchResumeItems, fetchResumableItems, fetchSearchItems, fetchViews, fetchItemDetails, fetchSimilarItems, fetchSeasons, fetchEpisodes } from '@shared/api/emby/library';
 import {
   addFavoriteItem,
@@ -22,7 +21,6 @@ import {
 import type {
   LibraryItem,
   LibraryItemDetails,
-  LibraryItemMediaSource,
   LibrarySeason,
   LibraryEpisode,
 } from '@shared/models/library';
@@ -75,6 +73,13 @@ import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { ItemDetailsPage } from '@renderer/features/library/ItemDetailsPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
 import type { DanmakuServerSettings, ProxyMode } from '@shared/models/settings';
+import {
+  createEpisodeSelector,
+  formatEpisodeSelectorTitle,
+  isFastDirectPlaybackMediaSource,
+  pickPlaybackMediaSource,
+  type PlayerEpisodeSelector,
+} from './playbackRouteHelpers';
 
 interface PlayerLocationState {
   title?: string;
@@ -86,10 +91,6 @@ interface PlaybackSelection {
   mediaSourceId?: string | null;
   audioStreamIndex?: number | null;
 }
-
-type PlayerEpisodeSelector = NonNullable<
-  Parameters<Window['embyDesktop']['player']['launch']>[0]['episodeSelector']
->;
 
 interface ItemRouteState {
   title?: string;
@@ -127,78 +128,6 @@ async function waitForFastPlaybackPreflight(source: PlaybackStreamSource): Promi
 
 function getJsonByteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
-}
-
-function pickPlaybackMediaSource(
-  mediaSources: LibraryItemMediaSource[],
-  preferredMediaSourceId?: string | null
-): LibraryItemMediaSource | null {
-  if (mediaSources.length === 0) {
-    return null;
-  }
-
-  const preferredId = preferredMediaSourceId?.trim();
-  return (
-    (preferredId ? mediaSources.find((source) => source.id === preferredId) : null) ??
-    mediaSources[0]
-  );
-}
-
-function isFastDirectPlaybackMediaSource(mediaSource: LibraryItemMediaSource): boolean {
-  const container = mediaSource.container.toLowerCase();
-  const videoCodec = mediaSource.videoCodec.toLowerCase();
-  const hasProgressiveContainer = ['mp4', 'm4v', 'mov'].some((value) =>
-    container.split(',').map((part) => part.trim()).includes(value)
-  );
-  const needsSeekHeavyDemuxing =
-    container.includes('mkv') ||
-    container.includes('matroska') ||
-    container.includes('webm') ||
-    videoCodec === 'hevc' ||
-    videoCodec === 'h265';
-
-  return hasProgressiveContainer && !needsSeekHeavyDemuxing;
-}
-
-function formatEpisodeSelectorTitle(episode: LibraryEpisode): string {
-  return `S${episode.parentIndexNumber}E${episode.indexNumber} - ${episode.name}`;
-}
-
-function runtimeTicksToSeconds(runtimeTicks: number | null): number | null {
-  if (typeof runtimeTicks !== 'number' || runtimeTicks <= 0) {
-    return null;
-  }
-
-  return Math.round(runtimeTicks / 10000000);
-}
-
-function pickEpisodeThumbnailUrl(episode: LibraryEpisode): string | null {
-  return (
-    episode.imageCandidates?.find((image) => image.kind === 'thumb')?.url ??
-    episode.posterUrl ??
-    episode.imageCandidates?.find((image) => image.kind === 'primary')?.url ??
-    episode.imageCandidates?.find((image) => image.kind === 'backdrop')?.url ??
-    null
-  );
-}
-
-function createEpisodeSelector(
-  currentItemId: string,
-  episodes: LibraryEpisode[]
-): PlayerEpisodeSelector | undefined {
-  if (episodes.length === 0 || !episodes.some((episode) => episode.id === currentItemId)) {
-    return undefined;
-  }
-
-  return {
-    currentItemId,
-    episodes: episodes.map((episode) => ({
-      durationSeconds: runtimeTicksToSeconds(episode.runtimeTicks),
-      itemId: episode.id,
-      thumbnailUrl: pickEpisodeThumbnailUrl(episode),
-      title: formatEpisodeSelectorTitle(episode),
-    })),
-  };
 }
 
 function getImageCacheMaxDimension(resolution: ImageCacheResolution): number | null {
@@ -824,15 +753,17 @@ function LoginRoute() {
     password: string;
   }) {
     try {
-      const storageBridge = window.embyDesktop?.storage;
+      const desktopBridge = window.embyDesktop;
+      const storageBridge = desktopBridge?.storage;
+      const authBridge = desktopBridge?.auth;
 
-      if (!storageBridge?.write) {
+      if (!storageBridge?.write || !authBridge?.login) {
         setErrorMessage('Desktop integration is unavailable. Restart the app and try again.');
         return;
       }
 
       const normalizedServerUrl = normalizeServerUrl(serverUrl);
-      const session = await login({
+      const session = await authBridge.login({
         serverUrl: normalizedServerUrl,
         userName,
         password,

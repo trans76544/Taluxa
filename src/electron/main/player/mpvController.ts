@@ -1158,6 +1158,19 @@ local function request_episode_switch(item_id)
   end
 end
 
+local function request_relative_episode_switch(offset)
+  if not episode_selector_enabled then return end
+  for index, episode in ipairs(episode_items) do
+    if episode.is_current then
+      local next_episode = episode_items[index + offset]
+      if next_episode then
+        request_episode_switch(next_episode.item_id)
+      end
+      return
+    end
+  end
+end
+
 local function scroll_episode_panel(delta)
   if not episode_panel_open then return end
   local max_scroll = math.max(0, #episode_items - get_episode_visible_capacity())
@@ -1363,7 +1376,7 @@ local function handle_click()
   elseif id == 'prev' then
     menu_open = nil
     episode_panel_open = false
-    mp.commandv('playlist-prev')
+    request_relative_episode_switch(-1)
   elseif id == 'play' then
     menu_open = nil
     episode_panel_open = false
@@ -1371,7 +1384,7 @@ local function handle_click()
   elseif id == 'next' then
     menu_open = nil
     episode_panel_open = false
-    mp.commandv('playlist-next')
+    request_relative_episode_switch(1)
   elseif id == 'mute' then
     menu_open = nil
     episode_panel_open = false

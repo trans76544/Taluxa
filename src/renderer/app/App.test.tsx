@@ -121,6 +121,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   const read = vi.fn().mockResolvedValue(state);
   const write = vi.fn();
   const clearSession = vi.fn();
+  const authLogin = vi.fn((input) => loginMock(input));
   const statsImageCache = vi.fn().mockResolvedValue({ count: 0, sizeBytes: 0 });
   const clearImageCache = vi.fn().mockResolvedValue(undefined);
   const configureImageCache = vi.fn().mockResolvedValue(undefined);
@@ -135,6 +136,9 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       minimize: vi.fn(),
       maximize: vi.fn(),
       close: vi.fn(),
+    },
+    auth: {
+      login: authLogin,
     },
     player: {
       launch,
@@ -165,6 +169,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     read,
     write,
     clearSession,
+    authLogin,
     resolveImage,
     statsImageCache,
     clearImageCache,
@@ -567,6 +572,43 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+  });
+
+  it('authenticates through the desktop auth bridge', async () => {
+    const storage = mockStorageRead(createPersistedState());
+    loginMock.mockResolvedValue({
+      userId: 'user-1',
+      userName: 'Alice',
+      accessToken: 'token-123',
+    });
+    storage.write.mockResolvedValue(createPersistedState());
+
+    window.location.hash = '#/login';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'demo.emby.local' },
+    });
+    fireEvent.change(screen.getByLabelText('Username'), {
+      target: { value: 'alice' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(storage.authLogin).toHaveBeenCalledWith({
+        serverUrl: 'https://demo.emby.local',
+        userName: 'alice',
+        password: 'secret',
+      });
     });
   });
 

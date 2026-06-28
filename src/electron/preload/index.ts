@@ -3,6 +3,7 @@ import type {
   PersistedState,
   PersistedStatePatch,
 } from '../../shared/store/persistence';
+import type { EmbyLoginInput, EmbyLoginSession } from '../../shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
 
@@ -42,6 +43,10 @@ contextBridge.exposeInMainWorld('embyDesktop', {
     minimize: () => ipcRenderer.send('window:minimize'),
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
+  },
+  auth: {
+    login: (input: EmbyLoginInput) =>
+      ipcRenderer.invoke('auth:login', input) as Promise<EmbyLoginSession>,
   },
   player: {
     launch: (input: PlayerLaunchInput) =>
