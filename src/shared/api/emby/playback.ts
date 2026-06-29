@@ -1,4 +1,6 @@
 import { createEmbyRequest } from './client';
+import { DEFAULT_NETWORK_TIMEOUT_MS } from '@shared/models/network';
+import { redactSensitiveValue } from '@shared/network/redaction';
 
 const EMBY_DEVICE_ID = 'emby-player-desktop';
 const EMBY_HLS_DEVICE_PROFILE = {
@@ -37,11 +39,16 @@ export interface FetchPlaybackStreamSourceInput {
 }
 
 export interface PlaybackStreamSource {
+  authMode: 'header' | 'local-proxy' | 'tokenless';
+  redactedDisplayUrl: string;
   streamUrl: string;
   httpHeaders: Record<string, string>;
 }
 
-export interface PreflightPlaybackStreamSourceInput extends PlaybackStreamSource {}
+export type PreflightPlaybackStreamSourceInput = Pick<
+  PlaybackStreamSource,
+  'httpHeaders' | 'streamUrl'
+>;
 
 type PlaybackPreflightFetch = (
   input: string,
@@ -78,7 +85,20 @@ interface PlaybackInfoResponse {
 type PlaybackMediaSource = NonNullable<PlaybackInfoResponse['MediaSources']>[number];
 
 export function buildStreamUrl(serverUrl: string, itemId: string, accessToken: string): string {
-  return `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${encodeURIComponent(accessToken)}`;
+  void accessToken;
+  return `${serverUrl}/Videos/${encodeURIComponent(itemId)}/stream?static=true`;
+}
+
+function createPlaybackStreamSource(
+  streamUrl: string,
+  httpHeaders: Record<string, string>
+): PlaybackStreamSource {
+  return {
+    authMode: Object.keys(httpHeaders).length > 0 ? 'header' : 'tokenless',
+    redactedDisplayUrl: redactPlaybackUrl(streamUrl),
+    streamUrl,
+    httpHeaders,
+  };
 }
 
 export function buildDirectPlaybackStreamSource({
@@ -88,8 +108,8 @@ export function buildDirectPlaybackStreamSource({
   mediaSourceId,
   audioStreamIndex,
 }: FetchPlaybackStreamSourceInput): PlaybackStreamSource {
-  return {
-    streamUrl: buildMediaSourceDirectUrl(
+  return createPlaybackStreamSource(
+    buildMediaSourceDirectUrl(
       serverUrl,
       itemId,
       accessToken,
@@ -97,8 +117,8 @@ export function buildDirectPlaybackStreamSource({
       mediaSourceId,
       audioStreamIndex
     ),
-    httpHeaders: {},
-  };
+    {}
+  );
 }
 
 function buildMediaSourceHlsUrl(
@@ -114,7 +134,7 @@ function buildMediaSourceHlsUrl(
     serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
   );
 
-  streamUrl.searchParams.set('api_key', accessToken);
+  void accessToken;
 
   if (playSessionId?.trim()) {
     streamUrl.searchParams.set('PlaySessionId', playSessionId.trim());
@@ -150,7 +170,7 @@ function buildMediaSourceDirectUrl(
   );
 
   streamUrl.searchParams.set('static', 'true');
-  streamUrl.searchParams.set('api_key', accessToken);
+  void accessToken;
 
   if (playSessionId?.trim()) {
     streamUrl.searchParams.set('PlaySessionId', playSessionId.trim());
@@ -183,9 +203,8 @@ function buildPlaybackInfoStreamUrl(
     serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
   );
 
-  if (addApiKeyToDirectStreamUrl && !streamUrl.searchParams.has('api_key')) {
-    streamUrl.searchParams.set('api_key', accessToken);
-  }
+  void accessToken;
+  void addApiKeyToDirectStreamUrl;
 
   if (playSessionId?.trim() && !streamUrl.searchParams.has('PlaySessionId')) {
     streamUrl.searchParams.set('PlaySessionId', playSessionId.trim());
@@ -254,7 +273,7 @@ function buildHlsHttpHeaders(
 }
 
 function redactPlaybackUrl(value: string): string {
-  return value.replace(/([?&]api_key=)[^&]+/giu, '$1[redacted]');
+  return redactSensitiveValue(value);
 }
 
 export async function preflightPlaybackStreamSource({
@@ -263,12 +282,31 @@ export async function preflightPlaybackStreamSource({
 }: PreflightPlaybackStreamSourceInput,
 fetcher: PlaybackPreflightFetch = fetch): Promise<void> {
   async function executePreflight(headers: Record<string, string>): Promise<Response> {
+    const abortController = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        reject(new Error('preflight-timeout'));
+      }, DEFAULT_NETWORK_TIMEOUT_MS['playback-preflight']);
+    });
+
     try {
-      return await fetcher(streamUrl, {
-        method: 'GET',
-        headers,
-      });
+      return await Promise.race([
+        fetcher(streamUrl, {
+          method: 'GET',
+          headers,
+          signal: abortController.signal,
+        }),
+        timeoutPromise,
+      ]);
     } catch (error) {
+      if (error instanceof Error && error.message === 'preflight-timeout') {
+        throw new Error(
+          `Playback stream preflight timed out for ${redactPlaybackUrl(streamUrl)}`
+        );
+      }
+
       const message =
         error instanceof Error && error.message.trim()
           ? error.message.trim()
@@ -277,6 +315,10 @@ fetcher: PlaybackPreflightFetch = fetch): Promise<void> {
       throw new Error(
         `Playback stream preflight could not reach ${redactPlaybackUrl(streamUrl)} (${message})`
       );
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 
@@ -345,6 +387,7 @@ export async function fetchPlaybackStreamSource({
     {
       method: 'POST',
       accessToken,
+      operation: 'playback-info',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -363,8 +406,8 @@ export async function fetchPlaybackStreamSource({
   if (!streamPath) {
     if (mediaSource?.Id?.trim()) {
       if (!canBuildFallbackHls(mediaSource)) {
-        return {
-          streamUrl: buildMediaSourceDirectUrl(
+        return createPlaybackStreamSource(
+          buildMediaSourceDirectUrl(
             serverUrl,
             itemId,
             accessToken,
@@ -372,14 +415,15 @@ export async function fetchPlaybackStreamSource({
             mediaSource.Id,
             selectedAudioStreamIndex
           ),
-          httpHeaders: {
+          {
             ...(mediaSource.RequiredHttpHeaders ?? {}),
-          },
-        };
+            'X-Emby-Token': accessToken,
+          }
+        );
       }
 
-      return {
-        streamUrl: buildMediaSourceHlsUrl(
+      return createPlaybackStreamSource(
+        buildMediaSourceHlsUrl(
           serverUrl,
           itemId,
           accessToken,
@@ -387,32 +431,34 @@ export async function fetchPlaybackStreamSource({
           mediaSource.Id,
           selectedAudioStreamIndex
         ),
-        httpHeaders: buildHlsHttpHeaders(accessToken, mediaSource.RequiredHttpHeaders),
-      };
+        buildHlsHttpHeaders(accessToken, mediaSource.RequiredHttpHeaders)
+      );
     }
 
-    return {
-      streamUrl: buildStreamUrl(serverUrl, itemId, accessToken),
-      httpHeaders: {},
-    };
+    return createPlaybackStreamSource(buildStreamUrl(serverUrl, itemId, accessToken), {
+      'X-Emby-Token': accessToken,
+    });
   }
 
-  return {
-    streamUrl: buildPlaybackInfoStreamUrl(
-      serverUrl,
-      streamPath,
-      accessToken,
-      mediaSource?.AddApiKeyToDirectStreamUrl === true,
-      payload.PlaySessionId,
-      mediaSource?.Id,
-      selectedAudioStreamIndex
-    ),
-    httpHeaders: isHlsStreamPath(streamPath)
+  const streamUrl = buildPlaybackInfoStreamUrl(
+    serverUrl,
+    streamPath,
+    accessToken,
+    mediaSource?.AddApiKeyToDirectStreamUrl === true,
+    payload.PlaySessionId,
+    mediaSource?.Id,
+    selectedAudioStreamIndex
+  );
+
+  return createPlaybackStreamSource(
+    streamUrl,
+    isHlsStreamPath(streamPath)
       ? buildHlsHttpHeaders(accessToken, mediaSource?.RequiredHttpHeaders)
       : {
           ...(mediaSource?.RequiredHttpHeaders ?? {}),
-        },
-  };
+          'X-Emby-Token': accessToken,
+        }
+  );
 }
 
 export async function reportPlaybackProgress({
@@ -424,6 +470,7 @@ export async function reportPlaybackProgress({
   const response = await createEmbyRequest(serverUrl, '/Sessions/Playing/Progress', {
     method: 'POST',
     accessToken,
+    operation: 'progress',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -451,6 +498,7 @@ export async function markItemPlayed({
     {
       method: 'POST',
       accessToken,
+      operation: 'user-data',
     }
   );
 
@@ -471,6 +519,7 @@ export async function addFavoriteItem({
     {
       method: 'POST',
       accessToken,
+      operation: 'user-data',
     }
   );
 
@@ -491,6 +540,7 @@ export async function hideItemFromContinueWatching({
     {
       method: 'POST',
       accessToken,
+      operation: 'user-data',
       headers: {
         'Content-Type': 'application/json',
       },

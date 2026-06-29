@@ -193,6 +193,7 @@ export async function fetchViews(
 ): Promise<LibraryView[]> {
   const response = await createEmbyRequest(serverUrl, `/Users/${encodeURIComponent(userId)}/Views`, {
     accessToken,
+    operation: 'library',
   });
 
   if (!response.ok) {
@@ -274,6 +275,7 @@ export async function fetchItems(
     `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
     {
       accessToken,
+      operation: 'library',
     }
   );
 
@@ -310,6 +312,7 @@ export async function fetchSearchItems(
     `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
     {
       accessToken,
+      operation: 'library',
     }
   );
 
@@ -335,6 +338,7 @@ export async function fetchSearchItems(
     `/Users/${encodeURIComponent(userId)}/Items?${fallbackQuery.toString()}`,
     {
       accessToken,
+      operation: 'library',
     }
   );
 
@@ -399,6 +403,7 @@ export async function fetchResumeItems(
     `/Users/${encodeURIComponent(userId)}/Items/Resume?${query.toString()}`,
     {
       accessToken,
+      operation: 'home',
     }
   );
 
@@ -430,6 +435,7 @@ export async function fetchResumableItems(
     `/Users/${encodeURIComponent(userId)}/Items?${query.toString()}`,
     {
       accessToken,
+      operation: 'home',
     }
   );
 
@@ -450,7 +456,7 @@ export async function fetchItemDetails(
   const response = await createEmbyRequest(
     serverUrl,
     `/Users/${encodeURIComponent(userId)}/Items/${itemId}?Fields=People,Studios,ExternalUrls,MediaSources,Overview,Genres,CommunityRating,OfficialRating,ProductionYear`,
-    { accessToken }
+    { accessToken, operation: 'library' }
   );
 
   if (!response.ok) {
@@ -504,7 +510,7 @@ export async function fetchSimilarItems(
   const response = await createEmbyRequest(
     serverUrl,
     `/Items/${itemId}/Similar?UserId=${encodeURIComponent(userId)}&Limit=${limit}`,
-    { accessToken }
+    { accessToken, operation: 'library' }
   );
 
   if (!response.ok) {
@@ -525,7 +531,7 @@ export async function fetchSeasons(
   const response = await createEmbyRequest(
     serverUrl,
     `/Shows/${seriesId}/Seasons?UserId=${encodeURIComponent(userId)}`,
-    { accessToken }
+    { accessToken, operation: 'library' }
   );
 
   if (!response.ok) {
@@ -552,7 +558,7 @@ export async function fetchEpisodes(
   const response = await createEmbyRequest(
     serverUrl,
     `/Shows/${seriesId}/Episodes?SeasonId=${seasonId}&UserId=${encodeURIComponent(userId)}&Fields=Overview,MediaSources`,
-    { accessToken }
+    { accessToken, operation: 'library' }
   );
 
   if (!response.ok) {

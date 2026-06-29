@@ -58,12 +58,17 @@ describe('HlsProxyServer', () => {
       },
     });
 
+    expect(proxiedUrl).not.toContain('token-123');
+    expect(proxiedUrl).not.toContain('api_key');
+
     const playlist = await fetch(proxiedUrl).then((response) => response.text());
     const segmentUrl = playlist
       .split('\n')
       .find((line) => line.startsWith('http://127.0.0.1'));
 
     expect(segmentUrl).toBeTruthy();
+    expect(segmentUrl).not.toContain('token-123');
+    expect(segmentUrl).not.toContain('api_key');
     await expect(fetch(segmentUrl ?? '').then((response) => response.text())).resolves.toBe(
       'segment-body'
     );

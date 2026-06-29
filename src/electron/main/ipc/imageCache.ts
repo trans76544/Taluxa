@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { DEFAULT_NETWORK_TIMEOUT_MS } from '@shared/models/network';
 import type {
   ImageCache,
   ImageCacheConfig,
@@ -20,12 +21,33 @@ export interface ImageCacheBridge {
   configure: (config: ImageCacheConfig) => Promise<void>;
 }
 
+async function resolveWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error('Image cache resolution timed out'));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 export function registerImageCacheIpc(
   imageCache: Pick<ImageCache, 'resolve' | 'stats' | 'clear' | 'configure'>
 ) {
   ipcMain.handle('image-cache:resolve', async (_event, sourceUrl: string) => {
     try {
-      const { cacheKey, fromCache, url } = await imageCache.resolve(sourceUrl);
+      const { cacheKey, fromCache, url } = await resolveWithTimeout(
+        imageCache.resolve(sourceUrl),
+        DEFAULT_NETWORK_TIMEOUT_MS.image
+      );
 
       return { cacheKey, fromCache, url } satisfies ImageCacheResolveResult;
     } catch {

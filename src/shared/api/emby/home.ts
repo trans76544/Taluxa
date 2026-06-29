@@ -28,6 +28,12 @@ export interface HomePosterRow {
   items: HomePosterItem[];
 }
 
+export interface HomeRefreshFailure {
+  sectionId: string;
+  title: string;
+  message: string;
+}
+
 export interface HomeLibraryCard {
   id: string;
   title: string;
@@ -260,4 +266,16 @@ function formatEpisodeSubtitle(item: LibraryItem): string {
 
 export function pickFeaturedViews(views: LibraryView[]): LibraryView[] {
   return views;
+}
+
+export function buildHomeRefreshStatusMessage(failedSections: HomeRefreshFailure[]): string {
+  const failedTitles = failedSections
+    .map((section) => section.title.trim())
+    .filter(Boolean);
+
+  if (failedTitles.length === 0) {
+    return '';
+  }
+
+  return `Some home sections could not refresh: ${failedTitles.join(', ')}.`;
 }

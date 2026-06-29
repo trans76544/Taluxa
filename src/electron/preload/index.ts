@@ -2,15 +2,18 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   PersistedState,
   PersistedStatePatch,
+  SettingsSyncEvent,
 } from '../../shared/store/persistence';
 import type { EmbyLoginInput, EmbyLoginSession } from '../../shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
 
 export interface PlayerLaunchInput {
+  authMode?: 'header' | 'local-proxy' | 'tokenless';
   episodeSelector?: PlayerEpisodeSelector;
   httpHeaders?: Record<string, string>;
   itemId: string;
+  redactedDisplayUrl?: string;
   streamUrl: string;
   title: string;
   startSeconds?: number;
@@ -36,6 +39,7 @@ export interface PlayerProgressEvent {
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
+  final?: boolean;
 }
 
 contextBridge.exposeInMainWorld('embyDesktop', {
@@ -92,5 +96,19 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       ipcRenderer.invoke('storage:write', nextState) as Promise<PersistedState>,
     clearSession: () =>
       ipcRenderer.invoke('storage:clear-session') as Promise<PersistedState>,
+    onSettingsSync: (listener: (event: SettingsSyncEvent) => void) => {
+      const handleSettingsSync = (
+        _event: Electron.IpcRendererEvent,
+        payload: SettingsSyncEvent
+      ) => {
+        listener(payload);
+      };
+
+      ipcRenderer.on('storage:settings-sync', handleSettingsSync);
+
+      return () => {
+        ipcRenderer.removeListener('storage:settings-sync', handleSettingsSync);
+      };
+    },
   },
 });

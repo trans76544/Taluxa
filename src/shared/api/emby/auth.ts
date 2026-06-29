@@ -41,6 +41,7 @@ export async function login(
   const response = await createEmbyRequest(input.serverUrl, '/Users/AuthenticateByName', {
     method: 'POST',
     fetcher,
+    operation: 'login',
     headers: {
       'Content-Type': 'application/json',
     },

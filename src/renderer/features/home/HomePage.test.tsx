@@ -150,6 +150,36 @@ describe('HomePage', () => {
     expect(screen.getByRole('heading', { name: 'Movies' })).toBeInTheDocument();
   });
 
+  it('renders a partial refresh warning without hiding loaded content', () => {
+    render(
+      <MemoryRouter>
+        <HomePage
+          accountLabel="ShrekMedia / trans"
+          continueWatching={[]}
+          libraries={[
+            {
+              id: 'movies',
+              title: 'Movies',
+              posterUrl: 'https://demo.local/movie.jpg',
+              imageCandidates: [],
+              href: '/libraries/movies',
+            },
+          ]}
+          featuredRows={[]}
+          refreshStatusMessage="Some home sections could not refresh: Shows."
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Some home sections could not refresh: Shows.'
+    );
+    expect(screen.getByRole('heading', { name: '\u5a92\u4f53\u5e93' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Movies/ })).toBeInTheDocument();
+  });
+
   it('falls back from a broken library-card primary image to the thumb candidate', () => {
     const libraries = [
       {

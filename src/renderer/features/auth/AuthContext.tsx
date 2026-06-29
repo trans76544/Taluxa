@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchServerInfo } from '@shared/api/emby/system';
-import { createAccountId } from '@shared/store/persistence';
+import { createAccountId, isSettingsSyncEvent } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
 import { createDefaultSettings, type Settings } from '@shared/models/settings';
 
@@ -174,6 +174,7 @@ export function AuthProvider({
     Record<string, string>
   >({});
   const inFlightServerDisplayNameRequestsRef = useRef(new Map<string, string>());
+  const serverDisplayNameGenerationByUrlRef = useRef(new Map<string, number>());
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
@@ -239,6 +240,20 @@ export function AuthProvider({
     );
   }
 
+  useEffect(() => {
+    const unsubscribe = window.embyDesktop?.storage.onSettingsSync?.((event) => {
+      if (!isSettingsSyncEvent(event) || event.status !== 'saved') {
+        return;
+      }
+
+      updateSettings(event.patch as Partial<Settings>);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
   function getServerDisplayName(serverUrl: string) {
     return (
       getServerDisplayNameOverride(resolvedAuthState.settings, serverUrl) ??
@@ -279,13 +294,23 @@ export function AuthProvider({
       }
 
       inFlightServerDisplayNameRequestsRef.current.set(account.serverUrl, account.accessToken);
+      const requestToken = account.accessToken;
+      const requestServerUrl = account.serverUrl;
+      const requestGeneration =
+        (serverDisplayNameGenerationByUrlRef.current.get(requestServerUrl) ?? 0) + 1;
+      serverDisplayNameGenerationByUrlRef.current.set(requestServerUrl, requestGeneration);
 
-      fetchServerInfo(account.serverUrl, account.accessToken)
+      fetchServerInfo(requestServerUrl, requestToken)
         .then(({ serverName }) => {
-          if (!cancelled && hasText(serverName)) {
+          if (
+            !cancelled &&
+            requestGeneration === serverDisplayNameGenerationByUrlRef.current.get(requestServerUrl) &&
+            inFlightServerDisplayNameRequestsRef.current.get(requestServerUrl) === requestToken &&
+            hasText(serverName)
+          ) {
             setFetchedServerDisplayNamesByUrl((current) => ({
               ...current,
-              [account.serverUrl]: serverName,
+              [requestServerUrl]: serverName,
             }));
           }
         })
@@ -294,10 +319,10 @@ export function AuthProvider({
         })
         .finally(() => {
           if (
-            inFlightServerDisplayNameRequestsRef.current.get(account.serverUrl) ===
-            account.accessToken
+            inFlightServerDisplayNameRequestsRef.current.get(requestServerUrl) ===
+            requestToken
           ) {
-            inFlightServerDisplayNameRequestsRef.current.delete(account.serverUrl);
+            inFlightServerDisplayNameRequestsRef.current.delete(requestServerUrl);
           }
         });
     }

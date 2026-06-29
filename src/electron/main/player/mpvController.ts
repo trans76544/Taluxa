@@ -50,6 +50,7 @@ export interface MpvProgressSnapshot {
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
+  final?: boolean;
 }
 
 export interface MpvWindowBounds {
@@ -2020,7 +2021,13 @@ export class MpvController {
       const handleExit = () => {
         const activeSession = this.activeSession;
 
-        if (!this.isActiveSession(sessionId) || activeSession?.isReady || !activeSession) {
+        if (!this.isActiveSession(sessionId) || !activeSession) {
+          return;
+        }
+
+        if (activeSession.isReady) {
+          this.emitProgress(activeSession, true);
+          this.clearActiveSession();
           return;
         }
 
@@ -2314,7 +2321,7 @@ export class MpvController {
     return String.raw`\\.\pipe\emby-player-${process.pid}-${Date.now()}-${this.ipcEndpointCounter}`;
   }
 
-  private emitProgress(session: ActiveSession): void {
+  private emitProgress(session: ActiveSession, final = false): void {
     if (session.positionSeconds === null) {
       return;
     }
@@ -2323,6 +2330,7 @@ export class MpvController {
       itemId: session.itemId,
       positionSeconds: Math.floor(session.positionSeconds),
       durationSeconds: Math.floor(session.durationSeconds),
+      ...(final ? { final: true } : {}),
     });
   }
 
@@ -2388,6 +2396,12 @@ export class MpvController {
               )
             )
           );
+          this.clearActiveSession();
+          continue;
+        }
+
+        if (payload.event === 'end-file') {
+          this.emitProgress(session, true);
           this.clearActiveSession();
           continue;
         }

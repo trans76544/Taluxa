@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchServerInfo } from './system';
 
 const fetchMock = vi.fn();
@@ -6,6 +6,10 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('fetchServerInfo', () => {
@@ -59,5 +63,27 @@ describe('fetchServerInfo', () => {
     await expect(fetchServerInfo('https://demo.emby.local', 'token-1')).rejects.toThrow(
       'Invalid Emby server info response'
     );
+  });
+
+  it('times out hanging server info requests with a retryable failure', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      });
+    });
+
+    const infoPromise = fetchServerInfo('https://demo.emby.local', 'token-1');
+
+    const assertion = expect(infoPromise).rejects.toMatchObject({
+      operation: 'server-info',
+      status: 'timeout',
+      canRetry: true,
+    });
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await assertion;
   });
 });

@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { DEFAULT_NETWORK_TIMEOUT_MS } from '@shared/models/network';
 
 export const IMAGE_CACHE_PROTOCOL = 'taluxa-image-cache';
 export const DEFAULT_IMAGE_CACHE_MAX_BYTES = 500 * 1024 * 1024;
 
 export interface ImageCacheFetch {
-  (url: string): Promise<Response>;
+  (url: string, init?: RequestInit): Promise<Response>;
 }
 
 export interface ImageCacheTransformResult {
@@ -45,6 +46,7 @@ interface ImageCacheOptions {
   maxDimension?: number | null;
   maxBytes?: number;
   now?: () => Date;
+  timeoutMs?: number;
   transformImage?: ImageCacheTransform;
 }
 
@@ -103,6 +105,7 @@ export class ImageCache {
   private maxDimension: number | null;
   private maxBytes: number;
   private readonly now: () => Date;
+  private readonly timeoutMs: number;
   private readonly inFlightByRequestKey = new Map<string, Promise<ResolvedImageCacheEntry>>();
 
   constructor({
@@ -112,6 +115,7 @@ export class ImageCache {
     maxDimension = null,
     maxBytes = DEFAULT_IMAGE_CACHE_MAX_BYTES,
     now = () => new Date(),
+    timeoutMs = DEFAULT_NETWORK_TIMEOUT_MS.image,
     transformImage,
   }: ImageCacheOptions) {
     this.cacheDir = cacheDir;
@@ -121,6 +125,7 @@ export class ImageCache {
     this.maxDimension = maxDimension;
     this.maxBytes = maxBytes;
     this.now = now;
+    this.timeoutMs = timeoutMs;
   }
 
   async resolve(sourceUrl: string): Promise<ResolvedImageCacheEntry> {
@@ -223,7 +228,7 @@ export class ImageCache {
       }
     }
 
-    const response = await this.fetcher(sourceUrl);
+    const response = await this.fetchImageWithTimeout(sourceUrl);
 
     if (!response.ok) {
       throw new Error(`Failed to download image (${response.status})`);
@@ -267,6 +272,29 @@ export class ImageCache {
       fromCache: false,
       url: createProtocolUrl(cacheKey),
     };
+  }
+
+  private async fetchImageWithTimeout(sourceUrl: string): Promise<Response> {
+    const abortController = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        reject(new Error('Image cache request timed out'));
+      }, this.timeoutMs);
+    });
+
+    try {
+      return await Promise.race([
+        this.fetcher(sourceUrl, { signal: abortController.signal }),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   private async pruneIfNeeded(protectedCacheKey: string) {

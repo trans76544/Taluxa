@@ -9,6 +9,7 @@ interface HomePageProps {
   continueWatching: HomePosterItem[];
   libraries: HomeLibraryCard[];
   featuredRows: HomePosterRow[];
+  refreshStatusMessage?: string;
   sortMode: LibrarySortMode;
   onSortModeChange: (nextSortMode: LibrarySortMode) => void;
   onRemoveFromContinueWatching?: (item: HomePosterItem) => void;
@@ -21,6 +22,7 @@ export function HomePage({
   continueWatching,
   libraries,
   featuredRows,
+  refreshStatusMessage,
   sortMode,
   onSortModeChange,
   onRemoveFromContinueWatching,
@@ -35,6 +37,12 @@ export function HomePage({
       <div className="home-screen__intro">
         <h1 className="home-screen__title">{accountLabel}</h1>
       </div>
+
+      {refreshStatusMessage ? (
+        <p className="home-screen__status" role="status">
+          {refreshStatusMessage}
+        </p>
+      ) : null}
 
       {continueWatching && continueWatching.length > 0 && (
         <ContinueWatchingRow

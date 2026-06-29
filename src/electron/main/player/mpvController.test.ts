@@ -1903,6 +1903,51 @@ describe('MpvController', () => {
     });
   });
 
+  it('emits a final progress snapshot when mpv ends after playback is ready', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    const connectIpc = vi.fn(() => ipcClient);
+    const onProgress = vi.fn<(snapshot: MpvProgressSnapshot) => void>();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      moduleDir: devModuleDir,
+      spawnProcess,
+      connectIpc,
+      createIpcEndpoint: () => ipcServerPath,
+      onProgress,
+    });
+
+    const launchPromise = controller.launch(
+      createLaunchInput({ itemId: 'episode-final' }),
+      createProxySettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    ipcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 180 })}\n`)
+    );
+    ipcClient.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'time-pos', data: 42.9 })}\n`)
+    );
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'eof' })}\n`));
+
+    expect(onProgress).toHaveBeenLastCalledWith({
+      itemId: 'episode-final',
+      positionSeconds: 42,
+      durationSeconds: 180,
+      final: true,
+    });
+  });
+
   it('retries retryable ipc connection failures after the first socket closes', async () => {
     vi.useFakeTimers();
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');

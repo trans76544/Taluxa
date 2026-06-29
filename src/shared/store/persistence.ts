@@ -59,6 +59,32 @@ export type PersistedStatePatch = Partial<
   session?: Session | null;
 };
 
+export type SettingsSyncOrigin = 'renderer-settings' | 'player' | 'main';
+
+export interface SettingsSyncEvent {
+  patch: PersistedSettingsPatch;
+  origin: SettingsSyncOrigin;
+  persistedAt: string;
+  status: 'saved' | 'failed';
+  errorMessage?: string;
+}
+
+export function isSettingsSyncEvent(value: unknown): value is SettingsSyncEvent {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const event = value as Partial<SettingsSyncEvent>;
+
+  return (
+    typeof event.patch === 'object' &&
+    event.patch !== null &&
+    (event.origin === 'renderer-settings' || event.origin === 'player' || event.origin === 'main') &&
+    typeof event.persistedAt === 'string' &&
+    (event.status === 'saved' || event.status === 'failed')
+  );
+}
+
 export function createAccountId(serverUrl: string, userId: string): string {
   return `${serverUrl}::${userId}`;
 }
@@ -86,10 +112,21 @@ function createScopedProgressPatch(
       activeAccountId && !isAccountScopedProgressKey(itemId)
         ? createAccountScopedProgressKey(activeAccountId, itemId)
         : itemId
-    ] = progress;
+    ] = progress === null ? null : normalizePlaybackProgress(progress);
   }
 
   return nextProgressByItemId;
+}
+
+function normalizePlaybackProgress(progress: PlaybackProgress): PlaybackProgress {
+  return {
+    ...progress,
+    positionSeconds: Math.max(0, Math.floor(progress.positionSeconds)),
+    durationSeconds: Math.max(0, Math.floor(progress.durationSeconds)),
+    serverStatus: progress.serverStatus ?? 'pending',
+    retryCount: progress.retryCount ?? 0,
+    final: progress.final ?? false,
+  };
 }
 
 export function getPersistedProgressByItemIdForAccount(

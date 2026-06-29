@@ -1,6 +1,7 @@
 import type {
   PersistedState,
   PersistedStatePatch,
+  SettingsSyncEvent,
 } from '@shared/store/persistence';
 import type {
   PlayerLaunchInput,
@@ -40,6 +41,7 @@ declare global {
         read: () => Promise<PersistedState>;
         write: (nextState: PersistedStatePatch) => Promise<PersistedState>;
         clearSession: () => Promise<PersistedState>;
+        onSettingsSync?: (listener: (event: SettingsSyncEvent) => void) => () => void;
       };
     };
   }

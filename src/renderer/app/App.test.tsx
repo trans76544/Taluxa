@@ -96,6 +96,7 @@ interface PlayerProgressEvent {
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
+  final?: boolean;
 }
 
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
@@ -1822,6 +1823,61 @@ describe('App', () => {
     });
   });
 
+  it('keeps successful home sections visible when one library preview fails', async () => {
+    const account = createSavedAccount();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    fetchViewsMock.mockResolvedValue([
+      {
+        id: 'movies',
+        name: 'Movies',
+        collectionType: 'movies',
+      },
+      {
+        id: 'shows',
+        name: 'Shows',
+        collectionType: 'tvshows',
+      },
+    ]);
+    fetchItemsMock.mockImplementation(async (_serverUrl: string, _userId: string, parentId: string) => {
+      if (parentId === 'shows') {
+        throw new Error('preview failed');
+      }
+
+      return [
+        {
+          id: 'movie-1',
+          name: 'Movie 1',
+          posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+          imageCandidates: [],
+          runtimeTicks: 600000000,
+          serverPositionTicks: null,
+        },
+      ];
+    });
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Movies' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '\u5a92\u4f53\u5e93' })).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Some home sections could not refresh: Shows.'
+    );
+  });
+
   it('keeps refreshed home content visible when cache snapshot write throws synchronously', async () => {
     const account = createSavedAccount();
     const storage = mockStorageRead(
@@ -2775,15 +2831,17 @@ describe('App', () => {
 
     await flushAsyncQueue();
 
-    expect(storage.write).toHaveBeenCalledWith({
+    expect(storage.write).toHaveBeenNthCalledWith(1, {
       clearHomeCache: true,
       progressByItemId: {
-        [createAccountScopedProgressKey(account.id, 'item-1')]: {
+        [createAccountScopedProgressKey(account.id, 'item-1')]: expect.objectContaining({
           itemId: 'item-1',
           positionSeconds: 12,
           durationSeconds: 180,
           updatedAt: expect.any(String),
-        },
+          serverStatus: 'pending',
+          final: false,
+        }),
       },
     });
     expect(reportPlaybackProgressMock).toHaveBeenCalledWith({
@@ -2791,6 +2849,17 @@ describe('App', () => {
       accessToken: 'token-123',
       itemId: 'item-1',
       positionSeconds: 12,
+    });
+    expect(storage.write).toHaveBeenNthCalledWith(2, {
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'item-1')]: expect.objectContaining({
+          itemId: 'item-1',
+          positionSeconds: 12,
+          durationSeconds: 180,
+          serverStatus: 'confirmed',
+          lastServerConfirmedAt: expect.any(String),
+        }),
+      },
     });
 
     nowMs = Date.parse('2026-04-22T08:00:01.000Z');
@@ -2802,7 +2871,7 @@ describe('App', () => {
 
     await flushAsyncQueue();
 
-    expect(storage.write).toHaveBeenCalledTimes(1);
+    expect(storage.write).toHaveBeenCalledTimes(2);
     expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(1);
 
     nowMs = Date.parse('2026-04-22T08:00:06.000Z');
@@ -2814,7 +2883,7 @@ describe('App', () => {
 
     await flushAsyncQueue();
 
-    expect(storage.write).toHaveBeenCalledTimes(2);
+    expect(storage.write).toHaveBeenCalledTimes(4);
     expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(2);
     expect(reportPlaybackProgressMock).toHaveBeenLastCalledWith({
       serverUrl: 'https://demo.emby.local',
@@ -2832,8 +2901,84 @@ describe('App', () => {
 
     await flushAsyncQueue();
 
-    expect(storage.write).toHaveBeenCalledTimes(2);
+    expect(storage.write).toHaveBeenCalledTimes(4);
     expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(2);
+
+    storage.emitProgress({
+      itemId: 'item-1',
+      positionSeconds: 13.9,
+      durationSeconds: 180,
+      final: true,
+    });
+
+    await flushAsyncQueue();
+
+    expect(storage.write).toHaveBeenCalledTimes(6);
+    expect(storage.write).toHaveBeenNthCalledWith(5, {
+      clearHomeCache: true,
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'item-1')]: expect.objectContaining({
+          itemId: 'item-1',
+          positionSeconds: 13,
+          serverStatus: 'pending',
+          final: true,
+        }),
+      },
+    });
+    expect(reportPlaybackProgressMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps local progress and records a redacted server sync failure', async () => {
+    reportPlaybackProgressMock.mockRejectedValueOnce(new Error('Failed api_key=token-123'));
+    const account = createSavedAccount();
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+
+    window.location.hash = '#/item/item-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => {
+      expect(storage.launch).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
+    });
+
+    storage.emitProgress({
+      itemId: 'item-1',
+      positionSeconds: 42,
+      durationSeconds: 180,
+    });
+
+    await flushAsyncQueue();
+
+    expect(storage.write).toHaveBeenNthCalledWith(1, {
+      clearHomeCache: true,
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'item-1')]: expect.objectContaining({
+          positionSeconds: 42,
+          serverStatus: 'pending',
+        }),
+      },
+    });
+    expect(storage.write).toHaveBeenNthCalledWith(2, {
+      progressByItemId: {
+        [createAccountScopedProgressKey(account.id, 'item-1')]: expect.objectContaining({
+          positionSeconds: 42,
+          serverStatus: 'failed',
+          errorMessage: 'Failed api_key=[redacted]',
+        }),
+      },
+    });
   });
 
   it('preserves library name when opening a library from the home screen', async () => {

@@ -18,6 +18,7 @@ export async function fetchServerInfo(
 ): Promise<{ serverName: string | null }> {
   const response = await createEmbyRequest(serverUrl, '/System/Info/Public', {
     accessToken,
+    operation: 'server-info',
   });
 
   if (!response.ok) {

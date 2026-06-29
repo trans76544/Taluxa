@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerImageCacheIpc } from './imageCache';
 
 const handleMock = vi.hoisted(() => vi.fn());
@@ -20,6 +20,10 @@ function getRegisteredHandler() {
 describe('registerImageCacheIpc', () => {
   beforeEach(() => {
     handleMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('returns the cached image url when the cache resolves successfully', async () => {
@@ -60,6 +64,30 @@ describe('registerImageCacheIpc', () => {
       url: 'https://demo.emby.local/Items/1/Images/Primary',
     });
   });
+
+  it('falls back to the source url when image cache resolution times out', async () => {
+    vi.useFakeTimers();
+    registerImageCacheIpc({
+      resolve: vi.fn(() => new Promise<never>(() => undefined)),
+      stats: vi.fn(),
+      clear: vi.fn(),
+      configure: vi.fn(),
+    });
+
+    const resolvePromise = getRegisteredHandler()(
+      undefined,
+      'https://demo.emby.local/Items/1/Images/Primary'
+    );
+
+    await vi.advanceTimersByTimeAsync(8000);
+
+    await expect(resolvePromise).resolves.toEqual({
+      cacheKey: null,
+      fromCache: false,
+      url: 'https://demo.emby.local/Items/1/Images/Primary',
+    });
+  });
+
 
   it('registers image cache stats, clear, and configure handlers', async () => {
     const imageCache = {

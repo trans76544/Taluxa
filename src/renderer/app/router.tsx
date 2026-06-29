@@ -36,9 +36,11 @@ import type {
 } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
+  buildHomeRefreshStatusMessage,
   buildServerContinueWatchingItems,
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
+  type HomeRefreshFailure,
   type HomeLibraryCard,
   type HomePosterItem,
   type HomePosterRow,
@@ -51,7 +53,13 @@ import {
   type PersistedState,
 } from '@shared/store/persistence';
 import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
-import { getResumePositionSeconds } from '@shared/utils/playbackProgress';
+import {
+  createConfirmedProgressUpdate,
+  createFailedProgressUpdate,
+  createLocalProgressUpdate,
+  getResumePositionSeconds,
+  shouldSyncPlaybackProgress,
+} from '@shared/utils/playbackProgress';
 import { isValidCustomProxyUrl } from '@shared/network/proxy';
 import { Layout } from '@renderer/components/Layout';
 import { AppTitleBar } from '@renderer/components/AppTitleBar';
@@ -60,6 +68,7 @@ import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { HomePage } from '@renderer/features/home/HomePage';
 import {
   createHomeCacheEntry,
+  createHomeCacheFallbackStatusMessage,
   createHomeCacheKey,
   isHomeCacheFresh,
 } from '@renderer/features/home/homeCache';
@@ -139,6 +148,7 @@ interface HomeRouteData {
   continueWatching: ReturnType<typeof buildContinueWatchingItems>;
   libraries: HomeLibraryCard[];
   featuredRows: HomePosterRow[];
+  refreshStatusMessage?: string;
 }
 
 function getItemIdFromItemHref(href: string): string | null {
@@ -564,8 +574,10 @@ function ItemDetailsRoute() {
       const nextEpisodeSelector = createEpisodeSelector(episode.id, episodes);
 
       await window.embyDesktop.player.switchEpisode({
+        authMode: nextSource.authMode,
         httpHeaders: nextSource.httpHeaders,
         itemId: episode.id,
+        redactedDisplayUrl: nextSource.redactedDisplayUrl,
         title: nextTitle,
         streamUrl: nextSource.streamUrl,
         startSeconds: nextInitialPositionSeconds,
@@ -581,7 +593,7 @@ function ItemDetailsRoute() {
     }
   }
 
-  async function handleProgress({ itemId: progressItemId, positionSeconds, durationSeconds }: { itemId: string; positionSeconds: number; durationSeconds: number; }) {
+  async function handleProgress({ itemId: progressItemId, positionSeconds, durationSeconds, final = false }: { itemId: string; positionSeconds: number; durationSeconds: number; final?: boolean; }) {
     if (!session || progressItemId !== playbackItemId) return;
 
     const normalizedPositionSeconds = Math.max(0, Math.floor(positionSeconds));
@@ -589,10 +601,14 @@ function ItemDetailsRoute() {
     const nowMs = Date.now();
     const { lastReportedAtMs, lastReportedPositionSeconds } = progressStateRef.current;
 
-    if (
-      lastReportedPositionSeconds === normalizedPositionSeconds ||
-      (lastReportedAtMs !== null && nowMs - lastReportedAtMs < PROGRESS_REPORT_INTERVAL_MS)
-    ) {
+    if (!shouldSyncPlaybackProgress({
+      final,
+      lastReportedAtMs,
+      lastReportedPositionSeconds,
+      nowMs,
+      positionSeconds: normalizedPositionSeconds,
+      reportIntervalMs: PROGRESS_REPORT_INTERVAL_MS,
+    })) {
       return;
     }
 
@@ -601,12 +617,16 @@ function ItemDetailsRoute() {
       lastReportedPositionSeconds: normalizedPositionSeconds,
     };
 
-    const nextProgress: PlaybackProgress = {
+    const progressKey = resolvedActiveAccountId
+      ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
+      : progressItemId;
+    const nextProgress: PlaybackProgress = createLocalProgressUpdate({
       itemId: progressItemId,
       positionSeconds: normalizedPositionSeconds,
       durationSeconds: normalizedDurationSeconds,
-      updatedAt: new Date().toISOString(),
-    };
+      now: new Date().toISOString(),
+      final,
+    });
 
     progressSyncQueueRef.current = progressSyncQueueRef.current
       .catch(() => undefined)
@@ -615,9 +635,7 @@ function ItemDetailsRoute() {
           await window.embyDesktop.storage.write({
             clearHomeCache: true,
             progressByItemId: {
-              [resolvedActiveAccountId
-                ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
-                : progressItemId]: nextProgress,
+              [progressKey]: nextProgress,
             },
           });
         } catch {}
@@ -628,7 +646,25 @@ function ItemDetailsRoute() {
             itemId: progressItemId,
             positionSeconds: normalizedPositionSeconds,
           });
-        } catch {}
+          await Promise.resolve(window.embyDesktop.storage.write({
+            progressByItemId: {
+              [progressKey]: createConfirmedProgressUpdate(
+                nextProgress,
+                new Date().toISOString()
+              ),
+            },
+          })).catch(() => undefined);
+        } catch (error) {
+          await Promise.resolve(window.embyDesktop.storage.write({
+            progressByItemId: {
+              [progressKey]: createFailedProgressUpdate(
+                nextProgress,
+                error,
+                new Date().toISOString()
+              ),
+            },
+          })).catch(() => undefined);
+        }
       });
 
     await progressSyncQueueRef.current;
@@ -709,9 +745,11 @@ function ItemDetailsRoute() {
       
       {session && initialPositionSeconds !== null && playbackSource ? (
         <PlayerPage
+          authMode={playbackSource.authMode}
           httpHeaders={playbackSource.httpHeaders}
           itemId={playbackItemId}
           launchRequestId={playbackLaunchId}
+          redactedDisplayUrl={playbackSource.redactedDisplayUrl}
           title={playbackTitle || details.name}
           streamUrl={playbackSource.streamUrl}
           initialPositionSeconds={initialPositionSeconds}
@@ -1051,24 +1089,45 @@ function LibrariesRoute() {
     async function refreshHomeData(): Promise<HomeRouteData> {
       const nextViews = await fetchViews(serverUrl, userId, accessToken);
       const featuredViews = pickFeaturedViews(nextViews);
-      const [serverResumeItems, serverResumableItems, previewEntries] = await Promise.all([
+      const [serverResumeItems, serverResumableItems, previewResults] = await Promise.all([
         fetchResumeItems(serverUrl, userId, accessToken).catch(() => []),
         fetchResumableItems(serverUrl, userId, accessToken).catch(() => []),
         Promise.all(
-          nextViews.map(
-            async (view): Promise<[string, LibraryItem[]]> => [
-              view.id,
-              await fetchItems(serverUrl, userId, view.id, accessToken, {
+          nextViews.map(async (view) => {
+            try {
+              return {
+                items: await fetchItems(serverUrl, userId, view.id, accessToken, {
                 limit: 8,
                 sortMode: settings.librarySortMode,
               }),
-            ]
-          )
+                view,
+              };
+            } catch (error) {
+              const message =
+                error instanceof Error && error.message.trim()
+                  ? error.message.trim()
+                  : 'Preview refresh failed';
+
+              return {
+                failedSection: {
+                  sectionId: `preview:${view.id}`,
+                  title: view.name,
+                  message,
+                },
+                items: [] as LibraryItem[],
+                view,
+              };
+            }
+          })
         ),
       ]);
+      const failedSections = previewResults
+        .map((entry) => entry.failedSection)
+        .filter((entry): entry is HomeRefreshFailure => Boolean(entry));
       const previewItemsByViewId = new Map(
-        previewEntries.map(([viewId, items]) => [viewId, items.slice(0, 8)])
+        previewResults.map((entry) => [entry.view.id, entry.items.slice(0, 8)])
       );
+      const refreshStatusMessage = buildHomeRefreshStatusMessage(failedSections);
       return {
         accountLabel: currentHomeAccountLabelRef.current,
         continueWatching: buildServerContinueWatchingItems({
@@ -1107,6 +1166,7 @@ function LibrariesRoute() {
             },
           })),
         })),
+        refreshStatusMessage,
       };
     }
 
@@ -1117,6 +1177,7 @@ function LibrariesRoute() {
       setFeaturedRows(nextHomeData.featuredRows);
       setHasRenderedHomeSnapshot(true);
       setIsLoading(false);
+      setErrorMessage(nextHomeData.refreshStatusMessage ?? '');
     }
 
     async function refreshContinueWatchingData(): Promise<HomePosterItem[] | null> {
@@ -1199,7 +1260,6 @@ function LibrariesRoute() {
         }
 
         renderHomeData(nextHomeData);
-        setErrorMessage('');
 
         if (settings.cache.dataCacheEnabled && cacheKey) {
           const nextEntry = createHomeCacheEntry({
@@ -1226,7 +1286,7 @@ function LibrariesRoute() {
         }
 
         if (renderedCache) {
-          setErrorMessage('Could not refresh home data. Showing saved content.');
+          setErrorMessage(createHomeCacheFallbackStatusMessage());
           setIsLoading(false);
           return;
         }
@@ -1273,6 +1333,7 @@ function LibrariesRoute() {
           continueWatching={continueWatching}
           libraries={libraries}
           featuredRows={featuredRows}
+          refreshStatusMessage={errorMessage && hasRenderedHomeSnapshot ? errorMessage : undefined}
           sortMode={settings.librarySortMode}
           onSortModeChange={handleSortModeChange}
           onRemoveFromContinueWatching={handleRemoveFromContinueWatching}

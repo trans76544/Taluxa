@@ -53,3 +53,7 @@ export function createHomeCacheEntry({
     featuredRows,
   };
 }
+
+export function createHomeCacheFallbackStatusMessage(): string {
+  return 'Could not refresh home data. Showing saved content.';
+}

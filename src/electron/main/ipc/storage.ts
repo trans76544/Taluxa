@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import Store from 'electron-store';
 import {
   createEmptyPersistedState,
+  type SettingsSyncEvent,
   migrateLegacyPersistedState,
   mergePersistedState,
   type LegacyPersistedState,
@@ -9,6 +10,7 @@ import {
   type PersistedState,
 } from '../../../shared/store/persistence';
 import type { Settings } from '@shared/models/settings';
+import { redactErrorMessage } from '@shared/network/redaction';
 
 const store = new Store<PersistedState | LegacyPersistedState>({
   name: 'desktop-storage',
@@ -24,6 +26,8 @@ export interface RegisterStorageIpcOptions {
     settings: Settings,
     persistedState: PersistedState
   ) => void | Promise<void>;
+  onSettingsSync?: (event: SettingsSyncEvent) => void | Promise<void>;
+  settingsSyncOrigin?: SettingsSyncEvent['origin'];
 }
 
 interface PersistedStateStoreLike {
@@ -45,10 +49,31 @@ export async function writePersistedStatePatch(
     );
 
     if (nextState.settings) {
-      await options.onSettingsChanged?.(merged.settings, merged);
+      try {
+        await options.onSettingsChanged?.(merged.settings, merged);
+      } catch (error) {
+        await options.onSettingsSync?.({
+          errorMessage: redactErrorMessage(error),
+          origin: options.settingsSyncOrigin ?? 'renderer-settings',
+          patch: nextState.settings,
+          persistedAt: new Date().toISOString(),
+          status: 'failed',
+        });
+        throw error;
+      }
     }
 
     storeLike.store = merged;
+
+    if (nextState.settings) {
+      await options.onSettingsSync?.({
+        origin: options.settingsSyncOrigin ?? 'renderer-settings',
+        patch: nextState.settings,
+        persistedAt: new Date().toISOString(),
+        status: 'saved',
+      });
+    }
+
     return merged;
   });
 
@@ -73,7 +98,10 @@ export function writeSettingsPatchFromMain(
   settings: PersistedStatePatch['settings'],
   options: RegisterStorageIpcOptions = {}
 ): Promise<PersistedState> {
-  return writePersistedStatePatch(store, { settings }, options);
+  return writePersistedStatePatch(store, { settings }, {
+    ...options,
+    settingsSyncOrigin: options.settingsSyncOrigin ?? 'player',
+  });
 }
 
 export function registerStorageIpc(options: RegisterStorageIpcOptions = {}) {

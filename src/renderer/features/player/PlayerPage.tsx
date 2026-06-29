@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 
 export interface PlayerPageProps {
+  authMode?: 'header' | 'local-proxy' | 'tokenless';
   episodeSelector?: PlayerEpisodeSelector;
   httpHeaders?: Record<string, string>;
   itemId: string;
   launchRequestId?: number;
+  redactedDisplayUrl?: string;
   title: string;
   streamUrl: string;
   initialPositionSeconds: number;
@@ -13,6 +15,7 @@ export interface PlayerPageProps {
     itemId: string;
     positionSeconds: number;
     durationSeconds: number;
+    final?: boolean;
   }) => void | Promise<void>;
 }
 
@@ -22,25 +25,31 @@ type PlayerEpisodeSelector = NonNullable<Parameters<PlayerLaunch>[0]['episodeSel
 const pendingLaunchKeysByBridge = new WeakMap<PlayerLaunch, Set<string>>();
 
 function createLaunchKey({
+  authMode,
   httpHeaders,
   initialPositionSeconds,
   itemId,
+  redactedDisplayUrl,
   episodeSelector,
   streamUrl,
   title,
 }: {
+  authMode?: 'header' | 'local-proxy' | 'tokenless';
   episodeSelector?: PlayerEpisodeSelector;
   httpHeaders: Record<string, string>;
   initialPositionSeconds: number;
   itemId: string;
+  redactedDisplayUrl?: string;
   streamUrl: string;
   title: string;
 }): string {
   return JSON.stringify({
+    authMode,
     episodeSelector,
     httpHeaders,
     initialPositionSeconds,
     itemId,
+    redactedDisplayUrl,
     streamUrl,
     title,
   });
@@ -60,10 +69,12 @@ function getPendingLaunchKeys(launch: PlayerLaunch): Set<string> {
 }
 
 export function PlayerPage({
+  authMode,
   episodeSelector,
   httpHeaders = {},
   itemId,
   launchRequestId,
+  redactedDisplayUrl,
   title,
   streamUrl,
   initialPositionSeconds,
@@ -73,11 +84,13 @@ export function PlayerPage({
   const [launchError, setLaunchError] = useState('');
   const launchKey =
     launchRequestId === undefined
-      ? createLaunchKey({
+        ? createLaunchKey({
+          authMode,
           episodeSelector,
           httpHeaders,
           initialPositionSeconds,
           itemId,
+          redactedDisplayUrl,
           streamUrl,
           title,
         })
@@ -99,9 +112,11 @@ export function PlayerPage({
     pendingLaunchKeys.add(launchKey);
 
     launch({
+        authMode,
         episodeSelector,
         httpHeaders,
         itemId,
+        redactedDisplayUrl,
         title,
         streamUrl,
         startSeconds: initialPositionSeconds,

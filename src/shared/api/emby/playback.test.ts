@@ -53,14 +53,21 @@ describe('playback api', () => {
       )
     );
 
-    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual({
-      streamUrl:
-        'https://demo.emby.local/Videos/item-1/master.m3u8?MediaSourceId=source-1&TranscodingContainer=ts&api_key=token-123&PlaySessionId=play-session-123&DeviceId=emby-player-desktop',
-      httpHeaders: {
-        Authorization: 'MediaBrowser Token="token-123"',
-        'X-Emby-Token': 'token-123',
-      },
+    const source = await fetchPlaybackStreamSource(createInput());
+
+    expect(source.streamUrl).toBe(
+      'https://demo.emby.local/Videos/item-1/master.m3u8?MediaSourceId=source-1&TranscodingContainer=ts&PlaySessionId=play-session-123&DeviceId=emby-player-desktop'
+    );
+    expect(source.streamUrl).not.toContain('token-123');
+    expect(source.streamUrl).not.toContain('api_key');
+    expect(source.httpHeaders).toEqual({
+      Authorization: 'MediaBrowser Token="token-123"',
+      'X-Emby-Token': 'token-123',
     });
+    expect(source.authMode).toBe('header');
+    expect(source.redactedDisplayUrl).toBe(source.streamUrl);
+    expect(source.redactedDisplayUrl).not.toContain('token-123');
+    expect(source.redactedDisplayUrl).not.toContain('api_key');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
     expect(requestUrl).toBe('https://demo.emby.local/Items/item-1/PlaybackInfo');
@@ -120,11 +127,18 @@ describe('playback api', () => {
       )
     );
 
-    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual({
+    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual(
+      expect.objectContaining({
       streamUrl:
         'https://demo.emby.local/Videos/item-1/stream.mp4?PlaySessionId=play-session-xyz&DeviceId=emby-player-desktop&MediaSourceId=source-9',
-      httpHeaders: {},
-    });
+      httpHeaders: {
+        'X-Emby-Token': 'token-123',
+      },
+      authMode: 'header',
+      redactedDisplayUrl:
+        'https://demo.emby.local/Videos/item-1/stream.mp4?PlaySessionId=play-session-xyz&DeviceId=emby-player-desktop&MediaSourceId=source-9',
+    })
+    );
   });
 
   it('passes selected media source and audio stream into PlaybackInfo and stream urls', async () => {
@@ -155,13 +169,16 @@ describe('playback api', () => {
           audioStreamIndex: 5,
         } as Partial<FetchPlaybackStreamSourceInput>)
       )
-    ).resolves.toEqual({
+    ).resolves.toEqual(
+      expect.objectContaining({
       streamUrl:
         'https://demo.emby.local/Videos/item-1/master.m3u8?TranscodingContainer=ts&PlaySessionId=play-session-selected&DeviceId=emby-player-desktop&MediaSourceId=source-2&AudioStreamIndex=5',
       httpHeaders: {
         'X-Emby-Token': 'token-123',
       },
-    });
+      authMode: 'header',
+    })
+    );
 
     const [, requestInit] = fetchMock.mock.calls[0] ?? [];
     expect(requestInit?.body).toContain('"MediaSourceId":"source-2"');
@@ -183,10 +200,15 @@ describe('playback api', () => {
       )
     );
 
-    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual({
+    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual(
+      expect.objectContaining({
       streamUrl: buildStreamUrl('https://demo.emby.local', 'item-1', 'token-123'),
-      httpHeaders: {},
-    });
+      httpHeaders: {
+        'X-Emby-Token': 'token-123',
+      },
+      authMode: 'header',
+    })
+    );
   });
 
   it('builds an HLS transcoding url from media source metadata when PlaybackInfo omits stream urls', async () => {
@@ -211,13 +233,18 @@ describe('playback api', () => {
       )
     );
 
-    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual({
-      streamUrl:
-        'https://demo.emby.local/Videos/item-1/master.m3u8?api_key=token-123&PlaySessionId=play-session-abc&DeviceId=emby-player-desktop&MediaSourceId=mediasource_175230&Container=ts&EnableAutoStreamCopy=false',
-      httpHeaders: {
-        'X-Emby-Token': 'token-123',
-      },
+    const source = await fetchPlaybackStreamSource(createInput());
+
+    expect(source.streamUrl).toBe(
+      'https://demo.emby.local/Videos/item-1/master.m3u8?PlaySessionId=play-session-abc&DeviceId=emby-player-desktop&MediaSourceId=mediasource_175230&Container=ts&EnableAutoStreamCopy=false'
+    );
+    expect(source.streamUrl).not.toContain('token-123');
+    expect(source.streamUrl).not.toContain('api_key');
+    expect(source.httpHeaders).toEqual({
+      'X-Emby-Token': 'token-123',
     });
+    expect(source.authMode).toBe('header');
+    expect(source.redactedDisplayUrl).toBe(source.streamUrl);
   });
 
   it('does not force fallback HLS when the media source cannot transcode', async () => {
@@ -242,11 +269,18 @@ describe('playback api', () => {
       )
     );
 
-    await expect(fetchPlaybackStreamSource(createInput())).resolves.toEqual({
-      streamUrl:
-        'https://demo.emby.local/Videos/item-1/stream?static=true&api_key=token-123&PlaySessionId=play-session-direct&DeviceId=emby-player-desktop&MediaSourceId=mediasource_175230',
-      httpHeaders: {},
+    const source = await fetchPlaybackStreamSource(createInput());
+
+    expect(source.streamUrl).toBe(
+      'https://demo.emby.local/Videos/item-1/stream?static=true&PlaySessionId=play-session-direct&DeviceId=emby-player-desktop&MediaSourceId=mediasource_175230'
+    );
+    expect(source.streamUrl).not.toContain('token-123');
+    expect(source.streamUrl).not.toContain('api_key');
+    expect(source.httpHeaders).toEqual({
+      'X-Emby-Token': 'token-123',
     });
+    expect(source.authMode).toBe('header');
+    expect(source.redactedDisplayUrl).toBe(source.streamUrl);
   });
 
   it('preflights a playback stream with range and playback headers', async () => {
@@ -362,6 +396,32 @@ describe('playback api', () => {
     ).rejects.toThrow(
       'Playback stream preflight could not reach https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted] (Failed to fetch)'
     );
+  });
+
+  it('times out hanging playback preflight requests with a redacted url', async () => {
+    vi.useFakeTimers();
+    const abortListener = vi.fn();
+    const fetcher = vi.fn((_input: string, init: RequestInit) => {
+      init.signal?.addEventListener('abort', abortListener);
+      return new Promise<Response>(() => undefined);
+    });
+
+    const preflightPromise = preflightPlaybackStreamSource(
+      {
+        streamUrl: 'https://demo.emby.local/Videos/item-1/stream.mp4?api_key=token-123',
+        httpHeaders: {},
+      },
+      fetcher
+    );
+
+    const assertion = expect(preflightPromise).rejects.toThrow(
+      'Playback stream preflight timed out for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]'
+    );
+    await vi.advanceTimersByTimeAsync(12000);
+
+    await assertion;
+    expect(abortListener).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it('marks an item as played through the user playstate endpoint', async () => {

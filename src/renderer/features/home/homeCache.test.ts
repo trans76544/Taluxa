@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '@shared/api/emby/home';
-import { createHomeCacheEntry, createHomeCacheKey, isHomeCacheFresh } from './homeCache';
+import {
+  createHomeCacheEntry,
+  createHomeCacheFallbackStatusMessage,
+  createHomeCacheKey,
+  isHomeCacheFresh,
+} from './homeCache';
 
 describe('home cache helpers', () => {
   it('creates a stable account and sort scoped cache key', () => {
@@ -101,5 +106,11 @@ describe('home cache helpers', () => {
       libraries,
       featuredRows,
     });
+  });
+
+  it('describes stale cached content as a non-blocking fallback', () => {
+    expect(createHomeCacheFallbackStatusMessage()).toBe(
+      'Could not refresh home data. Showing saved content.'
+    );
   });
 });

@@ -2,7 +2,7 @@
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ImageCache } from './imageCache';
 
 async function createTempCacheDir() {
@@ -10,6 +10,10 @@ async function createTempCacheDir() {
 }
 
 describe('ImageCache', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('downloads an image once and resolves later requests from disk', async () => {
     const cacheDir = await createTempCacheDir();
     const fetcher = vi.fn(async () =>
@@ -225,6 +229,32 @@ describe('ImageCache', () => {
         count: 2,
         sizeBytes: 6,
       });
+    } finally {
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('times out hanging image downloads and aborts the underlying fetch', async () => {
+    vi.useFakeTimers();
+    const cacheDir = await createTempCacheDir();
+    const abortListener = vi.fn();
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => {
+      init?.signal?.addEventListener('abort', abortListener);
+      return new Promise<Response>(() => undefined);
+    });
+    const cache = new ImageCache({ cacheDir, fetcher });
+
+    try {
+      const resolvePromise = cache.resolve('https://demo.emby.local/Items/1/Images/Primary');
+      await vi.waitFor(() => {
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      });
+      const assertion = expect(resolvePromise).rejects.toThrow('Image cache request timed out');
+
+      await vi.advanceTimersByTimeAsync(8000);
+
+      await assertion;
+      expect(abortListener).toHaveBeenCalledTimes(1);
     } finally {
       await rm(cacheDir, { recursive: true, force: true });
     }

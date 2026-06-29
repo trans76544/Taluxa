@@ -12,6 +12,7 @@ export interface HlsProxySource {
 interface HlsProxySession {
   apiKey: string;
   httpHeaders: Record<string, string>;
+  remoteUrls: Map<string, string>;
 }
 
 function isHlsPlaylistUrl(url: string): boolean {
@@ -93,6 +94,7 @@ export class HlsProxyServer {
     this.sessions.set(sourceId, {
       apiKey: new URL(streamUrl).searchParams.get('api_key') ?? httpHeaders['X-Emby-Token'] ?? '',
       httpHeaders,
+      remoteUrls: new Map(),
     });
 
     return this.createLocalUrl(sourceId, streamUrl);
@@ -106,23 +108,24 @@ export class HlsProxyServer {
 
   private createLocalUrl(sourceId: string, remoteUrl: string): string {
     const address = this.server?.address();
+    const session = this.sessions.get(sourceId);
 
-    if (!address || typeof address === 'string') {
+    if (!address || typeof address === 'string' || !session) {
       throw new Error('HLS proxy server is not listening.');
     }
 
-    const localUrl = new URL(`http://127.0.0.1:${address.port}/hls/${sourceId}`);
-    localUrl.searchParams.set('url', remoteUrl);
+    const remoteId = randomUUID();
+    session.remoteUrls.set(remoteId, remoteUrl);
 
-    return localUrl.toString();
+    return `http://127.0.0.1:${address.port}/hls/${sourceId}/${remoteId}`;
   }
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
-      const [, route, sourceId] = requestUrl.pathname.split('/');
+      const [, route, sourceId, remoteId] = requestUrl.pathname.split('/');
       const session = sourceId ? this.sessions.get(sourceId) : null;
-      const remoteUrl = requestUrl.searchParams.get('url');
+      const remoteUrl = remoteId ? session?.remoteUrls.get(remoteId) : null;
 
       if (route !== 'hls' || !sourceId || !session || !remoteUrl) {
         response.writeHead(404);

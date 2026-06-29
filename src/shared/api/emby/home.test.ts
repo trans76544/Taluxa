@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildServerContinueWatchingItems,
   buildContinueWatchingItems,
+  buildHomeRefreshStatusMessage,
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
 } from './home';
@@ -430,5 +431,17 @@ describe('home helpers', () => {
         },
       ]).map((item) => item.id)
     ).toEqual(['episode-2', 'movie-1']);
+  });
+
+  it('builds a non-blocking status message for failed home sections', () => {
+    expect(
+      buildHomeRefreshStatusMessage([
+        {
+          sectionId: 'preview:shows',
+          title: 'Shows',
+          message: 'request timed out',
+        },
+      ])
+    ).toBe('Some home sections could not refresh: Shows.');
   });
 });

@@ -19,6 +19,8 @@ import { fetchDandanplayDanmaku } from './player/danmaku';
 import { createMainWindow } from './window';
 import { preflightPlaybackStreamSource } from '@shared/api/emby/playback';
 import type { ImageCacheResolution } from '@shared/models/settings';
+import type { Settings, ProxySettings } from '@shared/models/settings';
+import type { PersistedState, SettingsSyncEvent } from '@shared/store/persistence';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -35,6 +37,27 @@ function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('player:progress', snapshot);
   }
+}
+
+function broadcastSettingsSync(event: SettingsSyncEvent) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('storage:settings-sync', event);
+  }
+}
+
+async function applySettingsSideEffects(
+  settings: Settings,
+  imageCache?: ImageCache
+): Promise<void> {
+  if (imageCache) {
+    imageCache.configure({
+      enabled: settings.cache.imageCacheEnabled,
+      maxDimension: getImageCacheMaxDimension(settings.cache.imageCacheResolution),
+      maxBytes: settings.cache.imageCacheMaxBytes,
+    });
+  }
+
+  await applyProxySettings(session.defaultSession, settings.proxy as ProxySettings);
 }
 
 function getMpvWindowMaximizeBounds(): MpvWindowBounds | null {
@@ -58,7 +81,10 @@ const mpvController = new MpvController({
     }
   },
   onPlayerSettingsPatch: async (settingsPatch) => {
-    await writeSettingsPatchFromMain(settingsPatch);
+    await writeSettingsPatchFromMain(settingsPatch, {
+      onSettingsChanged: (settings) => applySettingsSideEffects(settings),
+      onSettingsSync: broadcastSettingsSync,
+    });
   },
   onProgress: sendPlayerProgress,
 });
@@ -241,14 +267,8 @@ app.whenReady().then(() => {
   return applyProxySettingsWithFallback(session.defaultSession, persistedState.settings.proxy).then(
     () => {
       registerStorageIpc({
-        onSettingsChanged: async (settings) => {
-          imageCache.configure({
-            enabled: settings.cache.imageCacheEnabled,
-            maxDimension: getImageCacheMaxDimension(settings.cache.imageCacheResolution),
-            maxBytes: settings.cache.imageCacheMaxBytes,
-          });
-          await applyProxySettings(session.defaultSession, settings.proxy);
-        },
+        onSettingsChanged: (settings) => applySettingsSideEffects(settings, imageCache),
+        onSettingsSync: broadcastSettingsSync,
       });
       registerWindowControlIpc();
       registerAuthIpc((url, init) =>
