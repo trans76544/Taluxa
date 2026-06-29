@@ -9,6 +9,11 @@ import type {
   LibraryView,
 } from '@shared/models/library';
 import type { LibrarySortMode } from '@shared/models/settings';
+import {
+  createArtworkCandidateSet,
+  createParentArtworkCandidates,
+  normalizeArtworkCandidates,
+} from '@shared/utils/artworkCandidates';
 
 interface EmbyLibraryViewPayload {
   Items?: Array<{
@@ -103,6 +108,30 @@ function buildExistingImageCandidates(
   return candidates;
 }
 
+function buildParentImageCandidates(
+  serverUrl: string,
+  parentId: string | null | undefined
+): LibraryImageCandidate[] {
+  if (!hasText(parentId)) {
+    return [];
+  }
+
+  return createParentArtworkCandidates([
+    {
+      url: buildImageUrl(serverUrl, parentId.trim(), 'Primary'),
+      kind: 'primary',
+    },
+    {
+      url: buildImageUrl(serverUrl, parentId.trim(), 'Thumb'),
+      kind: 'thumb',
+    },
+    {
+      url: buildImageUrl(serverUrl, parentId.trim(), 'Backdrop'),
+      kind: 'backdrop',
+    },
+  ]);
+}
+
 function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
@@ -144,20 +173,9 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
     .map((item) => {
       const itemId = item.Id.trim();
       const posterUrl = `${normalizedServerUrl}/Items/${itemId}/Images/Primary`;
-
-      return {
-        id: itemId,
-        name: item.Name.trim(),
-        ...(hasText(item.Type) ? { type: item.Type.trim() } : {}),
-        ...(hasText(item.SeriesId) ? { seriesId: item.SeriesId.trim() } : {}),
-        ...(hasText(item.SeriesName) ? { seriesName: item.SeriesName.trim() } : {}),
-        ...(hasText(item.ParentId) ? { parentId: item.ParentId.trim() } : {}),
-        ...(typeof item.ParentIndexNumber === 'number'
-          ? { parentIndexNumber: item.ParentIndexNumber }
-          : {}),
-        ...(typeof item.IndexNumber === 'number' ? { indexNumber: item.IndexNumber } : {}),
-        posterUrl,
-        imageCandidates: [
+      const imageCandidates = normalizeArtworkCandidates({
+        preferredUrl: posterUrl,
+        candidates: [
           {
             url: buildImageUrl(normalizedServerUrl, itemId, 'Primary'),
             kind: 'primary',
@@ -171,6 +189,25 @@ export function mapItemsResponse(payload: EmbyLibraryItemPayload, serverUrl: str
             kind: 'backdrop',
           },
         ],
+        parentCandidates: [
+          ...buildParentImageCandidates(normalizedServerUrl, item.SeriesId),
+          ...buildParentImageCandidates(normalizedServerUrl, item.ParentId),
+        ],
+      });
+
+      return {
+        id: itemId,
+        name: item.Name.trim(),
+        ...(hasText(item.Type) ? { type: item.Type.trim() } : {}),
+        ...(hasText(item.SeriesId) ? { seriesId: item.SeriesId.trim() } : {}),
+        ...(hasText(item.SeriesName) ? { seriesName: item.SeriesName.trim() } : {}),
+        ...(hasText(item.ParentId) ? { parentId: item.ParentId.trim() } : {}),
+        ...(typeof item.ParentIndexNumber === 'number'
+          ? { parentIndexNumber: item.ParentIndexNumber }
+          : {}),
+        ...(typeof item.IndexNumber === 'number' ? { indexNumber: item.IndexNumber } : {}),
+        posterUrl,
+        imageCandidates,
         runtimeTicks: typeof item.RunTimeTicks === 'number' ? item.RunTimeTicks : null,
         communityRating: typeof item.CommunityRating === 'number' ? item.CommunityRating : null,
         productionYear: typeof item.ProductionYear === 'number' ? item.ProductionYear : null,
@@ -465,6 +502,12 @@ export async function fetchItemDetails(
 
   const item = await response.json() as any;
 
+  const posterUrl = `${normalizedServerUrl}/Items/${item.Id}/Images/Primary`;
+  const imageCandidates = normalizeArtworkCandidates({
+    preferredUrl: posterUrl,
+    candidates: buildExistingImageCandidates(normalizedServerUrl, item),
+  });
+
   return {
     id: item.Id,
     name: item.Name,
@@ -477,8 +520,8 @@ export async function fetchItemDetails(
     runtimeTicks: item.RunTimeTicks || null,
     serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
     ...(typeof item.UserData?.Played === 'boolean' ? { played: item.UserData.Played } : {}),
-    posterUrl: `${normalizedServerUrl}/Items/${item.Id}/Images/Primary`,
-    imageCandidates: [],
+    posterUrl,
+    imageCandidates,
     backdropUrl: item.BackdropImageTags && item.BackdropImageTags.length > 0
       ? `${normalizedServerUrl}/Items/${item.Id}/Images/Backdrop`
       : null,
@@ -539,12 +582,23 @@ export async function fetchSeasons(
   }
 
   const payload = await response.json() as EmbyLibraryItemPayload;
-  return (payload.Items || []).map((item: any) => ({
-    id: item.Id,
-    name: item.Name,
-    indexNumber: item.IndexNumber,
-    posterUrl: `${normalizedServerUrl}/Items/${item.Id}/Images/Primary`
-  }));
+  return (payload.Items || []).map((item: any) => {
+    const candidateSet = createArtworkCandidateSet({
+      preferredUrl: item.ImageTags?.Primary
+        ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary`
+        : null,
+      candidates: buildExistingImageCandidates(normalizedServerUrl, item),
+      parentCandidates: buildParentImageCandidates(normalizedServerUrl, seriesId),
+    });
+
+    return {
+      id: item.Id,
+      name: item.Name,
+      indexNumber: item.IndexNumber,
+      posterUrl: candidateSet.posterUrl || null,
+      imageCandidates: candidateSet.imageCandidates,
+    };
+  });
 }
 
 export async function fetchEpisodes(
@@ -566,17 +620,27 @@ export async function fetchEpisodes(
   }
 
   const payload = await response.json() as EmbyLibraryItemPayload;
-  return (payload.Items || []).map((item: any) => ({
-    id: item.Id,
-    name: item.Name,
-    indexNumber: item.IndexNumber,
-    parentIndexNumber: item.ParentIndexNumber,
-    overview: item.Overview || '',
-    runtimeTicks: item.RunTimeTicks || null,
-    serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
-    played: item.UserData?.Played === true,
-    posterUrl: item.ImageTags?.Primary ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary` : null,
-    imageCandidates: buildExistingImageCandidates(normalizedServerUrl, item),
-    mediaSources: mapMediaSources(item),
-  }));
+  return (payload.Items || []).map((item: any) => {
+    const candidateSet = createArtworkCandidateSet({
+      preferredUrl: item.ImageTags?.Primary
+        ? `${normalizedServerUrl}/Items/${item.Id}/Images/Primary`
+        : null,
+      candidates: buildExistingImageCandidates(normalizedServerUrl, item),
+      parentCandidates: buildParentImageCandidates(normalizedServerUrl, seriesId),
+    });
+
+    return {
+      id: item.Id,
+      name: item.Name,
+      indexNumber: item.IndexNumber,
+      parentIndexNumber: item.ParentIndexNumber,
+      overview: item.Overview || '',
+      runtimeTicks: item.RunTimeTicks || null,
+      serverPositionTicks: item.UserData?.PlaybackPositionTicks || null,
+      played: item.UserData?.Played === true,
+      posterUrl: candidateSet.posterUrl || null,
+      imageCandidates: candidateSet.imageCandidates,
+      mediaSources: mapMediaSources(item),
+    };
+  });
 }

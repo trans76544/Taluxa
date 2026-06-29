@@ -366,7 +366,60 @@ describe('fetchEpisodes', () => {
         url: 'https://demo.emby.local/Items/episode-1/Images/Primary',
         kind: 'primary',
       },
+      {
+        url: 'https://demo.emby.local/Items/series-1/Images/Primary',
+        kind: 'parent-primary',
+      },
+      {
+        url: 'https://demo.emby.local/Items/series-1/Images/Thumb',
+        kind: 'parent-thumb',
+      },
+      {
+        url: 'https://demo.emby.local/Items/series-1/Images/Backdrop',
+        kind: 'parent-backdrop',
+      },
     ]);
+  });
+
+  it('falls back to series artwork when an episode has no primary image', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        Items: [
+          {
+            Id: 'episode-2',
+            Name: 'No Poster',
+            IndexNumber: 2,
+            ParentIndexNumber: 1,
+            MediaSources: [],
+          },
+        ],
+      }),
+    });
+
+    const episodes = await fetchEpisodes(
+      'https://demo.emby.local',
+      'user-1',
+      'series-1',
+      'season-1',
+      'token-1'
+    );
+
+    const [episode] = episodes;
+    expect(episode).toBeDefined();
+
+    if (!episode) {
+      throw new Error('expected episode');
+    }
+
+    expect(episode.posterUrl).toBe(
+      'https://demo.emby.local/Items/series-1/Images/Primary'
+    );
+    expect((episode.imageCandidates ?? [])[0]).toEqual({
+      url: 'https://demo.emby.local/Items/series-1/Images/Primary',
+      kind: 'parent-primary',
+    });
   });
 
   it('maps Emby episode parent metadata for resume cards', () => {

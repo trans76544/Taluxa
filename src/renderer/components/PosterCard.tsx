@@ -63,11 +63,12 @@ export function PosterCard({
   onContextMenu,
 }: PosterCardProps) {
   const candidates = getPosterCandidates(posterUrl, imageCandidates);
+  const candidateKey = candidates.join('\n');
   const [candidateIndex, setCandidateIndex] = useState(0);
 
   useEffect(() => {
     setCandidateIndex(0);
-  }, [posterUrl, imageCandidates]);
+  }, [candidateKey]);
 
   const activePosterUrl = candidates[candidateIndex] ?? null;
   const resolvedPosterUrl = useCachedImageUrl(activePosterUrl);

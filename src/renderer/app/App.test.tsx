@@ -3659,4 +3659,81 @@ describe('App', () => {
       '无法保存服务器备注，请稍后重试。'
     );
   });
+
+  it('ignores stale search results after a newer query has rendered', async () => {
+    const firstSearch = createDeferred<unknown[]>();
+    const secondSearch = createDeferred<unknown[]>();
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    fetchSearchItemsMock
+      .mockReturnValueOnce(firstSearch.promise)
+      .mockReturnValueOnce(secondSearch.promise);
+
+    window.location.hash = '#/search?q=first';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    await waitFor(() => {
+      expect(fetchSearchItemsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'first',
+        'token-123'
+      );
+    });
+
+    window.location.hash = '#/search?q=second';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    await waitFor(() => {
+      expect(fetchSearchItemsMock).toHaveBeenCalledWith(
+        'https://demo.emby.local',
+        'user-1',
+        'second',
+        'token-123'
+      );
+    });
+
+    secondSearch.resolve([
+      {
+        id: 'second-result',
+        name: 'Second Result',
+        posterUrl: 'https://demo.emby.local/Items/second-result/Images/Primary',
+        imageCandidates: [],
+        runtimeTicks: null,
+        serverPositionTicks: null,
+        communityRating: null,
+        productionYear: null,
+      },
+    ]);
+
+    expect(await screen.findByRole('link', { name: /Second Result/ })).toBeInTheDocument();
+
+    await act(async () => {
+      firstSearch.resolve([
+        {
+          id: 'first-result',
+          name: 'First Result',
+          posterUrl: 'https://demo.emby.local/Items/first-result/Images/Primary',
+          imageCandidates: [],
+          runtimeTicks: null,
+          serverPositionTicks: null,
+          communityRating: null,
+          productionYear: null,
+        },
+      ]);
+      await flushAsyncQueue();
+    });
+
+    expect(screen.queryByRole('link', { name: /First Result/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Second Result/ })).toBeInTheDocument();
+  });
 });

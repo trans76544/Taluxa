@@ -58,6 +58,10 @@ describe('playbackRouteHelpers', () => {
     expect(pickPlaybackMediaSource([first, second], 'missing')).toBe(first);
   });
 
+  it('returns null when no playback media source exists', () => {
+    expect(pickPlaybackMediaSource([], 'missing')).toBeNull();
+  });
+
   it('allows direct playback for simple progressive sources only', () => {
     expect(isFastDirectPlaybackMediaSource(createMediaSource())).toBe(true);
     expect(isFastDirectPlaybackMediaSource(createMediaSource({ container: 'mkv' }))).toBe(false);

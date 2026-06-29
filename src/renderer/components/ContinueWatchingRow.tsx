@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PosterCard } from './PosterCard';
 
 import type { HomePosterItem } from '@shared/api/emby/home';
+import { createArtworkCandidateSet } from '@shared/utils/artworkCandidates';
 
 interface ContinueWatchingRowProps {
   title: string;
@@ -69,30 +70,37 @@ export function ContinueWatchingRow({
 
       {items.length > 0 ? (
         <div className="poster-row-grid">
-          {items.map((item) => (
-            <PosterCard
-              key={item.id}
-              title={item.title}
-              subtitle={item.subtitle}
-              posterUrl={item.posterUrl}
-              imageCandidates={item.imageCandidates}
-              href={item.href}
-              state={item.state}
-              landscape={true}
-              progressPercent={item.progressPercent}
-              className="poster-card--continue"
-              onContextMenu={(event) => {
-                event.preventDefault();
-                const menuWidth = 190;
-                const menuHeight = 124;
-                setMenuState({
-                  item,
-                  x: Math.min(event.clientX, Math.max(0, window.innerWidth - menuWidth)),
-                  y: Math.min(event.clientY, Math.max(0, window.innerHeight - menuHeight)),
-                });
-              }}
-            />
-          ))}
+          {items.map((item) => {
+            const artwork = createArtworkCandidateSet({
+              preferredUrl: item.posterUrl,
+              candidates: item.imageCandidates,
+            });
+
+            return (
+              <PosterCard
+                key={item.id}
+                title={item.title}
+                subtitle={item.subtitle}
+                posterUrl={artwork.posterUrl}
+                imageCandidates={artwork.imageCandidates}
+                href={item.href}
+                state={item.state}
+                landscape={true}
+                progressPercent={item.progressPercent}
+                className="poster-card--continue"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  const menuWidth = 190;
+                  const menuHeight = 124;
+                  setMenuState({
+                    item,
+                    x: Math.min(event.clientX, Math.max(0, window.innerWidth - menuWidth)),
+                    y: Math.min(event.clientY, Math.max(0, window.innerHeight - menuHeight)),
+                  });
+                }}
+              />
+            );
+          })}
         </div>
       ) : (
         <p className="home-section__empty">Nothing to resume yet.</p>

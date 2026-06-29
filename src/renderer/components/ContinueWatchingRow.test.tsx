@@ -58,4 +58,45 @@ describe('ContinueWatchingRow', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '标记为已播放' }));
     expect(onMarkPlayed).toHaveBeenCalledWith(item);
   });
+
+  it('normalizes duplicate continue-watching artwork candidates before rendering', () => {
+    render(
+      <MemoryRouter>
+        <ContinueWatchingRow
+          title="Continue"
+          items={[
+            createItem({
+              posterUrl: '',
+              imageCandidates: [
+                {
+                  url: 'https://demo.emby.local/Items/episode-1/Images/Thumb',
+                  kind: 'thumb',
+                },
+                {
+                  url: 'https://demo.emby.local/Items/episode-1/Images/Thumb',
+                  kind: 'thumb',
+                },
+                {
+                  url: 'https://demo.emby.local/Items/series-1/Images/Primary',
+                  kind: 'parent-primary',
+                },
+              ],
+            }),
+          ]}
+        />
+      </MemoryRouter>
+    );
+
+    const image = screen.getByRole('img', { name: 'Series 1' });
+    expect(image).toHaveAttribute(
+      'src',
+      'https://demo.emby.local/Items/episode-1/Images/Thumb'
+    );
+
+    fireEvent.error(image);
+    expect(screen.getByRole('img', { name: 'Series 1' })).toHaveAttribute(
+      'src',
+      'https://demo.emby.local/Items/series-1/Images/Primary'
+    );
+  });
 });

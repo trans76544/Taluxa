@@ -340,6 +340,28 @@ describe('ItemDetailsPage', () => {
     expect(brokenEpisodeImage).toHaveAttribute('src', 'https://demo.local/series-primary.jpg');
   });
 
+  it('keeps details visible while showing optional section failures', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          optionalFailureMessage="Some secondary content could not be loaded: Similar items."
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Some secondary content could not be loaded: Similar items.'
+    );
+  });
+
   it('runs favorite and played actions for movie details', () => {
     const onAddToFavorites = vi.fn();
     const onMarkPlayed = vi.fn();

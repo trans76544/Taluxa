@@ -117,7 +117,9 @@ export function buildDirectPlaybackStreamSource({
       mediaSourceId,
       audioStreamIndex
     ),
-    {}
+    {
+      'X-Emby-Token': accessToken,
+    }
   );
 }
 

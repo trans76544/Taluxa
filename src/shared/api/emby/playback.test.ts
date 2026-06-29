@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildDirectPlaybackStreamSource,
   addFavoriteItem,
   buildStreamUrl,
   fetchPlaybackStreamSource,
@@ -25,6 +26,26 @@ describe('playback api', () => {
       ...overrides,
     };
   }
+
+  it('authenticates direct playback sources with headers', () => {
+    const source = buildDirectPlaybackStreamSource(
+      createInput({
+        mediaSourceId: 'mediasource_3099',
+        audioStreamIndex: 1,
+      })
+    );
+
+    expect(source.streamUrl).toBe(
+      'https://demo.emby.local/Videos/item-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=mediasource_3099&AudioStreamIndex=1'
+    );
+    expect(source.streamUrl).not.toContain('token-123');
+    expect(source.streamUrl).not.toContain('api_key');
+    expect(source.httpHeaders).toEqual({
+      'X-Emby-Token': 'token-123',
+    });
+    expect(source.authMode).toBe('header');
+    expect(source.redactedDisplayUrl).toBe(source.streamUrl);
+  });
 
   it('prefers PlaybackInfo HLS transcoding urls and required headers', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(

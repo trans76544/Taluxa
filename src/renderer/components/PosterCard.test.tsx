@@ -100,4 +100,51 @@ describe('PosterCard', () => {
     expect(progress).toHaveAttribute('aria-valuenow', '25');
     expect(progress.querySelector('.poster-card__progress-fill')).toHaveStyle({ width: '25%' });
   });
+
+  it('does not reset failover when rerendered with a new candidate array for the same urls', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <PosterCard
+          title="Movie 1"
+          subtitle="2026"
+          posterUrl="https://demo.local/poster.jpg"
+          imageCandidates={[
+            {
+              url: 'https://demo.local/thumb.jpg',
+              kind: 'thumb',
+            },
+          ]}
+          href="/player/item-1"
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.error(screen.getByRole('img', { name: 'Movie 1' }));
+    expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute(
+      'src',
+      'https://demo.local/thumb.jpg'
+    );
+
+    rerender(
+      <MemoryRouter>
+        <PosterCard
+          title="Movie 1"
+          subtitle="2026"
+          posterUrl="https://demo.local/poster.jpg"
+          imageCandidates={[
+            {
+              url: 'https://demo.local/thumb.jpg',
+              kind: 'thumb',
+            },
+          ]}
+          href="/player/item-1"
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute(
+      'src',
+      'https://demo.local/thumb.jpg'
+    );
+  });
 });

@@ -60,7 +60,12 @@ import {
   getResumePositionSeconds,
   shouldSyncPlaybackProgress,
 } from '@shared/utils/playbackProgress';
-import { isValidCustomProxyUrl } from '@shared/network/proxy';
+import {
+  buildOptionalFailureMessage,
+  type BrowsingSectionFailure,
+  createBrowsingSectionFailure,
+  createRequestGenerationGuard,
+} from '@shared/utils/browsingLoad';
 import { Layout } from '@renderer/components/Layout';
 import { AppTitleBar } from '@renderer/components/AppTitleBar';
 import { useAuth } from '@renderer/features/auth/AuthContext';
@@ -79,8 +84,20 @@ import {
 } from '@renderer/features/home/AggregateViewPage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
+import {
+  getPlaybackMediaSourcesForItem,
+  resolvePlaybackTitle,
+} from '@renderer/features/player/playerAdapter';
 import { ItemDetailsPage } from '@renderer/features/library/ItemDetailsPage';
 import { SettingsPage } from '@renderer/features/settings/SettingsPage';
+import {
+  createCacheSettingsPatch,
+  createDanmakuServersSettingsPatch,
+  createDanmakuSettingsPatch,
+  createPlaybackSettingsPatch,
+  createProxySettingsPatch,
+  createSubtitleSettingsPatch,
+} from '@renderer/features/settings/settingsActions';
 import type { DanmakuServerSettings, ProxyMode } from '@shared/models/settings';
 import {
   createEpisodeSelector,
@@ -369,6 +386,7 @@ function ItemDetailsRoute() {
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [optionalFailureMessage, setOptionalFailureMessage] = useState('');
 
   const [playbackSource, setPlaybackSource] = useState<PlaybackStreamSource | null>(null);
   const [playbackItemId, setPlaybackItemId] = useState('');
@@ -381,6 +399,8 @@ function ItemDetailsRoute() {
   const resolvedActiveAccountId = activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
   const progressStateRef = useRef<{ lastReportedAtMs: number | null; lastReportedPositionSeconds: number | null }>({ lastReportedAtMs: null, lastReportedPositionSeconds: null });
   const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const detailsGenerationRef = useRef(createRequestGenerationGuard());
+  const seasonEpisodesGenerationRef = useRef(createRequestGenerationGuard());
 
   useEffect(() => {
     progressStateRef.current = { lastReportedAtMs: null, lastReportedPositionSeconds: null };
@@ -390,10 +410,17 @@ function ItemDetailsRoute() {
   useEffect(() => {
     const currentSession = session;
     if (!currentSession || !itemId) return;
+    const generation = detailsGenerationRef.current.next();
     let cancelled = false;
     setIsLoading(true);
     setErrorMessage('');
+    setOptionalFailureMessage('');
     
+    setDetails(null);
+    setSimilarItems([]);
+    setSeasons([]);
+    setEpisodes([]);
+    setSelectedSeasonId('');
     setPlaybackSource(null);
     setPlaybackItemId('');
     setPlaybackTitle('');
@@ -404,7 +431,7 @@ function ItemDetailsRoute() {
     async function loadData() {
       try {
         const persistedState = await window.embyDesktop.storage.read().catch(() => null);
-        if (cancelled) return;
+        if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
         setEpisodeProgressByItemId(
           persistedState
             ? getPersistedProgressByItemIdForAccount(
@@ -415,16 +442,39 @@ function ItemDetailsRoute() {
         );
 
         const itemDetails = await fetchItemDetails(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken);
-        if (cancelled) return;
+        if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
         setDetails(itemDetails);
 
-        const similar = await fetchSimilarItems(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken, 8).catch(() => []);
-        if (cancelled) return;
+        const optionalFailures: BrowsingSectionFailure[] = [];
+        let similar: LibraryItem[] = [];
+        try {
+          similar = await fetchSimilarItems(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken, 8);
+        } catch (error) {
+          optionalFailures.push(
+            createBrowsingSectionFailure({
+              section: 'similar',
+              label: 'Similar items',
+              error,
+            })
+          );
+        }
+        if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
         setSimilarItems(similar);
 
         if (itemDetails.type === 'Series') {
-          const seasonsList = await fetchSeasons(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken).catch(() => []);
-          if (cancelled) return;
+          let seasonsList: LibrarySeason[] = [];
+          try {
+            seasonsList = await fetchSeasons(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken);
+          } catch (error) {
+            optionalFailures.push(
+              createBrowsingSectionFailure({
+                section: 'seasons',
+                label: 'Seasons',
+                error,
+              })
+            );
+          }
+          if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
           setSeasons(seasonsList);
           
           if (seasonsList.length > 0) {
@@ -437,14 +487,26 @@ function ItemDetailsRoute() {
               );
             const initialSeason = resumeSeason?.id ?? seasonsList[0].id;
             setSelectedSeasonId(initialSeason);
-            const episodesList = await fetchEpisodes(serverUrl, currentSession!.userId, itemId, initialSeason, currentSession!.accessToken).catch(() => []);
-            if (cancelled) return;
+            let episodesList: LibraryEpisode[] = [];
+            try {
+              episodesList = await fetchEpisodes(serverUrl, currentSession!.userId, itemId, initialSeason, currentSession!.accessToken);
+            } catch (error) {
+              optionalFailures.push(
+                createBrowsingSectionFailure({
+                  section: 'episodes',
+                  label: 'Episodes',
+                  error,
+                })
+              );
+            }
+            if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
             setEpisodes(episodesList);
           }
         }
+        setOptionalFailureMessage(buildOptionalFailureMessage(optionalFailures) ?? '');
         setIsLoading(false);
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && detailsGenerationRef.current.isCurrent(generation)) {
           setErrorMessage('Could not load item details.');
           setIsLoading(false);
         }
@@ -457,10 +519,28 @@ function ItemDetailsRoute() {
   useEffect(() => {
     const currentSession = session;
     if (!currentSession || !itemId || !selectedSeasonId || details?.type !== 'Series') return;
+    const generation = seasonEpisodesGenerationRef.current.next();
     let cancelled = false;
     fetchEpisodes(serverUrl, currentSession!.userId, itemId, selectedSeasonId, currentSession!.accessToken)
-      .then(eps => { if (!cancelled) setEpisodes(eps); })
-      .catch(() => {});
+      .then(eps => {
+        if (!cancelled && seasonEpisodesGenerationRef.current.isCurrent(generation)) {
+          setEpisodes(eps);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled && seasonEpisodesGenerationRef.current.isCurrent(generation)) {
+          setEpisodes([]);
+          setOptionalFailureMessage(
+            buildOptionalFailureMessage([
+              createBrowsingSectionFailure({
+                section: 'episodes',
+                label: 'Episodes',
+                error,
+              }),
+            ]) ?? ''
+          );
+        }
+      });
     return () => { cancelled = true; };
   }, [selectedSeasonId, itemId, serverUrl, session, details?.type]);
 
@@ -474,14 +554,20 @@ function ItemDetailsRoute() {
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
     setPlaybackLaunchId((current) => current + 1);
-    setPlaybackTitle(selection?.title?.trim() || details?.name || '');
+    setPlaybackTitle(
+      resolvePlaybackTitle({
+        fallbackTitle: details?.name || '',
+        selectionTitle: selection?.title,
+      })
+    );
     setPlaybackEpisodeSelector(details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined);
 
     try {
-      const playbackMediaSources =
-        details?.id === playItemId
-          ? details.mediaSources
-          : episodes.find((episode) => episode.id === playItemId)?.mediaSources ?? [];
+      const playbackMediaSources = getPlaybackMediaSourcesForItem({
+        details,
+        episodes,
+        itemId: playItemId,
+      });
       const selectedMediaSource = pickPlaybackMediaSource(
         playbackMediaSources,
         selection?.mediaSourceId
@@ -764,6 +850,7 @@ function ItemDetailsRoute() {
         similarItems={similarItems}
         seasons={seasons}
         episodes={episodes}
+        optionalFailureMessage={optionalFailureMessage}
         selectedSeasonId={selectedSeasonId}
         resumeEpisodeId={resumeEpisodeId}
         episodeProgressByItemId={episodeProgressByItemId}
@@ -1352,6 +1439,7 @@ function LibraryItemsRoute() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const libraryGenerationRef = useRef(createRequestGenerationGuard());
   const libraryName =
     (location.state as { libraryName?: string } | null | undefined)?.libraryName ?? 'Library';
 
@@ -1381,6 +1469,7 @@ function LibraryItemsRoute() {
       return;
     }
 
+    const generation = libraryGenerationRef.current.next();
     let cancelled = false;
 
     setIsLoading(true);
@@ -1390,13 +1479,13 @@ function LibraryItemsRoute() {
       sortMode: settings.librarySortMode,
     })
       .then((nextItems) => {
-        if (!cancelled) {
+        if (!cancelled && libraryGenerationRef.current.isCurrent(generation)) {
           setItems(nextItems);
           setIsLoading(false);
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && libraryGenerationRef.current.isCurrent(generation)) {
           setErrorMessage('Could not load this library.');
           setIsLoading(false);
         }
@@ -1432,34 +1521,62 @@ function AggregateRoute() {
   const { accounts, activeAccountId, getServerDisplayName, setActiveAccountId } = useAuth();
   const navigate = useNavigate();
   const [rows, setRows] = useState<LoadedAggregatePosterRow[]>([]);
+  const [unavailableServers, setUnavailableServers] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const aggregateGenerationRef = useRef(createRequestGenerationGuard());
 
   useEffect(() => {
     if (accounts.length === 0) {
       setRows([]);
+      setUnavailableServers([]);
       setIsLoading(false);
       return;
     }
 
+    const generation = aggregateGenerationRef.current.next();
     let cancelled = false;
 
     setIsLoading(true);
     setErrorMessage('');
+    setUnavailableServers([]);
 
     window.embyDesktop.storage
       .read()
       .then(async (persistedState) => {
+        void persistedState;
+        const optionalFailures: BrowsingSectionFailure[] = [];
         const nextRows = await Promise.all(
           accounts.map(async (account): Promise<LoadedAggregatePosterRow> => {
-            const [serverResumeItems, serverResumableItems] = await Promise.all([
-              fetchResumeItems(account.serverUrl, account.userId, account.accessToken).catch(
-                () => []
-              ),
-              fetchResumableItems(account.serverUrl, account.userId, account.accessToken).catch(
-                () => []
-              ),
+            const [serverResumeItemsResult, serverResumableItemsResult] = await Promise.allSettled([
+              fetchResumeItems(account.serverUrl, account.userId, account.accessToken),
+              fetchResumableItems(account.serverUrl, account.userId, account.accessToken),
             ]);
+            const serverResumeItems =
+              serverResumeItemsResult.status === 'fulfilled' ? serverResumeItemsResult.value : [];
+            const serverResumableItems =
+              serverResumableItemsResult.status === 'fulfilled'
+                ? serverResumableItemsResult.value
+                : [];
+
+            if (
+              serverResumeItemsResult.status === 'rejected' ||
+              serverResumableItemsResult.status === 'rejected'
+            ) {
+              optionalFailures.push(
+                createBrowsingSectionFailure({
+                  section: 'server-resume',
+                  label: account.serverUrl,
+                  error:
+                    serverResumeItemsResult.status === 'rejected'
+                      ? serverResumeItemsResult.reason
+                      : serverResumableItemsResult.status === 'rejected'
+                        ? serverResumableItemsResult.reason
+                        : undefined,
+                  serverId: account.id,
+                })
+              );
+            }
 
             return {
               id: account.id,
@@ -1475,14 +1592,17 @@ function AggregateRoute() {
           })
         );
 
-        if (!cancelled) {
+        if (!cancelled && aggregateGenerationRef.current.isCurrent(generation)) {
           setRows(nextRows);
+          setUnavailableServers(optionalFailures.map((failure) => failure.label));
+          setErrorMessage(buildOptionalFailureMessage(optionalFailures) ?? '');
           setIsLoading(false);
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && aggregateGenerationRef.current.isCurrent(generation)) {
           setRows([]);
+          setUnavailableServers([]);
           setErrorMessage('Could not load aggregate view. Check your saved servers and try again.');
           setIsLoading(false);
         }
@@ -1521,12 +1641,16 @@ function AggregateRoute() {
 
   return (
     <AuthenticatedLayout title="聚合视界">
-      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+      {errorMessage && rows.length === 0 ? <p role="alert">{errorMessage}</p> : null}
       {isLoading ? (
         <p>Loading aggregate view...</p>
-      ) : !errorMessage ? (
-        <AggregateViewPage rows={displayRows} onOpenItem={handleOpenItem} />
-      ) : null}
+      ) : errorMessage && rows.length === 0 ? null : (
+        <AggregateViewPage
+          rows={displayRows}
+          unavailableServers={unavailableServers.map((serverUrl) => getServerDisplayName(serverUrl))}
+          onOpenItem={handleOpenItem}
+        />
+      )}
     </AuthenticatedLayout>
   );
 }
@@ -1538,6 +1662,7 @@ function SearchRoute() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const searchGenerationRef = useRef(createRequestGenerationGuard());
 
   useEffect(() => {
     if (!session || !query) {
@@ -1547,6 +1672,7 @@ function SearchRoute() {
       return;
     }
 
+    const generation = searchGenerationRef.current.next();
     let cancelled = false;
 
     setIsLoading(true);
@@ -1554,13 +1680,13 @@ function SearchRoute() {
 
     fetchSearchItems(serverUrl, session.userId, query, session.accessToken)
       .then((nextItems) => {
-        if (!cancelled) {
+        if (!cancelled && searchGenerationRef.current.isCurrent(generation)) {
           setItems(nextItems);
           setIsLoading(false);
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && searchGenerationRef.current.isCurrent(generation)) {
           setItems([]);
           setErrorMessage('搜索失败，请稍后再试。');
           setIsLoading(false);
@@ -1634,16 +1760,7 @@ function SettingsRoute() {
     mode: ProxyMode;
     customProxyUrl: string;
   }) {
-    if (next.mode === 'custom' && !isValidCustomProxyUrl(next.customProxyUrl)) {
-      throw new Error('invalid proxy');
-    }
-
-    const settingsPatch = {
-      proxy: {
-        mode: next.mode,
-        customProxyUrl: next.customProxyUrl,
-      },
-    };
+    const settingsPatch = createProxySettingsPatch(next);
 
     await window.embyDesktop.storage.write({
       settings: settingsPatch,
@@ -1652,15 +1769,7 @@ function SettingsRoute() {
   }
 
   async function handleDanmakuServersSave(next: DanmakuServerSettings[]) {
-    for (const server of next) {
-      if (!isValidCustomProxyUrl(server.url)) {
-        throw new Error('invalid danmaku server');
-      }
-    }
-
-    const settingsPatch = {
-      danmakuServers: next,
-    };
+    const settingsPatch = createDanmakuServersSettingsPatch(next);
 
     await window.embyDesktop.storage.write({
       settings: settingsPatch,
@@ -1669,9 +1778,7 @@ function SettingsRoute() {
   }
 
   async function handleDanmakuSettingsSave(next: DanmakuSettings) {
-    const settingsPatch = {
-      danmaku: next,
-    };
+    const settingsPatch = createDanmakuSettingsPatch(next);
 
     await window.embyDesktop.storage.write({
       settings: settingsPatch,
@@ -1680,9 +1787,7 @@ function SettingsRoute() {
   }
 
   async function handlePlaybackSettingsSave(next: PlaybackSettings) {
-    const settingsPatch = {
-      playback: next,
-    };
+    const settingsPatch = createPlaybackSettingsPatch(next);
 
     await window.embyDesktop.storage.write({
       settings: settingsPatch,
@@ -1691,9 +1796,7 @@ function SettingsRoute() {
   }
 
   async function handleSubtitleSettingsSave(next: SubtitleSettings) {
-    const settingsPatch = {
-      subtitles: next,
-    };
+    const settingsPatch = createSubtitleSettingsPatch(next);
 
     await window.embyDesktop.storage.write({
       settings: settingsPatch,
@@ -1704,9 +1807,7 @@ function SettingsRoute() {
   async function handleCacheSettingsSave(next: CacheSettings) {
     const imageCacheResolutionChanged =
       next.imageCacheResolution !== settings.cache.imageCacheResolution;
-    const settingsPatch = {
-      cache: next,
-    };
+    const settingsPatch = createCacheSettingsPatch(next);
 
     await window.embyDesktop.storage.write({
       settings: settingsPatch,

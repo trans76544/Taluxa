@@ -45,4 +45,37 @@ describe('AggregateViewPage', () => {
     expect(tabsRule?.groups?.body).not.toContain('position: sticky');
     expect(tabsRule?.groups?.body).not.toContain('position: fixed');
   });
+
+  it('keeps successful server rows visible while reporting unavailable servers', () => {
+    render(
+      <MemoryRouter>
+        <AggregateViewPage
+          rows={[
+            {
+              id: 'server-1',
+              title: 'Living Room',
+              items: [
+                {
+                  accountId: 'account-1',
+                  id: 'item-1',
+                  title: 'Movie 1',
+                  subtitle: 'Ready',
+                  posterUrl: 'https://demo.local/poster-1.jpg',
+                  imageCandidates: [],
+                  href: '/item/item-1',
+                },
+              ],
+            },
+          ]}
+          unavailableServers={['Bedroom']}
+          onOpenItem={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('heading', { name: 'Living Room' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Some servers could not load: Bedroom.'
+    );
+  });
 });

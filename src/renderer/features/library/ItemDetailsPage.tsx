@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { PosterCard } from '@renderer/components/PosterCard';
 import type {
   LibraryEpisode,
-  LibraryImageCandidate,
   LibraryItem,
   LibraryItemDetails,
   LibraryItemMediaSource,
   LibrarySeason,
 } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
+import { createArtworkCandidateSet, createParentArtworkCandidates } from '@shared/utils/artworkCandidates';
 
 interface PlaybackSelection {
   title?: string | null;
@@ -21,6 +21,7 @@ interface ItemDetailsPageProps {
   similarItems: LibraryItem[];
   seasons: LibrarySeason[];
   episodes: LibraryEpisode[];
+  optionalFailureMessage?: string;
   selectedSeasonId: string;
   resumeEpisodeId?: string | null;
   episodeProgressByItemId?: Record<string, PlaybackProgress>;
@@ -136,26 +137,6 @@ function formatEpisodePlaybackTitle(seriesName: string, episode: LibraryEpisode)
   return `${seriesName} - S${episode.parentIndexNumber}:E${episode.indexNumber} - ${episode.name}`;
 }
 
-function getEpisodePosterUrl(episode: LibraryEpisode, seriesPosterUrl: string | null) {
-  return episode.posterUrl || seriesPosterUrl || '';
-}
-
-function getEpisodeImageCandidates(
-  episode: LibraryEpisode,
-  seriesPosterUrl: string | null
-): LibraryImageCandidate[] {
-  const imageCandidates = [...(episode.imageCandidates ?? [])];
-
-  if (seriesPosterUrl) {
-    imageCandidates.push({
-      url: seriesPosterUrl,
-      kind: 'primary',
-    });
-  }
-
-  return imageCandidates;
-}
-
 function getProgressPercentFromSeconds(
   positionSeconds: number | null | undefined,
   durationSeconds: number | null | undefined
@@ -206,6 +187,7 @@ export function ItemDetailsPage({
   similarItems,
   seasons,
   episodes,
+  optionalFailureMessage,
   selectedSeasonId,
   resumeEpisodeId,
   episodeProgressByItemId = {},
@@ -343,6 +325,34 @@ export function ItemDetailsPage({
     action(episodeId);
   }
 
+  const parentArtworkCandidates = [
+    ...(details.posterUrl
+      ? [
+          {
+            url: details.posterUrl,
+            kind: 'parent-primary' as const,
+          },
+        ]
+      : []),
+    ...createParentArtworkCandidates(details.imageCandidates),
+  ];
+
+  function createEpisodeArtwork(episode: LibraryEpisode) {
+    return createArtworkCandidateSet({
+      preferredUrl: episode.posterUrl,
+      candidates: episode.imageCandidates,
+      parentCandidates: parentArtworkCandidates,
+    });
+  }
+
+  function createSeasonArtwork(season: LibrarySeason) {
+    return createArtworkCandidateSet({
+      preferredUrl: season.posterUrl,
+      candidates: season.imageCandidates,
+      parentCandidates: parentArtworkCandidates,
+    });
+  }
+
   return (
     <div className="item-details-page">
       {/* HERO SECTION */}
@@ -459,32 +469,38 @@ export function ItemDetailsPage({
       </div>
 
       <div className="item-details-body">
+        {optionalFailureMessage ? <p role="alert">{optionalFailureMessage}</p> : null}
+
         {/* SERIES SECTIONS */}
         {isSeries && episodes.length > 0 && (
           <section className="details-section">
             <h3 className="section-title">继续观看</h3>
             <ul className="library-items-grid episodes-row">
-              {episodes.map(eps => (
-                <li key={eps.id}>
-                   <PosterCard
-                    landscape
-                    title={`${eps.indexNumber}. ${eps.name}`}
-                    subtitle={formatRuntime(eps.runtimeTicks) || 'Ready to play'}
-                    posterUrl={getEpisodePosterUrl(eps, details.posterUrl)}
-                    imageCandidates={getEpisodeImageCandidates(eps, details.posterUrl)}
-                    href="#" // Prevent navigation
-                    progressPercent={getEpisodeProgressPercent(eps, episodeProgressByItemId[eps.id])}
-                    played={eps.played === true}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setSelectedEpisodeId(eps.id);
-                    }}
-                    onContextMenu={(event) => openEpisodeContextMenu(event, eps)}
-                    className={selectedEpisode?.id === eps.id ? 'episode-active' : ''}
-                    state={{}}
-                  />
-                </li>
-              ))}
+              {episodes.map(eps => {
+                const episodeArtwork = createEpisodeArtwork(eps);
+
+                return (
+                  <li key={eps.id}>
+                     <PosterCard
+                      landscape
+                      title={`${eps.indexNumber}. ${eps.name}`}
+                      subtitle={formatRuntime(eps.runtimeTicks) || 'Ready to play'}
+                      posterUrl={episodeArtwork.posterUrl}
+                      imageCandidates={episodeArtwork.imageCandidates}
+                      href="#" // Prevent navigation
+                      progressPercent={getEpisodeProgressPercent(eps, episodeProgressByItemId[eps.id])}
+                      played={eps.played === true}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setSelectedEpisodeId(eps.id);
+                      }}
+                      onContextMenu={(event) => openEpisodeContextMenu(event, eps)}
+                      className={selectedEpisode?.id === eps.id ? 'episode-active' : ''}
+                      state={{}}
+                    />
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
@@ -493,23 +509,27 @@ export function ItemDetailsPage({
           <section className="details-section">
             <h3 className="section-title">季</h3>
             <ul className="library-items-grid">
-              {seasons.map(season => (
-                <li key={season.id}>
-                  <PosterCard
-                    title={season.name}
-                    subtitle=""
-                    posterUrl={season.posterUrl || ''}
-                    imageCandidates={[]}
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onSelectSeason(season.id);
-                    }}
-                    className={selectedSeasonId === season.id ? 'season-active' : ''}
-                    state={{}}
-                  />
-                </li>
-              ))}
+              {seasons.map(season => {
+                const seasonArtwork = createSeasonArtwork(season);
+
+                return (
+                  <li key={season.id}>
+                    <PosterCard
+                      title={season.name}
+                      subtitle=""
+                      posterUrl={seasonArtwork.posterUrl}
+                      imageCandidates={seasonArtwork.imageCandidates}
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onSelectSeason(season.id);
+                      }}
+                      className={selectedSeasonId === season.id ? 'season-active' : ''}
+                      state={{}}
+                    />
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}

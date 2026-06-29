@@ -15,6 +15,7 @@ export interface AggregatePosterRow {
 
 interface AggregateViewPageProps {
   rows: AggregatePosterRow[];
+  unavailableServers?: string[];
   onOpenItem: (item: AggregatePosterItem, event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
@@ -37,13 +38,23 @@ function AggregateTabs() {
   );
 }
 
-export function AggregateViewPage({ rows, onOpenItem }: AggregateViewPageProps) {
+export function AggregateViewPage({
+  rows,
+  unavailableServers = [],
+  onOpenItem,
+}: AggregateViewPageProps) {
   const visibleRows = rows.filter((row) => row.items.length > 0);
 
   return (
     <section className="home-screen home-screen--aggregate">
       <AggregateTabs />
       <h1 className="sr-only">聚合视界</h1>
+
+      {unavailableServers.length > 0 ? (
+        <p role="alert" className="home-section__status">
+          Some servers could not load: {unavailableServers.join(', ')}.
+        </p>
+      ) : null}
 
       {visibleRows.length > 0 ? (
         visibleRows.map((row) => (

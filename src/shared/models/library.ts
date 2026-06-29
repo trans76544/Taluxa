@@ -6,7 +6,7 @@ export interface LibraryView {
 
 export interface LibraryImageCandidate {
   url: string;
-  kind: 'primary' | 'thumb' | 'backdrop';
+  kind: 'primary' | 'thumb' | 'backdrop' | 'parent-primary' | 'parent-thumb' | 'parent-backdrop';
 }
 
 export interface LibraryItem {
@@ -89,6 +89,7 @@ export interface LibrarySeason {
   name: string;
   indexNumber: number;
   posterUrl: string | null;
+  imageCandidates?: LibraryImageCandidate[];
 }
 
 export interface LibraryEpisode {
