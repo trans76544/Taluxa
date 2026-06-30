@@ -22,6 +22,51 @@ export function pickPlaybackMediaSource(
   );
 }
 
+export interface PlaybackPreparationKeyInput {
+  accountId: string | null | undefined;
+  audioStreamIndex?: number | null;
+  itemId: string;
+  mediaSourceId?: string | null;
+  resumeTicks?: number | null;
+}
+
+export function createPlaybackPreparationKey({
+  accountId,
+  audioStreamIndex,
+  itemId,
+  mediaSourceId,
+  resumeTicks,
+}: PlaybackPreparationKeyInput): string {
+  return [
+    accountId?.trim() ?? '',
+    itemId.trim(),
+    mediaSourceId?.trim() ?? '',
+    typeof audioStreamIndex === 'number' ? String(audioStreamIndex) : '',
+    typeof resumeTicks === 'number' ? String(resumeTicks) : '',
+  ].join('::');
+}
+
+export function isPlaybackPreparationKeyMatch(
+  candidateKey: string | null | undefined,
+  input: PlaybackPreparationKeyInput
+): boolean {
+  return candidateKey === createPlaybackPreparationKey(input);
+}
+
+export function pickDefaultAudioStreamIndex(
+  mediaSource: LibraryItemMediaSource | null | undefined
+): number | null {
+  if (!mediaSource?.audioStreams.length) {
+    return null;
+  }
+
+  const defaultAudioIndex = mediaSource.audioStreams.findIndex((audio) => audio.IsDefault);
+  const selectedIndex = defaultAudioIndex >= 0 ? defaultAudioIndex : 0;
+  const audio = mediaSource.audioStreams[selectedIndex];
+
+  return typeof audio.Index === 'number' ? audio.Index : selectedIndex;
+}
+
 export function isFastDirectPlaybackMediaSource(mediaSource: LibraryItemMediaSource): boolean {
   const container = mediaSource.container.toLowerCase();
   const videoCodec = mediaSource.videoCodec.toLowerCase();

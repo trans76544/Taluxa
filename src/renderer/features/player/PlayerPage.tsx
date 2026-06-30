@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
 
+export interface PlayerLaunchReadyEvent {
+  itemId: string;
+  launchRequestId?: number;
+}
+
+export interface PlayerLaunchFailureEvent extends PlayerLaunchReadyEvent {
+  message: string;
+}
+
 export interface PlayerPageProps {
   authMode?: 'header' | 'local-proxy' | 'tokenless';
   episodeSelector?: PlayerEpisodeSelector;
@@ -11,6 +20,8 @@ export interface PlayerPageProps {
   streamUrl: string;
   initialPositionSeconds: number;
   onEpisodeSelect?: (itemId: string) => void;
+  onLaunchFailure?: (event: PlayerLaunchFailureEvent) => void;
+  onLaunchReady?: (event: PlayerLaunchReadyEvent) => void;
   onProgress: (input: {
     itemId: string;
     positionSeconds: number;
@@ -79,6 +90,8 @@ export function PlayerPage({
   streamUrl,
   initialPositionSeconds,
   onEpisodeSelect,
+  onLaunchFailure,
+  onLaunchReady,
   onProgress,
 }: PlayerPageProps) {
   const [launchError, setLaunchError] = useState('');
@@ -122,6 +135,12 @@ export function PlayerPage({
         startSeconds: initialPositionSeconds,
       })
       .then(() => {
+        if (!cancelled) {
+          onLaunchReady?.({
+            itemId,
+            launchRequestId,
+          });
+        }
         return undefined;
       })
       .catch((error: unknown) => {
@@ -131,6 +150,11 @@ export function PlayerPage({
               ? error.message.trim()
               : 'Could not start desktop playback. Restart the app and try again.';
           setLaunchError(message);
+          onLaunchFailure?.({
+            itemId,
+            launchRequestId,
+            message,
+          });
         }
       })
       .finally(() => {

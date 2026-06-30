@@ -1,6 +1,12 @@
 export type BrowsingSurface = 'details' | 'search' | 'library' | 'aggregate';
 
 export type BrowsingPrimaryStatus = 'idle' | 'loading' | 'loaded' | 'failed' | 'stale';
+export type BrowsingSupportingStatus =
+  | 'idle'
+  | 'loading'
+  | 'loaded'
+  | 'failed'
+  | 'partial-failure';
 
 export type BrowsingSectionFailureReason =
   | 'network'
@@ -20,6 +26,7 @@ export interface BrowsingSurfaceLoadResult<TPrimary> {
   surface: BrowsingSurface;
   generation: number;
   primaryStatus: BrowsingPrimaryStatus;
+  supportingStatus?: BrowsingSupportingStatus;
   primaryData: TPrimary | null;
   optionalFailures: BrowsingSectionFailure[];
   message?: string;
@@ -111,6 +118,7 @@ export function createBrowsingLoadResult<TPrimary>(input: {
   surface: BrowsingSurface;
   generation: number;
   primaryStatus: BrowsingPrimaryStatus;
+  supportingStatus?: BrowsingSupportingStatus;
   primaryData: TPrimary | null;
   optionalFailures?: BrowsingSectionFailure[];
 }): BrowsingSurfaceLoadResult<TPrimary> {
@@ -120,8 +128,57 @@ export function createBrowsingLoadResult<TPrimary>(input: {
     surface: input.surface,
     generation: input.generation,
     primaryStatus: input.primaryStatus,
+    ...(input.supportingStatus ? { supportingStatus: input.supportingStatus } : {}),
     primaryData: input.primaryData,
     optionalFailures,
     message: buildOptionalFailureMessage(optionalFailures),
   };
+}
+
+export function createSurfaceLoadState<TPrimary>(input: {
+  surface: BrowsingSurface;
+  generation: number;
+  primaryData?: TPrimary | null;
+}): BrowsingSurfaceLoadResult<TPrimary> {
+  return createBrowsingLoadResult({
+    surface: input.surface,
+    generation: input.generation,
+    primaryStatus: input.primaryData ? 'loaded' : 'loading',
+    supportingStatus: 'idle',
+    primaryData: input.primaryData ?? null,
+  });
+}
+
+export function markPrimaryReady<TPrimary>(
+  state: BrowsingSurfaceLoadResult<TPrimary>,
+  primaryData: TPrimary
+): BrowsingSurfaceLoadResult<TPrimary> {
+  return createBrowsingLoadResult({
+    ...state,
+    primaryStatus: 'loaded',
+    primaryData,
+    optionalFailures: state.optionalFailures,
+    supportingStatus: state.supportingStatus ?? 'idle',
+  });
+}
+
+export function markSupportingLoading<TPrimary>(
+  state: BrowsingSurfaceLoadResult<TPrimary>
+): BrowsingSurfaceLoadResult<TPrimary> {
+  return createBrowsingLoadResult({
+    ...state,
+    optionalFailures: state.optionalFailures,
+    supportingStatus: 'loading',
+  });
+}
+
+export function markSupportingFailure<TPrimary>(
+  state: BrowsingSurfaceLoadResult<TPrimary>,
+  failures: BrowsingSectionFailure[]
+): BrowsingSurfaceLoadResult<TPrimary> {
+  return createBrowsingLoadResult({
+    ...state,
+    optionalFailures: failures,
+    supportingStatus: state.primaryStatus === 'loaded' ? 'partial-failure' : 'failed',
+  });
 }

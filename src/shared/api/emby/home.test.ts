@@ -38,6 +38,67 @@ describe('home helpers', () => {
     ]);
   });
 
+  it('preserves lightweight server resume fields needed for fast home and detail rendering', () => {
+    expect(
+      buildServerContinueWatchingItems({
+        serverItems: [
+          {
+            id: 'episode-7',
+            name: 'Fast Resume',
+            type: 'Episode',
+            seriesId: 'series-1',
+            seriesName: 'Series 1',
+            parentId: 'season-2',
+            parentIndexNumber: 2,
+            indexNumber: 7,
+            posterUrl: 'https://demo.local/episode-7-primary.jpg',
+            imageCandidates: [
+              {
+                url: 'https://demo.local/episode-7-primary.jpg',
+                kind: 'primary',
+              },
+              {
+                url: 'https://demo.local/series-1-thumb.jpg',
+                kind: 'parent-thumb',
+              },
+            ],
+            runtimeTicks: 18000000000,
+            serverPositionTicks: 9000000000,
+            lastPlayedAt: '2026-04-22T08:00:00.000Z',
+            communityRating: null,
+            productionYear: null,
+          },
+        ],
+      })
+    ).toEqual([
+      {
+        id: 'episode-7',
+        title: 'Series 1',
+        subtitle: 'S2E7 - Fast Resume',
+        posterUrl: 'https://demo.local/episode-7-primary.jpg',
+        imageCandidates: [
+          {
+            url: 'https://demo.local/episode-7-primary.jpg',
+            kind: 'primary',
+          },
+          {
+            url: 'https://demo.local/series-1-thumb.jpg',
+            kind: 'parent-thumb',
+          },
+        ],
+        href: '/item/series-1',
+        progressPercent: 50,
+        state: {
+          title: 'Series 1',
+          serverPositionTicks: 9000000000,
+          resumeEpisodeId: 'episode-7',
+          resumeSeasonId: 'season-2',
+          resumeSeasonIndex: 2,
+        },
+      },
+    ]);
+  });
+
   it('sorts server resume items from most recently watched to earliest', () => {
     expect(
       buildServerContinueWatchingItems({

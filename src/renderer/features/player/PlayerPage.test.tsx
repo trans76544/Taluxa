@@ -344,6 +344,129 @@ describe('PlayerPage', () => {
     expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
   });
 
+  it('reports readiness only for the current launch request', async () => {
+    const firstLaunch = createDeferred<void>();
+    const secondLaunch = createDeferred<void>();
+    const { launch } = mockPlayerBridge();
+    const onLaunchReady = vi.fn();
+    launch.mockReturnValueOnce(firstLaunch.promise).mockReturnValueOnce(secondLaunch.promise);
+
+    const { rerender } = render(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="item-1"
+        launchRequestId={1}
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4"
+        initialPositionSeconds={0}
+        onLaunchReady={onLaunchReady}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="item-2"
+        launchRequestId={2}
+        title="Movie 2"
+        streamUrl="https://demo.emby.local/Videos/item-2/stream.mp4"
+        initialPositionSeconds={0}
+        onLaunchReady={onLaunchReady}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      firstLaunch.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onLaunchReady).not.toHaveBeenCalled();
+
+    await act(async () => {
+      secondLaunch.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onLaunchReady).toHaveBeenCalledTimes(1);
+    expect(onLaunchReady).toHaveBeenCalledWith({
+      itemId: 'item-2',
+      launchRequestId: 2,
+    });
+  });
+
+  it('ignores obsolete launch errors and reports current launch failures', async () => {
+    const firstLaunch = createDeferred<void>();
+    const secondLaunch = createDeferred<void>();
+    const { launch } = mockPlayerBridge();
+    const onLaunchFailure = vi.fn();
+    launch.mockReturnValueOnce(firstLaunch.promise).mockReturnValueOnce(secondLaunch.promise);
+
+    const { rerender } = render(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="item-1"
+        launchRequestId={1}
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4"
+        initialPositionSeconds={0}
+        onLaunchFailure={onLaunchFailure}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="item-2"
+        launchRequestId={2}
+        title="Movie 2"
+        streamUrl="https://demo.emby.local/Videos/item-2/stream.mp4"
+        initialPositionSeconds={0}
+        onLaunchFailure={onLaunchFailure}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      firstLaunch.reject(new Error('Old launch failed'));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onLaunchFailure).not.toHaveBeenCalled();
+
+    await act(async () => {
+      secondLaunch.reject(new Error('Current launch failed'));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Current launch failed');
+    expect(onLaunchFailure).toHaveBeenCalledTimes(1);
+    expect(onLaunchFailure).toHaveBeenCalledWith({
+      itemId: 'item-2',
+      launchRequestId: 2,
+      message: 'Current launch failed',
+    });
+  });
+
   it('forwards matching bridge progress events to onProgress', async () => {
     const { emitProgress, onProgress: subscribe } = mockPlayerBridge();
     const onProgress = vi.fn();

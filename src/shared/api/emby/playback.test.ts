@@ -162,6 +162,51 @@ describe('playback api', () => {
     );
   });
 
+  it('redacts PlaybackInfo direct stream display urls while preserving required headers', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          PlaySessionId: 'play-session-redact',
+          MediaSources: [
+            {
+              Id: 'source-token',
+              DirectStreamUrl: '/Videos/item-1/stream.mp4?api_key=token-123',
+              AddApiKeyToDirectStreamUrl: true,
+              RequiredHttpHeaders: {
+                Authorization: 'MediaBrowser Token="token-123"',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    );
+
+    const source = await fetchPlaybackStreamSource(
+      createInput({
+        mediaSourceId: 'source-token',
+      })
+    );
+
+    expect(source.streamUrl).toBe(
+      'https://demo.emby.local/Videos/item-1/stream.mp4?api_key=token-123&PlaySessionId=play-session-redact&DeviceId=emby-player-desktop&MediaSourceId=source-token'
+    );
+    expect(source.httpHeaders).toEqual({
+      Authorization: 'MediaBrowser Token="token-123"',
+      'X-Emby-Token': 'token-123',
+    });
+    expect(source.authMode).toBe('header');
+    expect(source.redactedDisplayUrl).toBe(
+      'https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]&PlaySessionId=play-session-redact&DeviceId=emby-player-desktop&MediaSourceId=source-token'
+    );
+    expect(source.redactedDisplayUrl).not.toContain('token-123');
+  });
+
   it('passes selected media source and audio stream into PlaybackInfo and stream urls', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(

@@ -21,6 +21,7 @@ import {
 import type {
   LibraryItem,
   LibraryItemDetails,
+  LibraryItemMediaSource,
   LibrarySeason,
   LibraryEpisode,
 } from '@shared/models/library';
@@ -66,6 +67,11 @@ import {
   createBrowsingSectionFailure,
   createRequestGenerationGuard,
 } from '@shared/utils/browsingLoad';
+import { createLoadTimingRecorder, type LoadTimingMilestone } from '@shared/utils/loadTiming';
+import {
+  createSessionSnapshotKey,
+  createSessionSnapshotStore,
+} from '@shared/utils/sessionSnapshot';
 import { Layout } from '@renderer/components/Layout';
 import { AppTitleBar } from '@renderer/components/AppTitleBar';
 import { useAuth } from '@renderer/features/auth/AuthContext';
@@ -75,6 +81,7 @@ import {
   createHomeCacheEntry,
   createHomeCacheFallbackStatusMessage,
   createHomeCacheKey,
+  isCompleteHomeCacheEntry,
   isHomeCacheFresh,
 } from '@renderer/features/home/homeCache';
 import {
@@ -101,8 +108,11 @@ import {
 import type { DanmakuServerSettings, ProxyMode } from '@shared/models/settings';
 import {
   createEpisodeSelector,
+  createPlaybackPreparationKey,
   formatEpisodeSelectorTitle,
+  isPlaybackPreparationKeyMatch,
   isFastDirectPlaybackMediaSource,
+  pickDefaultAudioStreamIndex,
   pickPlaybackMediaSource,
   type PlayerEpisodeSelector,
 } from './playbackRouteHelpers';
@@ -118,6 +128,60 @@ interface PlaybackSelection {
   audioStreamIndex?: number | null;
 }
 
+interface PlaybackSourceDescriptor {
+  audioStreamIndex: number | null;
+  itemId: string;
+  key: string;
+  mediaSourceId: string | null;
+  resumeTicks: number | null;
+  selectedMediaSource: LibraryItemMediaSource | null;
+}
+
+interface PreparedPlaybackCandidate {
+  key: string;
+  sourcePromise: Promise<PlaybackStreamSource | null>;
+}
+
+interface CurrentPlaybackLaunch {
+  attemptId: number;
+  launchRequestId: number;
+  timingRecorder: ReturnType<typeof createLoadTimingRecorder>;
+}
+
+interface DetailRouteSnapshot {
+  details: LibraryItemDetails;
+  episodeProgressByItemId: Record<string, PlaybackProgress>;
+  episodes: LibraryEpisode[];
+  optionalFailureMessage: string;
+  seasons: LibrarySeason[];
+  selectedSeasonId: string;
+  similarItems: LibraryItem[];
+}
+
+const detailSessionSnapshots = createSessionSnapshotStore<DetailRouteSnapshot>();
+const sessionSnapshotScopeIds = new WeakMap<object, number>();
+let nextSessionSnapshotScopeId = 1;
+
+function getSessionSnapshotScopeId(): string {
+  const storageBridge = window.embyDesktop?.storage;
+
+  if (!storageBridge) {
+    return 'no-storage-bridge';
+  }
+
+  const existingId = sessionSnapshotScopeIds.get(storageBridge);
+
+  if (existingId !== undefined) {
+    return String(existingId);
+  }
+
+  const nextId = nextSessionSnapshotScopeId;
+  nextSessionSnapshotScopeId += 1;
+  sessionSnapshotScopeIds.set(storageBridge, nextId);
+
+  return String(nextId);
+}
+
 interface ItemRouteState {
   title?: string;
   serverPositionTicks?: number | null;
@@ -128,6 +192,14 @@ interface ItemRouteState {
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
 const PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS = 1500;
+
+function emitLoadTimingMilestone(milestone: LoadTimingMilestone) {
+  window.dispatchEvent(
+    new CustomEvent<LoadTimingMilestone>('taluxa-load-timing', {
+      detail: milestone,
+    })
+  );
+}
 
 async function waitForFastPlaybackPreflight(source: PlaybackStreamSource): Promise<void> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -167,6 +239,8 @@ interface HomeRouteData {
   featuredRows: HomePosterRow[];
   refreshStatusMessage?: string;
 }
+
+const homeSessionSnapshots = createSessionSnapshotStore<HomeRouteData>();
 
 function getItemIdFromItemHref(href: string): string | null {
   const match = href.match(/\/item\/([^/?#]+)/u);
@@ -250,23 +324,6 @@ function sortEpisodesByIndex(episodes: LibraryEpisode[]): LibraryEpisode[] {
 
     return leftIndex - rightIndex || left.name.localeCompare(right.name);
   });
-}
-
-function isCompleteHomeCacheEntry(
-  cacheEntry: PersistedHomeCacheEntry | undefined
-): cacheEntry is PersistedHomeCacheEntry {
-  const cachedAtMs =
-    typeof cacheEntry?.cachedAt === 'string' ? Date.parse(cacheEntry.cachedAt) : Number.NaN;
-
-  return Boolean(
-    cacheEntry &&
-      typeof cacheEntry.accountLabel === 'string' &&
-      cacheEntry.accountLabel.trim().length > 0 &&
-      Number.isFinite(cachedAtMs) &&
-      Array.isArray(cacheEntry.continueWatching) &&
-      Array.isArray(cacheEntry.libraries) &&
-      Array.isArray(cacheEntry.featuredRows)
-  );
 }
 
 function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedAccount) {
@@ -395,12 +452,105 @@ function ItemDetailsRoute() {
   const [playbackEpisodeSelector, setPlaybackEpisodeSelector] = useState<PlayerEpisodeSelector | undefined>(undefined);
   const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
+  const [playbackStartupMessage, setPlaybackStartupMessage] = useState('');
 
   const resolvedActiveAccountId = activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
   const progressStateRef = useRef<{ lastReportedAtMs: number | null; lastReportedPositionSeconds: number | null }>({ lastReportedAtMs: null, lastReportedPositionSeconds: null });
   const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const detailsGenerationRef = useRef(createRequestGenerationGuard());
   const seasonEpisodesGenerationRef = useRef(createRequestGenerationGuard());
+  const playbackAttemptGenerationRef = useRef(createRequestGenerationGuard());
+  const playbackLaunchIdRef = useRef(0);
+  const currentPlaybackLaunchRef = useRef<CurrentPlaybackLaunch | null>(null);
+  const preparedPlaybackCandidateRef = useRef<PreparedPlaybackCandidate | null>(null);
+
+  function createDefaultPlaybackSelection(playItemId: string): PlaybackSelection | undefined {
+    const mediaSources = getPlaybackMediaSourcesForItem({
+      details,
+      episodes,
+      itemId: playItemId,
+    });
+    const selectedMediaSource = pickPlaybackMediaSource(mediaSources);
+
+    return selectedMediaSource
+      ? {
+          audioStreamIndex: pickDefaultAudioStreamIndex(selectedMediaSource),
+          mediaSourceId: selectedMediaSource.id,
+        }
+      : undefined;
+  }
+
+  function createPlaybackSourceDescriptor(
+    playItemId: string,
+    resumeTicks?: number | null,
+    selection?: PlaybackSelection
+  ): PlaybackSourceDescriptor | null {
+    if (!session) {
+      return null;
+    }
+
+    const playbackMediaSources = getPlaybackMediaSourcesForItem({
+      details,
+      episodes,
+      itemId: playItemId,
+    });
+    const selectedMediaSource = pickPlaybackMediaSource(
+      playbackMediaSources,
+      selection?.mediaSourceId
+    );
+    const mediaSourceId = selectedMediaSource?.id ?? selection?.mediaSourceId ?? null;
+    const audioStreamIndex =
+      typeof selection?.audioStreamIndex === 'number' ? selection.audioStreamIndex : null;
+    const normalizedResumeTicks = typeof resumeTicks === 'number' ? resumeTicks : null;
+
+    return {
+      audioStreamIndex,
+      itemId: playItemId,
+      key: createPlaybackPreparationKey({
+        accountId: resolvedActiveAccountId,
+        audioStreamIndex,
+        itemId: playItemId,
+        mediaSourceId,
+        resumeTicks: normalizedResumeTicks,
+      }),
+      mediaSourceId,
+      resumeTicks: normalizedResumeTicks,
+      selectedMediaSource,
+    };
+  }
+
+  function resolvePlaybackSourceFromDescriptor(
+    descriptor: PlaybackSourceDescriptor
+  ): Promise<PlaybackStreamSource> {
+    if (!session) {
+      return Promise.reject(new Error('Playback session is unavailable.'));
+    }
+
+    const directSource =
+      descriptor.selectedMediaSource &&
+      isFastDirectPlaybackMediaSource(descriptor.selectedMediaSource)
+        ? buildDirectPlaybackStreamSource({
+            serverUrl,
+            userId: session.userId,
+            itemId: descriptor.itemId,
+            accessToken: session.accessToken,
+            mediaSourceId: descriptor.mediaSourceId ?? undefined,
+            audioStreamIndex: descriptor.audioStreamIndex,
+          })
+        : null;
+
+    return Promise.resolve(
+      directSource ??
+        fetchPlaybackStreamSource({
+          serverUrl,
+          userId: session.userId,
+          itemId: descriptor.itemId,
+          accessToken: session.accessToken,
+          mediaSourceId: descriptor.mediaSourceId ?? undefined,
+          audioStreamIndex: descriptor.audioStreamIndex,
+        })
+    );
+  }
 
   useEffect(() => {
     progressStateRef.current = { lastReportedAtMs: null, lastReportedPositionSeconds: null };
@@ -412,38 +562,73 @@ function ItemDetailsRoute() {
     if (!currentSession || !itemId) return;
     const generation = detailsGenerationRef.current.next();
     let cancelled = false;
-    setIsLoading(true);
+    let emittedDetailPrimaryVisible = false;
+    const timingRecorder = createLoadTimingRecorder({
+      attemptId: Date.now(),
+      surface: 'details',
+    });
+    const detailSnapshotKey = resolvedActiveAccountId
+      ? createSessionSnapshotKey({
+          accountId: resolvedActiveAccountId,
+          parts: ['detail', getSessionSnapshotScopeId(), itemId],
+        })
+      : null;
+    const detailSnapshot = detailSnapshotKey
+      ? detailSessionSnapshots.get(detailSnapshotKey)
+      : undefined;
+
     setErrorMessage('');
     setOptionalFailureMessage('');
-    
-    setDetails(null);
-    setSimilarItems([]);
-    setSeasons([]);
-    setEpisodes([]);
-    setSelectedSeasonId('');
+
+    if (detailSnapshot) {
+      setDetails(detailSnapshot.details);
+      setSimilarItems(detailSnapshot.similarItems);
+      setSeasons(detailSnapshot.seasons);
+      setEpisodes(detailSnapshot.episodes);
+      setSelectedSeasonId(detailSnapshot.selectedSeasonId);
+      setEpisodeProgressByItemId(detailSnapshot.episodeProgressByItemId);
+      setOptionalFailureMessage(detailSnapshot.optionalFailureMessage);
+      setIsLoading(false);
+      emittedDetailPrimaryVisible = true;
+      emitLoadTimingMilestone(timingRecorder.mark('detail-revisit-visible'));
+    } else {
+      setIsLoading(true);
+      setDetails(null);
+      setSimilarItems([]);
+      setSeasons([]);
+      setEpisodes([]);
+      setSelectedSeasonId('');
+      setEpisodeProgressByItemId({});
+    }
+
     setPlaybackSource(null);
     setPlaybackItemId('');
     setPlaybackTitle('');
     setPlaybackEpisodeSelector(undefined);
     setPlaybackErrorMessage('');
-    setEpisodeProgressByItemId({});
+    setPlaybackStartupMessage('');
+    currentPlaybackLaunchRef.current = null;
 
     async function loadData() {
       try {
         const persistedState = await window.embyDesktop.storage.read().catch(() => null);
         if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
-        setEpisodeProgressByItemId(
-          persistedState
-            ? getPersistedProgressByItemIdForAccount(
-                persistedState.progressByItemId,
-                resolvedActiveAccountId
-              )
-            : {}
-        );
+        const progressByItemId = persistedState
+          ? getPersistedProgressByItemIdForAccount(
+              persistedState.progressByItemId,
+              resolvedActiveAccountId
+            )
+          : {};
+        setEpisodeProgressByItemId(progressByItemId);
 
         const itemDetails = await fetchItemDetails(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken);
         if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
         setDetails(itemDetails);
+        setIsLoading(false);
+        if (!emittedDetailPrimaryVisible) {
+          emittedDetailPrimaryVisible = true;
+          emitLoadTimingMilestone(timingRecorder.mark('detail-primary-visible'));
+        }
 
         const optionalFailures: BrowsingSectionFailure[] = [];
         let similar: LibraryItem[] = [];
@@ -463,6 +648,8 @@ function ItemDetailsRoute() {
 
         if (itemDetails.type === 'Series') {
           let seasonsList: LibrarySeason[] = [];
+          let selectedSeasonForSnapshot = '';
+          let episodesList: LibraryEpisode[] = [];
           try {
             seasonsList = await fetchSeasons(serverUrl, currentSession!.userId, itemId, currentSession!.accessToken);
           } catch (error) {
@@ -486,8 +673,8 @@ function ItemDetailsRoute() {
                   season.indexNumber === resumeSeasonIndex
               );
             const initialSeason = resumeSeason?.id ?? seasonsList[0].id;
+            selectedSeasonForSnapshot = initialSeason;
             setSelectedSeasonId(initialSeason);
-            let episodesList: LibraryEpisode[] = [];
             try {
               episodesList = await fetchEpisodes(serverUrl, currentSession!.userId, itemId, initialSeason, currentSession!.accessToken);
             } catch (error) {
@@ -502,9 +689,34 @@ function ItemDetailsRoute() {
             if (cancelled || !detailsGenerationRef.current.isCurrent(generation)) return;
             setEpisodes(episodesList);
           }
+          const nextOptionalFailureMessage = buildOptionalFailureMessage(optionalFailures) ?? '';
+          setOptionalFailureMessage(nextOptionalFailureMessage);
+          if (detailSnapshotKey) {
+            detailSessionSnapshots.set(detailSnapshotKey, {
+              details: itemDetails,
+              episodeProgressByItemId: progressByItemId,
+              episodes: episodesList,
+              optionalFailureMessage: nextOptionalFailureMessage,
+              seasons: seasonsList,
+              selectedSeasonId: selectedSeasonForSnapshot,
+              similarItems: similar,
+            });
+          }
+          return;
         }
-        setOptionalFailureMessage(buildOptionalFailureMessage(optionalFailures) ?? '');
-        setIsLoading(false);
+        const nextOptionalFailureMessage = buildOptionalFailureMessage(optionalFailures) ?? '';
+        setOptionalFailureMessage(nextOptionalFailureMessage);
+        if (detailSnapshotKey) {
+          detailSessionSnapshots.set(detailSnapshotKey, {
+            details: itemDetails,
+            episodeProgressByItemId: progressByItemId,
+            episodes: [],
+            optionalFailureMessage: nextOptionalFailureMessage,
+            seasons: [],
+            selectedSeasonId: '',
+            similarItems: similar,
+          });
+        }
       } catch (err) {
         if (!cancelled && detailsGenerationRef.current.isCurrent(generation)) {
           setErrorMessage('Could not load item details.');
@@ -517,6 +729,71 @@ function ItemDetailsRoute() {
   }, [itemId, resolvedActiveAccountId, resumeSeasonId, resumeSeasonIndex, serverUrl, session]);
 
   useEffect(() => {
+    if (!session || !details) {
+      preparedPlaybackCandidateRef.current = null;
+      return;
+    }
+
+    const targetEpisode =
+      details.type === 'Series'
+        ? episodes.find((episode) => episode.id === resumeEpisodeId) ??
+          episodes.find(
+            (episode) =>
+              typeof episode.serverPositionTicks === 'number' && episode.serverPositionTicks > 0
+          ) ??
+          episodes.find(
+            (episode) => (episodeProgressByItemId[episode.id]?.positionSeconds ?? 0) > 0
+          ) ??
+          episodes[0]
+        : null;
+    const preparedItemId = details.type === 'Series' ? targetEpisode?.id : details.id;
+    const preparedResumeTicks =
+      details.type === 'Series' ? targetEpisode?.serverPositionTicks : details.serverPositionTicks;
+
+    if (!preparedItemId) {
+      preparedPlaybackCandidateRef.current = null;
+      return;
+    }
+
+    const descriptor = createPlaybackSourceDescriptor(
+      preparedItemId,
+      preparedResumeTicks,
+      createDefaultPlaybackSelection(preparedItemId)
+    );
+
+    if (!descriptor) {
+      preparedPlaybackCandidateRef.current = null;
+      return;
+    }
+
+    if (
+      isPlaybackPreparationKeyMatch(preparedPlaybackCandidateRef.current?.key, {
+        accountId: resolvedActiveAccountId,
+        audioStreamIndex: descriptor.audioStreamIndex,
+        itemId: descriptor.itemId,
+        mediaSourceId: descriptor.mediaSourceId,
+        resumeTicks: descriptor.resumeTicks,
+      })
+    ) {
+      return;
+    }
+
+    const candidate: PreparedPlaybackCandidate = {
+      key: descriptor.key,
+      sourcePromise: resolvePlaybackSourceFromDescriptor(descriptor).catch(() => null),
+    };
+    preparedPlaybackCandidateRef.current = candidate;
+  }, [
+    details,
+    episodeProgressByItemId,
+    episodes,
+    resolvedActiveAccountId,
+    resumeEpisodeId,
+    serverUrl,
+    session,
+  ]);
+
+  useEffect(() => {
     const currentSession = session;
     if (!currentSession || !itemId || !selectedSeasonId || details?.type !== 'Series') return;
     const generation = seasonEpisodesGenerationRef.current.next();
@@ -525,6 +802,23 @@ function ItemDetailsRoute() {
       .then(eps => {
         if (!cancelled && seasonEpisodesGenerationRef.current.isCurrent(generation)) {
           setEpisodes(eps);
+          if (resolvedActiveAccountId && details) {
+            detailSessionSnapshots.set(
+              createSessionSnapshotKey({
+                accountId: resolvedActiveAccountId,
+                parts: ['detail', getSessionSnapshotScopeId(), itemId],
+              }),
+              {
+                details,
+                episodeProgressByItemId,
+                episodes: eps,
+                optionalFailureMessage,
+                seasons,
+                selectedSeasonId,
+                similarItems,
+              }
+            );
+          }
         }
       })
       .catch((error) => {
@@ -550,10 +844,24 @@ function ItemDetailsRoute() {
     selection?: PlaybackSelection
   ) {
     if (!session) return;
+    const playbackAttempt = playbackAttemptGenerationRef.current.next();
+    const timingRecorder = createLoadTimingRecorder({
+      attemptId: playbackAttempt,
+      surface: 'playback',
+    });
+    const nextLaunchId = playbackLaunchIdRef.current + 1;
+    playbackLaunchIdRef.current = nextLaunchId;
+    currentPlaybackLaunchRef.current = {
+      attemptId: playbackAttempt,
+      launchRequestId: nextLaunchId,
+      timingRecorder,
+    };
     setPlaybackErrorMessage('');
+    setPlaybackStartupMessage('Preparing playback...');
+    emitLoadTimingMilestone(timingRecorder.mark('play-acknowledged'));
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
-    setPlaybackLaunchId((current) => current + 1);
+    setPlaybackLaunchId(nextLaunchId);
     setPlaybackTitle(
       resolvePlaybackTitle({
         fallbackTitle: details?.name || '',
@@ -563,48 +871,93 @@ function ItemDetailsRoute() {
     setPlaybackEpisodeSelector(details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined);
 
     try {
-      const playbackMediaSources = getPlaybackMediaSourcesForItem({
-        details,
-        episodes,
-        itemId: playItemId,
-      });
-      const selectedMediaSource = pickPlaybackMediaSource(
-        playbackMediaSources,
-        selection?.mediaSourceId
-      );
-      const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
-        ? buildDirectPlaybackStreamSource({
-            serverUrl,
-            userId: session.userId,
-            itemId: playItemId,
-            accessToken: session.accessToken,
-            mediaSourceId: selectedMediaSource.id,
-            audioStreamIndex: selection?.audioStreamIndex,
-          })
-        : null;
+      const descriptor = createPlaybackSourceDescriptor(playItemId, resumeTicks, selection);
+      if (!descriptor) {
+        return;
+      }
+      const preparedCandidate = preparedPlaybackCandidateRef.current;
+      const preparedSourcePromise =
+        preparedCandidate &&
+        isPlaybackPreparationKeyMatch(preparedCandidate.key, {
+          accountId: resolvedActiveAccountId,
+          audioStreamIndex: descriptor.audioStreamIndex,
+          itemId: descriptor.itemId,
+          mediaSourceId: descriptor.mediaSourceId,
+          resumeTicks: descriptor.resumeTicks,
+        })
+          ? preparedCandidate.sourcePromise
+          : null;
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
-        directSource ??
-          fetchPlaybackStreamSource({
-            serverUrl,
-            userId: session.userId,
-            itemId: playItemId,
-            accessToken: session.accessToken,
-            mediaSourceId: selection?.mediaSourceId,
-            audioStreamIndex: selection?.audioStreamIndex,
-          })
+        preparedSourcePromise
+          ? preparedSourcePromise.then(
+              (preparedSource) =>
+                preparedSource ?? resolvePlaybackSourceFromDescriptor(descriptor)
+            )
+          : resolvePlaybackSourceFromDescriptor(descriptor),
       ]);
+      if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
+        return;
+      }
+      emitLoadTimingMilestone(timingRecorder.mark('playback-source-ready'));
       await waitForFastPlaybackPreflight(nextSource);
+
+      if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
+        return;
+      }
       
       const progressByItemId = getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId);
       const savedPositionSeconds = progressByItemId[playItemId]?.positionSeconds ?? null;
       
       setInitialPositionSeconds(getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }));
       setPlaybackSource(nextSource);
+      setPlaybackStartupMessage('Starting playback...');
+      emitLoadTimingMilestone(timingRecorder.mark('player-launch-requested'));
     } catch (err) {
-      setPlaybackSource(null);
-      setPlaybackErrorMessage('Could not prepare desktop playback.');
+      if (playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
+        setPlaybackSource(null);
+        setPlaybackStartupMessage('');
+        setPlaybackErrorMessage('Could not prepare desktop playback.');
+        currentPlaybackLaunchRef.current = null;
+      }
     }
+  }
+
+  function handlePlaybackLaunchReady({
+    launchRequestId,
+  }: {
+    itemId: string;
+    launchRequestId?: number;
+  }) {
+    const currentLaunch = currentPlaybackLaunchRef.current;
+
+    if (!currentLaunch || launchRequestId !== currentLaunch.launchRequestId) {
+      return;
+    }
+
+    setPlaybackStartupMessage('');
+    emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-ready'));
+    currentPlaybackLaunchRef.current = null;
+  }
+
+  function handlePlaybackLaunchFailure({
+    launchRequestId,
+    message,
+  }: {
+    itemId: string;
+    launchRequestId?: number;
+    message: string;
+  }) {
+    const currentLaunch = currentPlaybackLaunchRef.current;
+
+    if (!currentLaunch || launchRequestId !== currentLaunch.launchRequestId) {
+      return;
+    }
+
+    setPlaybackStartupMessage('');
+    setPlaybackErrorMessage(message);
+    emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-recoverable-failure', 'failure'));
+    currentPlaybackLaunchRef.current = null;
   }
 
   async function handleEpisodeSelect(nextItemId: string) {
@@ -828,6 +1181,7 @@ function ItemDetailsRoute() {
   return (
     <AuthenticatedLayout title={details.name}>
       {playbackErrorMessage ? <p role="alert">{playbackErrorMessage}</p> : null}
+      {playbackStartupMessage ? <p role="status">{playbackStartupMessage}</p> : null}
       
       {session && initialPositionSeconds !== null && playbackSource ? (
         <PlayerPage
@@ -841,6 +1195,8 @@ function ItemDetailsRoute() {
           initialPositionSeconds={initialPositionSeconds}
           episodeSelector={playbackEpisodeSelector}
           onEpisodeSelect={handleEpisodeSelect}
+          onLaunchFailure={handlePlaybackLaunchFailure}
+          onLaunchReady={handlePlaybackLaunchReady}
           onProgress={handleProgress}
         />
       ) : null}
@@ -1168,6 +1524,18 @@ function LibrariesRoute() {
     const accessToken = currentAccessToken;
 
     let cancelled = false;
+    let emittedHomePrimaryVisible = false;
+    const timingRecorder = createLoadTimingRecorder({
+      attemptId: Date.now(),
+      surface: 'home',
+    });
+    const homeSnapshotKey = resolvedActiveAccountId
+      ? createSessionSnapshotKey({
+          accountId: resolvedActiveAccountId,
+          parts: ['home', getSessionSnapshotScopeId(), settings.librarySortMode],
+        })
+      : null;
+    const homeSnapshot = homeSnapshotKey ? homeSessionSnapshots.get(homeSnapshotKey) : undefined;
 
     setIsLoading(true);
     setErrorMessage('');
@@ -1257,7 +1625,10 @@ function LibrariesRoute() {
       };
     }
 
-    function renderHomeData(nextHomeData: HomeRouteData) {
+    function renderHomeData(
+      nextHomeData: HomeRouteData,
+      milestoneName: 'home-primary-visible' | 'home-revisit-visible' = 'home-primary-visible'
+    ) {
       setHomeAccountLabel(nextHomeData.accountLabel);
       setContinueWatching(nextHomeData.continueWatching);
       setLibraries(nextHomeData.libraries);
@@ -1265,6 +1636,20 @@ function LibrariesRoute() {
       setHasRenderedHomeSnapshot(true);
       setIsLoading(false);
       setErrorMessage(nextHomeData.refreshStatusMessage ?? '');
+
+      if (homeSnapshotKey) {
+        homeSessionSnapshots.set(homeSnapshotKey, {
+          accountLabel: nextHomeData.accountLabel,
+          continueWatching: nextHomeData.continueWatching,
+          featuredRows: nextHomeData.featuredRows,
+          libraries: nextHomeData.libraries,
+        });
+      }
+
+      if (!emittedHomePrimaryVisible) {
+        emittedHomePrimaryVisible = true;
+        emitLoadTimingMilestone(timingRecorder.mark(milestoneName));
+      }
     }
 
     async function refreshContinueWatchingData(): Promise<HomePosterItem[] | null> {
@@ -1283,7 +1668,7 @@ function LibrariesRoute() {
     }
 
     async function loadHomeData() {
-      let renderedCache = false;
+      let renderedReusableContent = Boolean(homeSnapshot);
 
       try {
         const persistedState = await window.embyDesktop.storage.read();
@@ -1298,7 +1683,7 @@ function LibrariesRoute() {
         const cacheEntry = cacheKey ? persistedState.homeCacheByKey?.[cacheKey] : undefined;
         const hasCompleteCacheEntry = isCompleteHomeCacheEntry(cacheEntry);
 
-        if (settings.cache.dataCacheEnabled && cacheEntry) {
+        if (settings.cache.dataCacheEnabled && hasCompleteCacheEntry) {
           renderHomeData({
             accountLabel: cacheEntry.accountLabel,
             continueWatching: Array.isArray(cacheEntry.continueWatching)
@@ -1307,7 +1692,7 @@ function LibrariesRoute() {
             libraries: Array.isArray(cacheEntry.libraries) ? cacheEntry.libraries : [],
             featuredRows: Array.isArray(cacheEntry.featuredRows) ? cacheEntry.featuredRows : [],
           });
-          renderedCache = true;
+          renderedReusableContent = true;
         }
 
         if (
@@ -1372,7 +1757,7 @@ function LibrariesRoute() {
           return;
         }
 
-        if (renderedCache) {
+        if (renderedReusableContent) {
           setErrorMessage(createHomeCacheFallbackStatusMessage());
           setIsLoading(false);
           return;
@@ -1386,6 +1771,10 @@ function LibrariesRoute() {
         setErrorMessage('Could not load this account. Check the server and try again.');
         setIsLoading(false);
       }
+    }
+
+    if (homeSnapshot) {
+      renderHomeData(homeSnapshot, 'home-revisit-visible');
     }
 
     void loadHomeData();

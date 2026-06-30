@@ -4,6 +4,7 @@ import {
   createHomeCacheEntry,
   createHomeCacheFallbackStatusMessage,
   createHomeCacheKey,
+  isCompleteHomeCacheEntry,
   isHomeCacheFresh,
 } from './homeCache';
 
@@ -112,5 +113,38 @@ describe('home cache helpers', () => {
     expect(createHomeCacheFallbackStatusMessage()).toBe(
       'Could not refresh home data. Showing saved content.'
     );
+  });
+
+  it('accepts complete entries with at least one primary home collection', () => {
+    expect(
+      isCompleteHomeCacheEntry({
+        cachedAt: '2026-05-02T00:00:00.000Z',
+        accountLabel: 'Server / Alice',
+        continueWatching: [],
+        libraries: [
+          {
+            id: 'library-1',
+            title: 'Movies',
+            posterUrl: '',
+            imageCandidates: [],
+            href: '/libraries/library-1',
+          },
+        ],
+        featuredRows: [],
+      })
+    ).toBe(true);
+  });
+
+  it('rejects cache entries without usable primary content', () => {
+    expect(
+      isCompleteHomeCacheEntry({
+        cachedAt: '2026-05-02T00:00:00.000Z',
+        accountLabel: 'Server / Alice',
+        continueWatching: [],
+        libraries: [],
+        featuredRows: [],
+      })
+    ).toBe(false);
+    expect(isCompleteHomeCacheEntry(undefined)).toBe(false);
   });
 });

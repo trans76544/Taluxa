@@ -57,3 +57,26 @@ export function createHomeCacheEntry({
 export function createHomeCacheFallbackStatusMessage(): string {
   return 'Could not refresh home data. Showing saved content.';
 }
+
+export function isCompleteHomeCacheEntry(
+  cacheEntry: PersistedHomeCacheEntry | undefined
+): cacheEntry is PersistedHomeCacheEntry {
+  const cachedAtMs =
+    typeof cacheEntry?.cachedAt === 'string' ? Date.parse(cacheEntry.cachedAt) : Number.NaN;
+  const hasPrimaryContent =
+    Array.isArray(cacheEntry?.continueWatching) && cacheEntry.continueWatching.length > 0 ||
+    Array.isArray(cacheEntry?.libraries) && cacheEntry.libraries.length > 0 ||
+    Array.isArray(cacheEntry?.featuredRows) &&
+      cacheEntry.featuredRows.some((row) => Array.isArray(row.items) && row.items.length > 0);
+
+  return Boolean(
+    cacheEntry &&
+      typeof cacheEntry.accountLabel === 'string' &&
+      cacheEntry.accountLabel.trim().length > 0 &&
+      Number.isFinite(cachedAtMs) &&
+      Array.isArray(cacheEntry.continueWatching) &&
+      Array.isArray(cacheEntry.libraries) &&
+      Array.isArray(cacheEntry.featuredRows) &&
+      hasPrimaryContent
+  );
+}

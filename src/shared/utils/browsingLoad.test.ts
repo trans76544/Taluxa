@@ -4,7 +4,11 @@ import {
   classifyBrowsingFailure,
   createBrowsingLoadResult,
   createBrowsingSectionFailure,
+  createSurfaceLoadState,
   createRequestGenerationGuard,
+  markPrimaryReady,
+  markSupportingFailure,
+  markSupportingLoading,
 } from './browsingLoad';
 
 describe('createRequestGenerationGuard', () => {
@@ -19,6 +23,29 @@ describe('createRequestGenerationGuard', () => {
     expect(guard.isCurrent(first)).toBe(false);
     expect(guard.isCurrent(second)).toBe(true);
     expect(guard.current).toBe(2);
+  });
+});
+
+describe('surface load state transitions', () => {
+  it('tracks primary readiness separately from supporting work', () => {
+    const initial = createSurfaceLoadState<{ id: string }>({ surface: 'details', generation: 2 });
+    const primaryReady = markPrimaryReady(initial, { id: 'item-1' });
+    const supportingLoading = markSupportingLoading(primaryReady);
+    const partial = markSupportingFailure(supportingLoading, [
+      createBrowsingSectionFailure({
+        section: 'similar',
+        label: 'Similar items',
+        reason: 'timeout',
+      }),
+    ]);
+
+    expect(initial.primaryStatus).toBe('loading');
+    expect(primaryReady.primaryStatus).toBe('loaded');
+    expect(primaryReady.supportingStatus).toBe('idle');
+    expect(supportingLoading.supportingStatus).toBe('loading');
+    expect(partial.primaryData).toEqual({ id: 'item-1' });
+    expect(partial.supportingStatus).toBe('partial-failure');
+    expect(partial.message).toBe('Some secondary content could not be loaded: Similar items.');
   });
 });
 

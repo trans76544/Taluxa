@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchEpisodes,
+  fetchItemDetails,
   fetchItems,
   fetchResumeItems,
   fetchResumableItems,
@@ -178,6 +179,162 @@ describe('fetchItems', () => {
     const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(requestUrl.searchParams.get('SortBy')).toBe('PremiereDate,ProductionYear,SortName');
     expect(requestUrl.searchParams.get('SortOrder')).toBe('Descending,Descending,Ascending');
+  });
+});
+
+describe('fetchItemDetails', () => {
+  it('maps primary detail fields, artwork candidates, and media source streams', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        Id: 'movie-1',
+        Name: 'Movie 1',
+        Type: 'Movie',
+        Overview: 'Primary overview.',
+        Genres: ['Action', 'Sci-Fi'],
+        CommunityRating: 8.2,
+        OfficialRating: 'PG-13',
+        ProductionYear: 2026,
+        RunTimeTicks: 72000000000,
+        ImageTags: {
+          Primary: 'primary-tag',
+          Thumb: 'thumb-tag',
+        },
+        BackdropImageTags: ['backdrop-tag'],
+        UserData: {
+          PlaybackPositionTicks: 42000000,
+          Played: false,
+        },
+        People: [
+          {
+            Id: 'person-1',
+            Name: 'Actor 1',
+            Role: 'Lead',
+            PrimaryImageTag: 'person-tag',
+          },
+        ],
+        Studios: [
+          {
+            Id: 'studio-1',
+            Name: 'Studio 1',
+          },
+        ],
+        ExternalUrls: [
+          {
+            Name: 'IMDb',
+            Url: 'https://example.local/title/movie-1',
+          },
+        ],
+        MediaSources: [
+          {
+            Id: 'source-2160',
+            Path: '/movies/movie-1-2160p.mkv',
+            Container: 'mkv',
+            Size: 27500000000,
+            Bitrate: 35100000,
+            MediaStreams: [
+              {
+                Type: 'Video',
+                Codec: 'hevc',
+                Width: 3840,
+                Height: 2160,
+                RealFrameRate: 60,
+              },
+              {
+                Type: 'Audio',
+                Index: 5,
+                DisplayTitle: 'EAC3 5.1',
+                Codec: 'eac3',
+                Channels: 6,
+                ChannelLayout: '5.1',
+                IsDefault: true,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const details = await fetchItemDetails(
+      'https://demo.emby.local',
+      'user-1',
+      'movie-1',
+      'token-1'
+    );
+
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.pathname).toBe('/Users/user-1/Items/movie-1');
+    expect(requestUrl.searchParams.get('Fields')).toContain('MediaSources');
+    expect(requestUrl.searchParams.get('Fields')).toContain('Overview');
+    expect(details).toEqual(
+      expect.objectContaining({
+        id: 'movie-1',
+        name: 'Movie 1',
+        type: 'Movie',
+        overview: 'Primary overview.',
+        genres: ['Action', 'Sci-Fi'],
+        communityRating: 8.2,
+        officialRating: 'PG-13',
+        productionYear: 2026,
+        runtimeTicks: 72000000000,
+        serverPositionTicks: 42000000,
+        posterUrl: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+        backdropUrl: 'https://demo.emby.local/Items/movie-1/Images/Backdrop',
+        played: false,
+      })
+    );
+    expect(details.imageCandidates).toEqual([
+      {
+        url: 'https://demo.emby.local/Items/movie-1/Images/Primary',
+        kind: 'primary',
+      },
+      {
+        url: 'https://demo.emby.local/Items/movie-1/Images/Thumb',
+        kind: 'thumb',
+      },
+      {
+        url: 'https://demo.emby.local/Items/movie-1/Images/Backdrop',
+        kind: 'backdrop',
+      },
+    ]);
+    expect(details.people).toEqual([
+      {
+        id: 'person-1',
+        name: 'Actor 1',
+        role: 'Lead',
+        imageUrl: 'https://demo.emby.local/Items/person-1/Images/Primary',
+      },
+    ]);
+    expect(details.studios).toEqual([{ id: 'studio-1', name: 'Studio 1' }]);
+    expect(details.externalUrls).toEqual([
+      {
+        name: 'IMDb',
+        url: 'https://example.local/title/movie-1',
+      },
+    ]);
+    expect(details.mediaSources).toEqual([
+      expect.objectContaining({
+        id: 'source-2160',
+        path: '/movies/movie-1-2160p.mkv',
+        container: 'mkv',
+        size: 27500000000,
+        bitrate: 35100000,
+        videoCodec: 'hevc',
+        videoStream: expect.objectContaining({
+          Width: 3840,
+          Height: 2160,
+          RealFrameRate: 60,
+        }),
+        audioStreams: [
+          expect.objectContaining({
+            Index: 5,
+            DisplayTitle: 'EAC3 5.1',
+            IsDefault: true,
+          }),
+        ],
+      }),
+    ]);
   });
 });
 

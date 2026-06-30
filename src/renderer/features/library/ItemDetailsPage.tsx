@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PosterCard } from '@renderer/components/PosterCard';
 import type {
   LibraryEpisode,
@@ -202,6 +202,8 @@ export function ItemDetailsPage({
     details.mediaSources[0]?.id ?? ''
   );
   const [selectedEpisodeId, setSelectedEpisodeId] = useState('');
+  const mediaSelectionContextKey = `${details.id}:${selectedEpisodeId}`;
+  const mediaSelectionContextRef = useRef(mediaSelectionContextKey);
   const [episodeContextMenu, setEpisodeContextMenu] = useState<EpisodeContextMenuState | null>(
     null
   );
@@ -237,9 +239,22 @@ export function ItemDetailsPage({
   }, [episodes, resumeEpisodeId]);
 
   useEffect(() => {
+    const contextChanged = mediaSelectionContextRef.current !== mediaSelectionContextKey;
     const firstMediaSource = playbackMediaSources[0];
-    setSelectedMediaSourceId(firstMediaSource?.id ?? '');
-  }, [details.id, selectedEpisode?.id, playbackMediaSources]);
+    mediaSelectionContextRef.current = mediaSelectionContextKey;
+
+    setSelectedMediaSourceId((currentMediaSourceId) => {
+      if (
+        !contextChanged &&
+        currentMediaSourceId &&
+        playbackMediaSources.some((source) => source.id === currentMediaSourceId)
+      ) {
+        return currentMediaSourceId;
+      }
+
+      return firstMediaSource?.id ?? '';
+    });
+  }, [mediaSelectionContextKey, playbackMediaSources]);
 
   useEffect(() => {
     setSelectedAudioValue(getDefaultAudioValue(selectedMediaSource));

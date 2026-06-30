@@ -2215,6 +2215,89 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
   });
 
+  it('renders movie primary details before slow similar items resolve', async () => {
+    const account = createSavedAccount();
+    const similarDeferred = createDeferred<unknown[]>();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+    fetchSimilarItemsMock.mockReturnValue(similarDeferred.promise);
+
+    window.location.hash = '#/item/movie-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading item details...')).not.toBeInTheDocument();
+    expect(fetchSimilarItemsMock).toHaveBeenCalledWith(
+      'https://demo.emby.local',
+      'user-1',
+      'movie-1',
+      'token-123',
+      8
+    );
+
+    await act(async () => {
+      similarDeferred.resolve([]);
+      await flushAsyncQueue();
+    });
+  });
+
+  it('renders series primary details before slow seasons resolve', async () => {
+    const account = createSavedAccount();
+    const seasonsDeferred = createDeferred<unknown[]>();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+    fetchItemDetailsMock.mockResolvedValue({
+      id: 'series-1',
+      name: 'Series 1',
+      posterUrl: 'https://demo.emby.local/Items/series-1/Images/Primary',
+      imageCandidates: [],
+      runtimeTicks: null,
+      serverPositionTicks: null,
+      communityRating: null,
+      productionYear: 2026,
+      type: 'Series',
+      overview: 'A test series.',
+      genres: [],
+      officialRating: '',
+      people: [],
+      studios: [],
+      externalUrls: [],
+      mediaSources: [],
+      backdropUrl: null,
+    });
+    fetchSeasonsMock.mockReturnValue(seasonsDeferred.promise);
+
+    window.location.hash = '#/item/series-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Series 1' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading item details...')).not.toBeInTheDocument();
+    await act(async () => {
+      seasonsDeferred.resolve([]);
+      await flushAsyncQueue();
+    });
+  });
+
   it('keeps item details visible after starting desktop playback from the details page', async () => {
     const account = createSavedAccount();
     const storage = mockStorageRead(
@@ -2250,6 +2333,67 @@ describe('App', () => {
       );
     });
     expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+  });
+
+  it('acknowledges play immediately while playback source resolution is delayed', async () => {
+    const account = createSavedAccount();
+    const sourceDeferred = createDeferred<{
+      streamUrl: string;
+      httpHeaders: Record<string, string>;
+    }>();
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [account],
+        activeAccountId: account.id,
+      })
+    );
+    fetchItemDetailsMock.mockResolvedValue(
+      createMovieDetails({
+        id: 'movie-1',
+        mediaSources: [
+          {
+            id: 'slow-source',
+            path: '/movies/movie-1.mkv',
+            container: 'mkv',
+            size: null,
+            bitrate: null,
+            videoCodec: 'hevc',
+            videoStream: null,
+            audioStreams: [],
+          },
+        ],
+      })
+    );
+    fetchPlaybackStreamSourceMock.mockReturnValue(sourceDeferred.promise);
+
+    window.location.hash = '#/item/movie-1';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Preparing playback...');
+    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'movie-1',
+        mediaSourceId: 'slow-source',
+      })
+    );
+
+    await act(async () => {
+      sourceDeferred.resolve({
+        streamUrl: 'https://demo.emby.local/Videos/movie-1/master.m3u8',
+        httpHeaders: {},
+      });
+      await flushAsyncQueue();
+    });
   });
 
   it('selects a series episode before launching it with the episode title and id', async () => {

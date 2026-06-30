@@ -4,9 +4,12 @@ import type {
   LibraryItemMediaSource,
 } from '@shared/models/library';
 import {
+  createPlaybackPreparationKey,
   createEpisodeSelector,
   formatEpisodeSelectorTitle,
+  isPlaybackPreparationKeyMatch,
   isFastDirectPlaybackMediaSource,
+  pickDefaultAudioStreamIndex,
   pickPlaybackMediaSource,
 } from './playbackRouteHelpers';
 
@@ -66,6 +69,75 @@ describe('playbackRouteHelpers', () => {
     expect(isFastDirectPlaybackMediaSource(createMediaSource())).toBe(true);
     expect(isFastDirectPlaybackMediaSource(createMediaSource({ container: 'mkv' }))).toBe(false);
     expect(isFastDirectPlaybackMediaSource(createMediaSource({ videoCodec: 'hevc' }))).toBe(false);
+  });
+
+  it('creates account and selection scoped playback preparation keys', () => {
+    expect(
+      createPlaybackPreparationKey({
+        accountId: 'account-1',
+        itemId: 'item-1',
+        mediaSourceId: 'source-1',
+        audioStreamIndex: 2,
+        resumeTicks: 3000000000,
+      })
+    ).toBe('account-1::item-1::source-1::2::3000000000');
+
+    expect(
+      createPlaybackPreparationKey({
+        accountId: 'account-1',
+        itemId: 'item-1',
+      })
+    ).toBe('account-1::item-1::::::');
+  });
+
+  it('matches prepared playback candidates only for the same selection identity', () => {
+    const candidateKey = createPlaybackPreparationKey({
+      accountId: 'account-1',
+      itemId: 'item-1',
+      mediaSourceId: 'source-1',
+      audioStreamIndex: 2,
+      resumeTicks: 3000000000,
+    });
+
+    expect(
+      isPlaybackPreparationKeyMatch(candidateKey, {
+        accountId: 'account-1',
+        itemId: 'item-1',
+        mediaSourceId: 'source-1',
+        audioStreamIndex: 2,
+        resumeTicks: 3000000000,
+      })
+    ).toBe(true);
+    expect(
+      isPlaybackPreparationKeyMatch(candidateKey, {
+        accountId: 'account-1',
+        itemId: 'item-1',
+        mediaSourceId: 'source-2',
+        audioStreamIndex: 2,
+        resumeTicks: 3000000000,
+      })
+    ).toBe(false);
+  });
+
+  it('preserves default audio stream identity for prepared playback', () => {
+    expect(
+      pickDefaultAudioStreamIndex(
+        createMediaSource({
+          audioStreams: [
+            { Index: 7, DisplayTitle: 'Commentary', IsDefault: false },
+            { Index: 2, DisplayTitle: 'Main', IsDefault: true },
+          ],
+        })
+      )
+    ).toBe(2);
+    expect(
+      pickDefaultAudioStreamIndex(
+        createMediaSource({
+          audioStreams: [{ DisplayTitle: 'Fallback', IsDefault: false }],
+        })
+      )
+    ).toBe(0);
+    expect(pickDefaultAudioStreamIndex(createMediaSource())).toBeNull();
   });
 
   it('formats and builds an mpv episode selector', () => {

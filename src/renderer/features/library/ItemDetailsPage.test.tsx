@@ -362,6 +362,53 @@ describe('ItemDetailsPage', () => {
     );
   });
 
+  it('keeps visible controls stable when refreshed details arrive for the same item', () => {
+    const onPlay = vi.fn();
+    const { rerender } = render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={onPlay}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('\u7248\u672c'), {
+      target: { value: 'source-2160' },
+    });
+
+    rerender(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ overview: 'Fresh overview.' })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={onPlay}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    expect(screen.getByText('Fresh overview.')).toBeInTheDocument();
+    expect(screen.getByLabelText('\u7248\u672c')).toHaveValue('source-2160');
+    expect(screen.getByLabelText('\u97f3\u9891')).toHaveValue('5');
+
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+    expect(onPlay).toHaveBeenCalledWith('movie-1', 42000000, {
+      mediaSourceId: 'source-2160',
+      audioStreamIndex: 5,
+    });
+  });
+
   it('runs favorite and played actions for movie details', () => {
     const onAddToFavorites = vi.fn();
     const onMarkPlayed = vi.fn();
