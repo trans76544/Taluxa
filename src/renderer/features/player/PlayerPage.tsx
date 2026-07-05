@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { redactErrorMessage } from '@shared/network/redaction';
 
 export interface PlayerLaunchReadyEvent {
   itemId: string;
@@ -147,7 +148,7 @@ export function PlayerPage({
         if (!cancelled) {
           const message =
             error instanceof Error && error.message.trim()
-              ? error.message.trim()
+              ? redactErrorMessage(error)
               : 'Could not start desktop playback. Restart the app and try again.';
           setLaunchError(message);
           onLaunchFailure?.({

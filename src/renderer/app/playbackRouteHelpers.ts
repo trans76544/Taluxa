@@ -53,6 +53,48 @@ export function isPlaybackPreparationKeyMatch(
   return candidateKey === createPlaybackPreparationKey(input);
 }
 
+export type PlaybackPreparationDecisionKind =
+  | 'direct-source'
+  | 'playback-info'
+  | 'prepared-candidate';
+
+export interface PlaybackPreparationDecision {
+  kind: PlaybackPreparationDecisionKind;
+  reason:
+    | 'no-safe-fast-path'
+    | 'prepared-candidate-key-matched'
+    | 'selected-media-source-is-direct-playable';
+}
+
+export function choosePlaybackPreparationDecision({
+  candidateKey,
+  expectedKey,
+  selectedMediaSource,
+}: {
+  candidateKey: string | null | undefined;
+  expectedKey: string;
+  selectedMediaSource: LibraryItemMediaSource | null | undefined;
+}): PlaybackPreparationDecision {
+  if (selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)) {
+    return {
+      kind: 'direct-source',
+      reason: 'selected-media-source-is-direct-playable',
+    };
+  }
+
+  if (candidateKey === expectedKey) {
+    return {
+      kind: 'prepared-candidate',
+      reason: 'prepared-candidate-key-matched',
+    };
+  }
+
+  return {
+    kind: 'playback-info',
+    reason: 'no-safe-fast-path',
+  };
+}
+
 export function pickDefaultAudioStreamIndex(
   mediaSource: LibraryItemMediaSource | null | undefined
 ): number | null {

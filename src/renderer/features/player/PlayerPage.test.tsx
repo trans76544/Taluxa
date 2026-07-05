@@ -344,6 +344,39 @@ describe('PlayerPage', () => {
     expect(screen.queryByText('Launching mpv...')).not.toBeInTheDocument();
   });
 
+  it('redacts sensitive playback tokens from launch failures', async () => {
+    const { launch } = mockPlayerBridge();
+    launch.mockRejectedValueOnce(
+      new Error(
+        'mpv failed for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=token-123'
+      )
+    );
+    const onLaunchFailure = vi.fn();
+
+    render(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="item-1"
+        launchRequestId={1}
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
+        initialPositionSeconds={42}
+        onLaunchFailure={onLaunchFailure}
+        onProgress={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'mpv failed for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]'
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent('token-123');
+    expect(onLaunchFailure).toHaveBeenCalledWith({
+      itemId: 'item-1',
+      launchRequestId: 1,
+      message: 'mpv failed for https://demo.emby.local/Videos/item-1/stream.mp4?api_key=[redacted]',
+    });
+  });
+
   it('reports readiness only for the current launch request', async () => {
     const firstLaunch = createDeferred<void>();
     const secondLaunch = createDeferred<void>();
@@ -465,6 +498,42 @@ describe('PlayerPage', () => {
       launchRequestId: 2,
       message: 'Current launch failed',
     });
+  });
+
+  it('cancels pending launch callbacks after unmount', async () => {
+    const pendingLaunch = createDeferred<void>();
+    const { launch } = mockPlayerBridge();
+    const onLaunchFailure = vi.fn();
+    const onLaunchReady = vi.fn();
+    launch.mockReturnValueOnce(pendingLaunch.promise);
+
+    const { unmount } = render(
+      <PlayerPage
+        httpHeaders={{}}
+        itemId="item-1"
+        launchRequestId={1}
+        title="Movie 1"
+        streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4"
+        initialPositionSeconds={0}
+        onLaunchFailure={onLaunchFailure}
+        onLaunchReady={onLaunchReady}
+        onProgress={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(launch).toHaveBeenCalledTimes(1);
+    });
+
+    unmount();
+
+    await act(async () => {
+      pendingLaunch.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onLaunchReady).not.toHaveBeenCalled();
+    expect(onLaunchFailure).not.toHaveBeenCalled();
   });
 
   it('forwards matching bridge progress events to onProgress', async () => {

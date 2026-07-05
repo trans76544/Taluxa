@@ -884,7 +884,7 @@ describe('App', () => {
     expect(storage.launch).not.toHaveBeenCalled();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      await vi.advanceTimersByTimeAsync(250);
       await flushAsyncQueue();
     });
 

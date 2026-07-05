@@ -6,7 +6,17 @@ import type { SavedAccount } from '@shared/models/session';
 import type { PersistedState } from '@shared/store/persistence';
 import { createDefaultSettings } from '@shared/models/settings';
 import { createDeferred, flushPromises } from '../../test/deferred';
-import { createLibraryItemDetails } from '../../test/loadPerformanceFixtures';
+import {
+  createControllablePlayerBridge,
+  createDirectPlaybackMediaSource,
+  createLibraryEpisode,
+  createLibraryItem,
+  createLibraryItemDetails,
+  createLibrarySeason,
+  createMovieDetails,
+  createPlaybackInfoFallbackMediaSource,
+  createSeriesDetails,
+} from '../../test/loadPerformanceFixtures';
 
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
@@ -90,8 +100,7 @@ function createPersistedState(overrides: Partial<StoredPersistedState> = {}): St
 }
 
 function mockStorageRead(state: StoredPersistedState) {
-  const launch = vi.fn().mockResolvedValue(undefined);
-  const preflight = vi.fn().mockResolvedValue(undefined);
+  const player = createControllablePlayerBridge();
 
   window.embyDesktop = {
     auth: {
@@ -108,11 +117,7 @@ function mockStorageRead(state: StoredPersistedState) {
       stats: vi.fn().mockResolvedValue({ count: 0, sizeBytes: 0 }),
     },
     player: {
-      launch,
-      onEpisodeSelect: vi.fn(() => () => undefined),
-      onProgress: vi.fn(() => () => undefined),
-      preflight,
-      switchEpisode: vi.fn().mockResolvedValue(undefined),
+      ...player,
     },
     storage: {
       clearSession: vi.fn(),
@@ -126,7 +131,7 @@ function mockStorageRead(state: StoredPersistedState) {
     },
   } as unknown as Window['embyDesktop'];
 
-  return { launch, preflight };
+  return player;
 }
 
 function renderMovieRoute(details = createLibraryItemDetails()) {
@@ -148,6 +153,91 @@ function renderMovieRoute(details = createLibraryItemDetails()) {
   );
 
   return bridge;
+}
+
+function renderSeriesRoute() {
+  const account = createSavedAccount();
+  const bridge = mockStorageRead(
+    createPersistedState({
+      accounts: [account],
+      activeAccountId: account.id,
+    })
+  );
+
+  fetchItemDetailsMock.mockResolvedValue(createSeriesDetails());
+  fetchSeasonsMock.mockResolvedValue([createLibrarySeason()]);
+  fetchEpisodesMock.mockResolvedValue([
+    createLibraryEpisode({
+      id: 'episode-1',
+      name: 'First Case',
+      mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-1-source' })],
+    }),
+    createLibraryEpisode({
+      id: 'episode-2',
+      name: 'Second Case',
+      indexNumber: 2,
+      mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-2-source' })],
+    }),
+  ]);
+  window.location.hash = '#/item/series-1';
+
+  render(
+    <HashRouter>
+      <App />
+    </HashRouter>
+  );
+
+  return bridge;
+}
+
+function renderHomeRoute() {
+  const account = createSavedAccount();
+  const bridge = mockStorageRead(
+    createPersistedState({
+      accounts: [account],
+      activeAccountId: account.id,
+    })
+  );
+
+  fetchViewsMock.mockResolvedValue([]);
+  fetchResumeItemsMock.mockResolvedValue([
+    createLibraryItem({
+      id: 'resume-movie-1',
+      name: 'Resume Movie',
+      serverPositionTicks: 150000000,
+    }),
+  ]);
+  fetchResumableItemsMock.mockResolvedValue([]);
+  fetchItemDetailsMock.mockResolvedValue(
+    createMovieDetails({
+      id: 'resume-movie-1',
+      name: 'Resume Movie',
+      serverPositionTicks: 150000000,
+      mediaSources: [createDirectPlaybackMediaSource({ id: 'resume-source' })],
+    })
+  );
+  window.location.hash = '#/libraries';
+
+  render(
+    <HashRouter>
+      <App />
+    </HashRouter>
+  );
+
+  return bridge;
+}
+
+function collectLoadTimingMilestones() {
+  const milestones: Array<{ name: string; result: string; surface: string }> = [];
+  const listener = (event: Event) => {
+    milestones.push((event as CustomEvent<{ name: string; result: string; surface: string }>).detail);
+  };
+  window.addEventListener('taluxa-load-timing', listener);
+
+  return {
+    milestones,
+    cleanup: () => window.removeEventListener('taluxa-load-timing', listener),
+  };
 }
 
 describe('playback performance route behavior', () => {
@@ -253,6 +343,128 @@ describe('playback performance route behavior', () => {
     expect(bridge.launch).toHaveBeenCalledTimes(1);
   });
 
+  it('does not block player launch on a slow preflight beyond the fast budget', async () => {
+    const bridge = renderMovieRoute(createLibraryItemDetails({ id: 'movie-1' }));
+    bridge.preflight.mockReturnValueOnce(new Promise(() => undefined));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(bridge.preflight).toHaveBeenCalledTimes(1);
+    expect(bridge.launch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+      await flushPromises();
+    });
+
+    expect(bridge.launch).toHaveBeenCalledTimes(1);
+  });
+
+  it('launches direct-play media without waiting for PlaybackInfo source resolution', async () => {
+    fetchPlaybackStreamSourceMock.mockReturnValueOnce(new Promise(() => undefined));
+    const bridge = renderMovieRoute(
+      createMovieDetails({
+        id: 'movie-1',
+        mediaSources: [createDirectPlaybackMediaSource({ id: 'direct-source' })],
+      })
+    );
+    const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
+
+    try {
+      expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+      await waitFor(() => {
+        expect(bridge.launch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            itemId: 'movie-1',
+            streamUrl:
+              'https://demo.emby.local/Videos/movie-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=direct-source',
+          })
+        );
+      });
+      expect(fetchPlaybackStreamSourceMock).not.toHaveBeenCalled();
+      expect(milestones.map((milestone) => milestone.name)).toEqual(
+        expect.arrayContaining([
+          'play-acknowledged',
+          'playback-source-ready',
+          'player-launch-requested',
+          'playback-ready',
+        ])
+      );
+    } finally {
+      cleanupMilestones();
+    }
+  });
+
+  it('emits fast startup milestones when launching a selected series episode', async () => {
+    const bridge = renderSeriesRoute();
+    const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
+
+    try {
+      fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
+      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+      await waitFor(() => {
+        expect(bridge.launch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            itemId: 'episode-2',
+            title: 'Series 1 - S1:E2 - Second Case',
+          })
+        );
+      });
+      expect(milestones.map((milestone) => milestone.name)).toEqual(
+        expect.arrayContaining([
+          'play-acknowledged',
+          'playback-source-ready',
+          'player-launch-requested',
+          'playback-ready',
+        ])
+      );
+    } finally {
+      cleanupMilestones();
+    }
+  });
+
+  it('uses continue-watching resume state without adding pre-launch delay', async () => {
+    const bridge = renderHomeRoute();
+    const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
+
+    try {
+      fireEvent.click(await screen.findByRole('link', { name: /Resume Movie/ }));
+      expect(await screen.findByRole('heading', { name: 'Resume Movie' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+      await waitFor(() => {
+        expect(bridge.launch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            itemId: 'resume-movie-1',
+            startSeconds: 15,
+          })
+        );
+      });
+      expect(milestones.map((milestone) => milestone.name)).toEqual(
+        expect.arrayContaining([
+          'play-acknowledged',
+          'playback-source-ready',
+          'player-launch-requested',
+          'playback-ready',
+        ])
+      );
+    } finally {
+      cleanupMilestones();
+    }
+  });
+
   it('reuses a prepared playback candidate when the current play request matches it', async () => {
     const details = createLibraryItemDetails({
       id: 'movie-1',
@@ -270,30 +482,39 @@ describe('playback performance route behavior', () => {
       ],
     });
     const bridge = renderMovieRoute(details);
+    const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
 
-    await waitFor(() => {
+    try {
+      await waitFor(() => {
+        expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+      await waitFor(() => {
+        expect(bridge.launch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            itemId: 'movie-1',
+            streamUrl: 'https://demo.emby.local/Videos/item-1/master.m3u8',
+          })
+        );
+      });
       expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
-
-    await waitFor(() => {
-      expect(bridge.launch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          itemId: 'movie-1',
-          streamUrl: 'https://demo.emby.local/Videos/item-1/master.m3u8',
-        })
+      expect(milestones.map((milestone) => milestone.name)).toEqual(
+        expect.arrayContaining([
+          'play-acknowledged',
+          'playback-source-ready',
+          'player-launch-requested',
+          'playback-ready',
+        ])
       );
-    });
-    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanupMilestones();
+    }
   });
 
   it('emits playback ready timing and clears startup status when the current mpv launch resolves', async () => {
-    const milestones: Array<{ name: string; result: string; surface: string }> = [];
-    const listener = (event: Event) => {
-      milestones.push((event as CustomEvent<{ name: string; result: string; surface: string }>).detail);
-    };
-    window.addEventListener('taluxa-load-timing', listener);
+    const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
 
     try {
       renderMovieRoute(createLibraryItemDetails({ id: 'movie-1' }));
@@ -314,7 +535,94 @@ describe('playback performance route behavior', () => {
       );
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     } finally {
-      window.removeEventListener('taluxa-load-timing', listener);
+      cleanupMilestones();
+    }
+  });
+
+  it('reports redacted recoverable failure timing for the current launch failure', async () => {
+    const bridge = renderMovieRoute(
+      createMovieDetails({
+        id: 'movie-1',
+        mediaSources: [createPlaybackInfoFallbackMediaSource()],
+      })
+    );
+    const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
+    bridge.launch.mockRejectedValueOnce(
+      new Error(
+        'mpv failed for https://demo.emby.local/Videos/movie-1/stream.mp4?api_key=token-123'
+      )
+    );
+
+    try {
+      expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('alert')).toHaveLength(2);
+      });
+      for (const alert of screen.getAllByRole('alert')) {
+        expect(alert).toHaveTextContent(
+          'mpv failed for https://demo.emby.local/Videos/movie-1/stream.mp4?api_key=[redacted]'
+        );
+        expect(alert).not.toHaveTextContent('token-123');
+      }
+      expect(milestones).toContainEqual(
+        expect.objectContaining({
+          name: 'playback-recoverable-failure',
+          result: 'failure',
+          surface: 'playback',
+        })
+      );
+    } finally {
+      cleanupMilestones();
+    }
+  });
+
+  it('reports startup critical-path segments after playback is ready', async () => {
+    const launchDeferred = createDeferred<void>();
+    const bridge = renderMovieRoute(createLibraryItemDetails({ id: 'movie-1' }));
+    const segments: Array<{ durationMs: number; name: string }> = [];
+    const listener = (event: Event) => {
+      segments.push((event as CustomEvent<{ durationMs: number; name: string }>).detail);
+    };
+    bridge.launch.mockReturnValueOnce(launchDeferred.promise);
+    window.addEventListener('taluxa-load-timing-segment', listener);
+
+    try {
+      expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+      vi.useFakeTimers();
+      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+      await act(async () => {
+        await flushPromises();
+      });
+      expect(bridge.launch).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(750);
+        launchDeferred.resolve();
+        await flushPromises();
+      });
+
+      expect(segments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'source-resolution' }),
+          expect.objectContaining({ name: 'preflight-budget' }),
+          expect.objectContaining({
+            durationMs: 750,
+            name: 'player-readiness',
+          }),
+        ])
+      );
+      expect(
+        segments.reduce((largest, segment) =>
+          segment.durationMs > largest.durationMs ? segment : largest
+        ).name
+      ).toBe('player-readiness');
+    } finally {
+      window.removeEventListener('taluxa-load-timing-segment', listener);
     }
   });
 });

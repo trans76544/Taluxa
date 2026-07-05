@@ -3,9 +3,11 @@ import type {
   LibraryEpisode,
   LibraryItem,
   LibraryItemDetails,
+  LibraryItemMediaSource,
   LibrarySeason,
 } from '@shared/models/library';
 import type { PersistedState } from '@shared/store/persistence';
+import { vi } from 'vitest';
 
 export function createHomePosterItem(overrides: Partial<HomePosterItem> = {}): HomePosterItem {
   return {
@@ -93,6 +95,64 @@ export function createLibraryItemDetails(
   };
 }
 
+export function createDirectPlaybackMediaSource(
+  overrides: Partial<LibraryItemMediaSource> = {}
+): LibraryItemMediaSource {
+  return {
+    id: 'direct-source',
+    path: 'movie.mp4',
+    container: 'mp4',
+    size: null,
+    bitrate: null,
+    videoCodec: 'h264',
+    videoStream: null,
+    audioStreams: [],
+    ...overrides,
+  };
+}
+
+export function createPlaybackInfoFallbackMediaSource(
+  overrides: Partial<LibraryItemMediaSource> = {}
+): LibraryItemMediaSource {
+  return {
+    id: 'playback-info-source',
+    path: 'movie.mkv',
+    container: 'mkv',
+    size: null,
+    bitrate: null,
+    videoCodec: 'hevc',
+    videoStream: null,
+    audioStreams: [],
+    ...overrides,
+  };
+}
+
+export function createMovieDetails(
+  overrides: Partial<LibraryItemDetails> = {}
+): LibraryItemDetails {
+  return createLibraryItemDetails({
+    id: 'movie-1',
+    name: 'Movie 1',
+    type: 'Movie',
+    mediaSources: [createDirectPlaybackMediaSource()],
+    ...overrides,
+  });
+}
+
+export function createSeriesDetails(
+  overrides: Partial<LibraryItemDetails> = {}
+): LibraryItemDetails {
+  return createLibraryItemDetails({
+    id: 'series-1',
+    name: 'Series 1',
+    type: 'Series',
+    runtimeTicks: null,
+    serverPositionTicks: null,
+    mediaSources: [],
+    ...overrides,
+  });
+}
+
 export function createLibrarySeason(overrides: Partial<LibrarySeason> = {}): LibrarySeason {
   return {
     id: 'season-1',
@@ -118,6 +178,33 @@ export function createLibraryEpisode(overrides: Partial<LibraryEpisode> = {}): L
     imageCandidates: [],
     mediaSources: createLibraryItemDetails().mediaSources,
     ...overrides,
+  };
+}
+
+export function createContinueWatchingPosterItem(
+  overrides: Partial<HomePosterItem> = {}
+): HomePosterItem {
+  return createHomePosterItem({
+    id: 'resume-movie-1',
+    title: 'Resume Movie',
+    subtitle: 'Continue',
+    href: '/item/resume-movie-1',
+    progressPercent: 25,
+    state: {
+      serverPositionTicks: 150000000,
+      title: 'Resume Movie',
+    },
+    ...overrides,
+  });
+}
+
+export function createControllablePlayerBridge() {
+  return {
+    launch: vi.fn().mockResolvedValue(undefined),
+    onEpisodeSelect: vi.fn(() => () => undefined),
+    onProgress: vi.fn(() => () => undefined),
+    preflight: vi.fn().mockResolvedValue(undefined),
+    switchEpisode: vi.fn().mockResolvedValue(undefined),
   };
 }
 

@@ -27,13 +27,48 @@ describe('playback api', () => {
     };
   }
 
+  function createDirectSourceInput(
+    overrides: Partial<FetchPlaybackStreamSourceInput> = {}
+  ): FetchPlaybackStreamSourceInput {
+    return createInput({
+      mediaSourceId: 'mediasource_3099',
+      audioStreamIndex: 1,
+      ...overrides,
+    });
+  }
+
+  function createPlaybackInfoTranscodeBody(
+    overrides: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      PlaySessionId: 'play-session-123',
+      MediaSources: [
+        {
+          Id: 'source-1',
+          DirectStreamUrl: '/Videos/item-1/stream.mkv?MediaSourceId=source-1',
+          TranscodingUrl:
+            '/Videos/item-1/master.m3u8?MediaSourceId=source-1&TranscodingContainer=ts',
+          AddApiKeyToDirectStreamUrl: true,
+          RequiredHttpHeaders: {
+            Authorization: 'MediaBrowser Token="token-123"',
+          },
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  function createPlaybackInfoFallbackBody(
+    overrides: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      MediaSources: [],
+      ...overrides,
+    };
+  }
+
   it('authenticates direct playback sources with headers', () => {
-    const source = buildDirectPlaybackStreamSource(
-      createInput({
-        mediaSourceId: 'mediasource_3099',
-        audioStreamIndex: 1,
-      })
-    );
+    const source = buildDirectPlaybackStreamSource(createDirectSourceInput());
 
     expect(source.streamUrl).toBe(
       'https://demo.emby.local/Videos/item-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=mediasource_3099&AudioStreamIndex=1'
@@ -50,21 +85,7 @@ describe('playback api', () => {
   it('prefers PlaybackInfo HLS transcoding urls and required headers', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
-        JSON.stringify({
-          PlaySessionId: 'play-session-123',
-          MediaSources: [
-            {
-              Id: 'source-1',
-              DirectStreamUrl: '/Videos/item-1/stream.mkv?MediaSourceId=source-1',
-              TranscodingUrl:
-                '/Videos/item-1/master.m3u8?MediaSourceId=source-1&TranscodingContainer=ts',
-              AddApiKeyToDirectStreamUrl: true,
-              RequiredHttpHeaders: {
-                Authorization: 'MediaBrowser Token="token-123"',
-              },
-            },
-          ],
-        }),
+        JSON.stringify(createPlaybackInfoTranscodeBody()),
         {
           status: 200,
           headers: {
@@ -254,9 +275,7 @@ describe('playback api', () => {
   it('falls back to the static stream url when PlaybackInfo does not include a playable source', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
-        JSON.stringify({
-          MediaSources: [],
-        }),
+        JSON.stringify(createPlaybackInfoFallbackBody()),
         {
           status: 200,
           headers: {

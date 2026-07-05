@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HashRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -6,7 +6,11 @@ import { createDefaultSettings } from '@shared/models/settings';
 import type { SavedAccount } from '@shared/models/session';
 import type { PersistedState } from '@shared/store/persistence';
 import { createDeferred, flushPromises } from '../../test/deferred';
-import { createLibraryItem, createLibraryItemDetails } from '../../test/loadPerformanceFixtures';
+import {
+  createDirectPlaybackMediaSource,
+  createLibraryItem,
+  createLibraryItemDetails,
+} from '../../test/loadPerformanceFixtures';
 
 const fetchViewsMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
@@ -90,6 +94,9 @@ function createPersistedState(overrides: Partial<StoredPersistedState> = {}): St
 }
 
 function mockDesktopBridge(state: StoredPersistedState) {
+  const launch = vi.fn().mockResolvedValue(undefined);
+  const preflight = vi.fn().mockResolvedValue(undefined);
+
   window.embyDesktop = {
     auth: {
       login: vi.fn(),
@@ -105,10 +112,10 @@ function mockDesktopBridge(state: StoredPersistedState) {
       stats: vi.fn().mockResolvedValue({ count: 0, sizeBytes: 0 }),
     },
     player: {
-      launch: vi.fn().mockResolvedValue(undefined),
+      launch,
       onEpisodeSelect: vi.fn(() => () => undefined),
       onProgress: vi.fn(() => () => undefined),
-      preflight: vi.fn().mockResolvedValue(undefined),
+      preflight,
       switchEpisode: vi.fn().mockResolvedValue(undefined),
     },
     storage: {
@@ -122,11 +129,13 @@ function mockDesktopBridge(state: StoredPersistedState) {
       minimize: vi.fn(),
     },
   } as unknown as Window['embyDesktop'];
+
+  return { launch, preflight };
 }
 
 function renderAuthenticatedRoute(hash: string) {
   const account = createSavedAccount();
-  mockDesktopBridge(
+  const bridge = mockDesktopBridge(
     createPersistedState({
       accounts: [account],
       activeAccountId: account.id,
@@ -139,6 +148,8 @@ function renderAuthenticatedRoute(hash: string) {
       <App />
     </HashRouter>
   );
+
+  return bridge;
 }
 
 async function navigateTo(hash: string) {
@@ -226,5 +237,37 @@ describe('browsing route session snapshots', () => {
     });
 
     expect(await screen.findByRole('heading', { name: 'Movie 1 Fresh' })).toBeInTheDocument();
+  });
+
+  it('starts playback from visible detail primary content while supporting sections refresh', async () => {
+    const slowSimilarItems = createDeferred<ReturnType<typeof createLibraryItem>[]>();
+    fetchSimilarItemsMock.mockReturnValueOnce(slowSimilarItems.promise);
+    fetchItemDetailsMock.mockResolvedValue(
+      createLibraryItemDetails({
+        id: 'movie-1',
+        name: 'Movie 1',
+        mediaSources: [createDirectPlaybackMediaSource({ id: 'direct-source' })],
+      })
+    );
+
+    const bridge = renderAuthenticatedRoute('#/item/movie-1');
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    expect(fetchSimilarItemsMock).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+    await waitFor(() => {
+      expect(bridge.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'movie-1',
+        })
+      );
+    });
+
+    await act(async () => {
+      slowSimilarItems.resolve([]);
+      await flushPromises();
+    });
   });
 });

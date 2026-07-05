@@ -67,7 +67,14 @@ import {
   createBrowsingSectionFailure,
   createRequestGenerationGuard,
 } from '@shared/utils/browsingLoad';
-import { createLoadTimingRecorder, type LoadTimingMilestone } from '@shared/utils/loadTiming';
+import {
+  createLoadTimingRecorder,
+  getTimingSegments,
+  type LoadTimingMilestone,
+  type LoadTimingRecorder,
+  type TimingSegment,
+  type TimingSegmentDefinition,
+} from '@shared/utils/loadTiming';
 import {
   createSessionSnapshotKey,
   createSessionSnapshotStore,
@@ -107,6 +114,7 @@ import {
 } from '@renderer/features/settings/settingsActions';
 import type { DanmakuServerSettings, ProxyMode } from '@shared/models/settings';
 import {
+  choosePlaybackPreparationDecision,
   createEpisodeSelector,
   createPlaybackPreparationKey,
   formatEpisodeSelectorTitle,
@@ -191,7 +199,33 @@ interface ItemRouteState {
 }
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
-const PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS = 1500;
+const PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS = 250;
+const PLAYBACK_STARTUP_SEGMENT_DEFINITIONS: TimingSegmentDefinition[] = [
+  {
+    avoidable: true,
+    from: 'play-acknowledged',
+    name: 'source-resolution',
+    to: 'playback-source-ready',
+  },
+  {
+    avoidable: true,
+    from: 'playback-source-ready',
+    name: 'preflight-budget',
+    to: 'player-launch-requested',
+  },
+  {
+    avoidable: false,
+    from: 'player-launch-requested',
+    name: 'player-readiness',
+    to: 'playback-ready',
+  },
+  {
+    avoidable: false,
+    from: 'player-launch-requested',
+    name: 'player-readiness',
+    to: 'playback-recoverable-failure',
+  },
+];
 
 function emitLoadTimingMilestone(milestone: LoadTimingMilestone) {
   window.dispatchEvent(
@@ -199,6 +233,23 @@ function emitLoadTimingMilestone(milestone: LoadTimingMilestone) {
       detail: milestone,
     })
   );
+}
+
+function emitLoadTimingSegment(segment: TimingSegment) {
+  window.dispatchEvent(
+    new CustomEvent<TimingSegment>('taluxa-load-timing-segment', {
+      detail: segment,
+    })
+  );
+}
+
+function emitPlaybackStartupTimingSegments(timingRecorder: LoadTimingRecorder) {
+  for (const segment of getTimingSegments(
+    timingRecorder.milestones,
+    PLAYBACK_STARTUP_SEGMENT_DEFINITIONS
+  )) {
+    emitLoadTimingSegment(segment);
+  }
 }
 
 async function waitForFastPlaybackPreflight(source: PlaybackStreamSource): Promise<void> {
@@ -876,25 +927,21 @@ function ItemDetailsRoute() {
         return;
       }
       const preparedCandidate = preparedPlaybackCandidateRef.current;
-      const preparedSourcePromise =
-        preparedCandidate &&
-        isPlaybackPreparationKeyMatch(preparedCandidate.key, {
-          accountId: resolvedActiveAccountId,
-          audioStreamIndex: descriptor.audioStreamIndex,
-          itemId: descriptor.itemId,
-          mediaSourceId: descriptor.mediaSourceId,
-          resumeTicks: descriptor.resumeTicks,
-        })
-          ? preparedCandidate.sourcePromise
-          : null;
-      const [persistedState, nextSource] = await Promise.all([
-        window.embyDesktop.storage.read(),
-        preparedSourcePromise
-          ? preparedSourcePromise.then(
+      const preparationDecision = choosePlaybackPreparationDecision({
+        candidateKey: preparedCandidate?.key,
+        expectedKey: descriptor.key,
+        selectedMediaSource: descriptor.selectedMediaSource,
+      });
+      const sourcePromise =
+        preparationDecision.kind === 'prepared-candidate' && preparedCandidate
+          ? preparedCandidate.sourcePromise.then(
               (preparedSource) =>
                 preparedSource ?? resolvePlaybackSourceFromDescriptor(descriptor)
             )
-          : resolvePlaybackSourceFromDescriptor(descriptor),
+          : resolvePlaybackSourceFromDescriptor(descriptor);
+      const [persistedState, nextSource] = await Promise.all([
+        window.embyDesktop.storage.read(),
+        sourcePromise,
       ]);
       if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
         return;
@@ -937,6 +984,7 @@ function ItemDetailsRoute() {
 
     setPlaybackStartupMessage('');
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-ready'));
+    emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
     currentPlaybackLaunchRef.current = null;
   }
 
@@ -957,6 +1005,7 @@ function ItemDetailsRoute() {
     setPlaybackStartupMessage('');
     setPlaybackErrorMessage(message);
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-recoverable-failure', 'failure'));
+    emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
     currentPlaybackLaunchRef.current = null;
   }
 

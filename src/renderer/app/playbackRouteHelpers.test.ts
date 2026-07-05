@@ -4,6 +4,7 @@ import type {
   LibraryItemMediaSource,
 } from '@shared/models/library';
 import {
+  choosePlaybackPreparationDecision,
   createPlaybackPreparationKey,
   createEpisodeSelector,
   formatEpisodeSelectorTitle,
@@ -138,6 +139,41 @@ describe('playbackRouteHelpers', () => {
       )
     ).toBe(0);
     expect(pickDefaultAudioStreamIndex(createMediaSource())).toBeNull();
+  });
+
+  it('chooses the fastest safe playback preparation decision', () => {
+    const directSource = createMediaSource({
+      container: 'mp4',
+      id: 'direct-source',
+      videoCodec: 'h264',
+    });
+    const slowSource = createMediaSource({
+      container: 'mkv',
+      id: 'slow-source',
+      videoCodec: 'hevc',
+    });
+
+    expect(
+      choosePlaybackPreparationDecision({
+        candidateKey: null,
+        expectedKey: 'key-1',
+        selectedMediaSource: directSource,
+      })
+    ).toEqual({ kind: 'direct-source', reason: 'selected-media-source-is-direct-playable' });
+    expect(
+      choosePlaybackPreparationDecision({
+        candidateKey: 'key-1',
+        expectedKey: 'key-1',
+        selectedMediaSource: slowSource,
+      })
+    ).toEqual({ kind: 'prepared-candidate', reason: 'prepared-candidate-key-matched' });
+    expect(
+      choosePlaybackPreparationDecision({
+        candidateKey: 'key-2',
+        expectedKey: 'key-1',
+        selectedMediaSource: slowSource,
+      })
+    ).toEqual({ kind: 'playback-info', reason: 'no-safe-fast-path' });
   });
 
   it('formats and builds an mpv episode selector', () => {
