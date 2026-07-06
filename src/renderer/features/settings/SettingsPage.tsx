@@ -15,6 +15,7 @@ import type {
   SubtitleSettings,
 } from '@shared/models/settings';
 import { Layout } from '@renderer/components/Layout';
+import { SettingsIcon } from './settingsIcons';
 
 interface SettingsPageProps {
   userName?: string;
@@ -234,9 +235,7 @@ export function SettingsPage({
 
           <div className="settings-list">
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                👤
-              </span>
+              <SettingsIcon id="currentAccount" />
               <div className="settings-row__body">
                 <h3>当前账户</h3>
                 <p>正在使用的 Emby 用户</p>
@@ -245,9 +244,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                🔗
-              </span>
+              <SettingsIcon id="serverUrl" />
               <div className="settings-row__body">
                 <h3>服务器地址</h3>
                 <p>当前连接的媒体服务器</p>
@@ -256,9 +253,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                🔊
-              </span>
+              <SettingsIcon id="defaultVolume" />
               <div className="settings-row__body">
                 <h3>默认音量</h3>
                 <p>播放器启动时使用的音量</p>
@@ -273,9 +268,7 @@ export function SettingsPage({
 
           <div className="settings-list">
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ▶
-              </span>
+              <SettingsIcon id="playbackScale" />
               <div className="settings-row__body">
                 <h3>缩放模式</h3>
               </div>
@@ -296,9 +289,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                CC
-              </span>
+              <SettingsIcon id="subtitleEnabled" />
               <div className="settings-row__body">
                 <h3>字幕显示</h3>
               </div>
@@ -316,9 +307,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                T
-              </span>
+              <SettingsIcon id="subtitleFont" />
               <div className="settings-row__body">
                 <h3>字幕字体</h3>
               </div>
@@ -335,9 +324,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ±
-              </span>
+              <SettingsIcon id="subtitleDelay" />
               <div className="settings-row__body">
                 <h3>字幕同步</h3>
               </div>
@@ -357,9 +344,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                T
-              </span>
+              <SettingsIcon id="subtitleSize" />
               <div className="settings-row__body">
                 <h3>字幕大小</h3>
               </div>
@@ -379,9 +364,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ↕
-              </span>
+              <SettingsIcon id="subtitlePosition" />
               <div className="settings-row__body">
                 <h3>字幕位置</h3>
               </div>
@@ -401,9 +384,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                O
-              </span>
+              <SettingsIcon id="subtitleOutline" />
               <div className="settings-row__body">
                 <h3>字幕描边</h3>
               </div>
@@ -423,9 +404,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                S
-              </span>
+              <SettingsIcon id="subtitleShadow" />
               <div className="settings-row__body">
                 <h3>字幕阴影</h3>
               </div>
@@ -445,9 +424,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                %
-              </span>
+              <SettingsIcon id="subtitleScale" />
               <div className="settings-row__body">
                 <h3>字幕缩放</h3>
               </div>
@@ -468,9 +445,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                2
-              </span>
+              <SettingsIcon id="subtitleSecondary" />
               <div className="settings-row__body">
                 <h3>双字幕</h3>
               </div>
@@ -494,9 +469,7 @@ export function SettingsPage({
 
           <div className="settings-list">
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ▣
-              </span>
+              <SettingsIcon id="dataCache" />
               <div className="settings-row__body">
                 <h3>数据缓存</h3>
                 <p>开启后进入主页时会先显示本地保存的媒体库数据</p>
@@ -515,9 +488,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ⏱
-              </span>
+              <SettingsIcon id="dataCacheExpiration" />
               <div className="settings-row__body">
                 <h3>数据缓存过期时间</h3>
                 <p>过期后仍会先显示旧缓存，并在后台刷新为最新内容</p>
@@ -541,9 +512,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ◩
-              </span>
+              <SettingsIcon id="imageCache" />
               <div className="settings-row__body">
                 <h3>图片缓存</h3>
                 <p>开启后海报会保存到本地，下次显示时优先读取本地文件</p>
@@ -562,9 +531,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ◧
-              </span>
+              <SettingsIcon id="imageCacheLimit" />
               <div className="settings-row__body">
                 <h3>图片缓存上限</h3>
                 <p>超过上限后会自动清理最久未使用的海报</p>
@@ -588,9 +555,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ⛶
-              </span>
+              <SettingsIcon id="imageCacheResolution" />
               <div className="settings-row__body">
                 <h3>图片缓存分辨率</h3>
                 <p>降低缓存海报的最长边分辨率，减少本地磁盘占用</p>
@@ -617,9 +582,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                DB
-              </span>
+              <SettingsIcon id="clearDataCache" />
               <div className="settings-row__body">
                 <h3>数据缓存</h3>
                 <p>{formatCacheBytes(dataCacheBytes)}</p>
@@ -635,9 +598,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                IMG
-              </span>
+              <SettingsIcon id="clearImageCache" />
               <div className="settings-row__body">
                 <h3>图片缓存</h3>
                 <p>{formatCacheBytes(imageCacheBytes)}</p>
@@ -659,9 +620,7 @@ export function SettingsPage({
 
           <div className="settings-list">
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                DM
-              </span>
+              <SettingsIcon id="danmakuEnabled" />
               <div className="settings-row__body">
                 <h3>开启弹幕</h3>
                 <p>数据来源于 DandanPlay API，只支持动漫资源</p>
@@ -680,7 +639,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">▤</span>
+              <SettingsIcon id="danmakuScrollLines" />
               <div className="settings-row__body">
                 <h3>滚动弹幕最大行数</h3>
               </div>
@@ -700,7 +659,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">▣</span>
+              <SettingsIcon id="danmakuTopLines" />
               <div className="settings-row__body">
                 <h3>顶部弹幕最大行数</h3>
               </div>
@@ -720,7 +679,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">▢</span>
+              <SettingsIcon id="danmakuBottomLines" />
               <div className="settings-row__body">
                 <h3>底部弹幕最大行数</h3>
               </div>
@@ -740,7 +699,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">T</span>
+              <SettingsIcon id="danmakuScale" />
               <div className="settings-row__body">
                 <h3>弹幕缩放</h3>
               </div>
@@ -761,7 +720,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">▦</span>
+              <SettingsIcon id="danmakuOpacity" />
               <div className="settings-row__body">
                 <h3>弹幕透明度</h3>
               </div>
@@ -781,7 +740,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">◴</span>
+              <SettingsIcon id="danmakuSpeed" />
               <div className="settings-row__body">
                 <h3>弹幕滚动速度</h3>
               </div>
@@ -802,7 +761,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">B</span>
+              <SettingsIcon id="danmakuBold" />
               <div className="settings-row__body">
                 <h3>粗体</h3>
               </div>
@@ -818,7 +777,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row settings-row--stacked settings-row--wide">
-              <span className="settings-row__icon" aria-hidden="true">⊘</span>
+              <SettingsIcon id="danmakuBlocklist" />
               <div className="settings-row__body">
                 <h3>弹幕屏蔽词</h3>
                 <p>添加屏蔽词，若有多个时使用换行进行分隔，正则以 / 开头以 / 结尾</p>
@@ -853,7 +812,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">≋</span>
+              <SettingsIcon id="danmakuMatchMode" />
               <div className="settings-row__body">
                 <h3>弹幕匹配模式</h3>
                 <p>修改弹幕匹配模式，哈希值通过计算视频文件前16MB数据MD5得到</p>
@@ -874,7 +833,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">文</span>
+              <SettingsIcon id="danmakuConversion" />
               <div className="settings-row__body">
                 <h3>弹幕简繁体转换</h3>
                 <p>修改弹幕简繁体转换，需弹幕 API 支持</p>
@@ -896,7 +855,7 @@ export function SettingsPage({
             </div>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">API</span>
+              <SettingsIcon id="danmakuApi" />
               <div className="settings-row__body">
                 <h3>弹幕 API 基础地址</h3>
                 <p>管理弹幕 API URL，按列表顺序作为匹配优先级</p>
@@ -916,9 +875,7 @@ export function SettingsPage({
               className="settings-row settings-row--form settings-row--stacked settings-row--wide"
               onSubmit={(event) => void handleDanmakuServersSubmit(event)}
             >
-              <span className="settings-row__icon" aria-hidden="true">
-                DM
-              </span>
+              <SettingsIcon id="danmakuServerForm" />
               <div className="settings-row__body">
                 <h3>弹幕服务器</h3>
                 <p>兼容弹弹play API，可配置多个并按顺序尝试</p>
@@ -1044,9 +1001,7 @@ export function SettingsPage({
               noValidate
               onSubmit={(event) => void handleProxySettingsSubmit(event)}
             >
-              <span className="settings-row__icon" aria-hidden="true">
-                🛡
-              </span>
+              <SettingsIcon id="proxy" />
               <div className="settings-row__body">
                 <h3>代理</h3>
                 <p>配置媒体请求使用的网络代理</p>
@@ -1125,9 +1080,7 @@ export function SettingsPage({
             </form>
 
             <div className="settings-row">
-              <span className="settings-row__icon" aria-hidden="true">
-                ⎋
-              </span>
+              <SettingsIcon id="logout" />
               <div className="settings-row__body">
                 <h3>退出登录</h3>
                 <p>从当前服务器账户退出</p>

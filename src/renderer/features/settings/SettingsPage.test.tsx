@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '@renderer/features/auth/AuthContext';
 import { SettingsPage } from './SettingsPage';
+import { settingsRowIconIds } from './settingsIcons';
 import type {
   CacheSettings,
   DanmakuServerSettings,
@@ -280,6 +281,31 @@ describe('SettingsPage', () => {
     );
   });
 
+  it('renders a unified decorative settings icon for every visible row', () => {
+    renderSettingsPage();
+
+    const collapsedIconIds = Object.entries(settingsRowIconIds)
+      .filter(([rowId]) => rowId !== 'danmakuServerForm')
+      .map(([, iconId]) => iconId);
+
+    for (const iconId of collapsedIconIds) {
+      const icon = screen.getByTestId(`settings-icon-${iconId}`);
+
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
+      expect(icon.textContent?.trim()).toBe('');
+      expect(icon.querySelector('svg')).not.toBeNull();
+    }
+
+    expect(screen.queryByTestId('settings-icon-danmakuServerForm')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit danmaku API servers' }));
+
+    expect(screen.getByTestId('settings-icon-danmakuServerForm')).toHaveAttribute(
+      'aria-hidden',
+      'true'
+    );
+  });
+
   it('saves playback scale mode from the media settings section', () => {
     const onPlaybackSettingsSave = vi.fn().mockResolvedValue(undefined);
     renderSettingsPage({ onPlaybackSettingsSave });
@@ -399,6 +425,11 @@ describe('SettingsPage', () => {
       /\.settings-row--form\.settings-row--wide\s*\{(?<body>[^}]*)\}/
     );
     const wideControlRule = styles.match(/\.settings-row__control--wide\s*\{(?<body>[^}]*)\}/);
+    const iconRule = styles.match(/\.settings-row__icon\s*\{(?<body>[^}]*)\}/);
+    const iconSvgRule = styles.match(/\.settings-row__icon svg\s*\{(?<body>[^}]*)\}/);
+    const stackedIconRule = styles.match(
+      /\.settings-row--stacked \.settings-row__icon\s*\{(?<body>[^}]*)\}/
+    );
 
     expect(rootRule?.groups?.body).toContain('height: 100%');
     expect(rootRule?.groups?.body).toContain('overflow: hidden');
@@ -408,11 +439,17 @@ describe('SettingsPage', () => {
     expect(appMainRule?.groups?.body).toContain('overflow-x: hidden');
     expect(appMainRule?.groups?.body).toContain('min-height: 0');
     expect(wideRowRule?.groups?.body).toContain(
-      'grid-template-columns: 28px minmax(0, 1fr) minmax(180px, auto)'
+      'grid-template-columns: 34px minmax(0, 1fr) minmax(180px, auto)'
     );
     expect(wideFormRowRule?.groups?.body).toContain(
-      'grid-template-columns: 28px minmax(160px, 260px) minmax(320px, 1fr)'
+      'grid-template-columns: 34px minmax(160px, 260px) minmax(320px, 1fr)'
     );
     expect(wideControlRule?.groups?.body).toContain('justify-content: flex-end');
+    expect(iconRule?.groups?.body).toContain('width: 34px');
+    expect(iconRule?.groups?.body).toContain('height: 34px');
+    expect(iconRule?.groups?.body).not.toContain('font-size');
+    expect(iconSvgRule?.groups?.body).toContain('width: 18px');
+    expect(iconSvgRule?.groups?.body).toContain('height: 18px');
+    expect(stackedIconRule?.groups?.body).toContain('margin-top: 3px');
   });
 });

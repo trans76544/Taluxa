@@ -848,7 +848,7 @@ a {
 
 .settings-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) minmax(180px, auto);
+  grid-template-columns: 34px minmax(0, 1fr) minmax(180px, auto);
   align-items: center;
   gap: 14px;
   min-height: 68px;
@@ -861,10 +861,49 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 1rem;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.settings-row__icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.settings-row__icon circle,
+.settings-row__icon ellipse,
+.settings-row__icon rect {
+  fill: none;
+}
+
+.settings-row__icon[data-settings-icon-family='subtitle'],
+.settings-row__icon[data-settings-icon-family='danmaku'] {
+  background: rgba(91, 141, 239, 0.12);
+  color: #9dc0ff;
+}
+
+.settings-row__icon[data-settings-icon-family='media'] {
+  background: rgba(92, 180, 134, 0.12);
+  color: #9eddb7;
+}
+
+.settings-row__icon[data-settings-icon-family='network'] {
+  background: rgba(245, 189, 91, 0.12);
+  color: #f4c978;
+}
+
+.settings-row__icon[data-settings-icon-accent='danger'] {
+  background: rgba(255, 110, 110, 0.12);
+  color: #ff9f9f;
 }
 
 .settings-row__body {
@@ -1023,11 +1062,11 @@ a {
 }
 
 .settings-row--wide {
-  grid-template-columns: 28px minmax(0, 1fr) minmax(180px, auto);
+  grid-template-columns: 34px minmax(0, 1fr) minmax(180px, auto);
 }
 
 .settings-row--form.settings-row--wide {
-  grid-template-columns: 28px minmax(160px, 260px) minmax(320px, 1fr);
+  grid-template-columns: 34px minmax(160px, 260px) minmax(320px, 1fr);
 }
 
 .settings-row__control--wide {
@@ -1121,7 +1160,7 @@ a {
 }
 
 .settings-row--stacked .settings-row__icon {
-  margin-top: 6px;
+  margin-top: 3px;
 }
 
 .settings-row--stacked .settings-row__control {
@@ -1188,7 +1227,7 @@ a {
 
 @media (max-width: 900px) {
   .settings-row {
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .settings-row__value,
@@ -1215,7 +1254,7 @@ a {
   }
 
   .settings-row--wide {
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .settings-danmaku-server {
