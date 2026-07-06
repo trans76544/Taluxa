@@ -202,6 +202,18 @@ describe('HomePage', () => {
     expect(libraryCollageRule?.groups?.body).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
   });
 
+  it('locks library artwork height so portrait-heavy servers cannot stretch thumbnails', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const libraryCardRule = styles.match(/\.home-section--libraries\s+\.library-card\s*\{(?<body>[^}]*)\}/);
+    const libraryCollageRule = styles.match(
+      /\.home-section--libraries\s+\.library-card__collage\s*\{(?<body>[^}]*)\}/
+    );
+
+    expect(libraryCardRule?.groups?.body).toMatch(/(?:^|\n)\s*height: 188px;/);
+    expect(libraryCollageRule?.groups?.body).toContain('height: 100%');
+    expect(libraryCollageRule?.groups?.body).toContain('min-height: 0');
+  });
+
   it('renders library artwork as a multi-image side-by-side collage', () => {
     render(
       <MemoryRouter>
