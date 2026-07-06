@@ -1780,6 +1780,45 @@ a {
   color: #ffca99;
   font-size: 0.82rem;
 }
+.add-server-backdrop {
+  position: fixed;
+  inset: 44px 0 0;
+  z-index: 1002;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.42);
+}
+.add-server-dialog {
+  position: relative;
+  width: min(560px, calc(100vw - 64px));
+}
+.add-server-dialog .panel {
+  width: 100%;
+}
+.add-server-dialog__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: rgba(35, 35, 38, 0.92);
+  color: #fff;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.add-server-dialog > p[role='alert'] {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 177, 108, 0.24);
+  border-radius: 6px;
+  background: rgba(52, 25, 16, 0.84);
+  color: #ffd7b8;
+}
 .account-sidebar__footer {
   display: flex;
   flex-direction: column;
@@ -1799,6 +1838,22 @@ a {
   text-decoration: none;
   font-size: 0.95rem;
   cursor: pointer;
+}
+.account-sidebar__footer .footer-item {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(64, 103, 190, 0.52);
+  border-radius: 10px;
+  background: rgba(14, 25, 54, 0.92);
+  color: #fff;
+  justify-content: flex-start;
+  font: inherit;
+  text-align: left;
+}
+.account-sidebar__footer .footer-item:hover {
+  border-color: rgba(91, 132, 232, 0.7);
+  background: rgba(18, 34, 72, 0.96);
+  color: #fff;
 }
 .poster-card--landscape .poster-card__image {
   aspect-ratio: 16 / 9;
@@ -2152,6 +2207,22 @@ a {
   text-decoration: none;
   font-size: 0.95rem;
   cursor: pointer;
+}
+.account-sidebar__footer .footer-item {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(64, 103, 190, 0.52);
+  border-radius: 10px;
+  background: rgba(14, 25, 54, 0.92);
+  color: #fff;
+  justify-content: flex-start;
+  font: inherit;
+  text-align: left;
+}
+.account-sidebar__footer .footer-item:hover {
+  border-color: rgba(91, 132, 232, 0.7);
+  background: rgba(18, 34, 72, 0.96);
+  color: #fff;
 }
 .poster-card--landscape .poster-card__image {
   aspect-ratio: 16 / 9;

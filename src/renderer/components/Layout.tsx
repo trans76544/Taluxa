@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@renderer/features/auth/AuthContext';
+import { LoginPage } from '@renderer/features/auth/LoginPage';
+import { useLoginFlow } from '@renderer/features/auth/useLoginFlow';
 import { AccountSidebar } from './AccountSidebar';
 import { AppTitleBar } from './AppTitleBar';
 
@@ -14,6 +16,48 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   const navigate = useNavigate();
   const { accounts, activeAccountId, getServerDisplayName, session, setActiveAccountId, updateSettings } =
     useAuth();
+  const [isAddServerDialogOpen, setIsAddServerDialogOpen] = useState(false);
+  const {
+    accounts: loginAccounts,
+    errorMessage: addServerErrorMessage,
+    handleSubmit: handleAddServerSubmit,
+    setErrorMessage: setAddServerErrorMessage,
+  } = useLoginFlow({
+    onSuccess: () => setIsAddServerDialogOpen(false),
+  });
+
+  function openAddServerDialog() {
+    setAddServerErrorMessage('');
+    setIsAddServerDialogOpen(true);
+  }
+
+  const addServerDialog = isAddServerDialogOpen ? (
+    <div className="add-server-backdrop" onClick={() => setIsAddServerDialogOpen(false)}>
+      <div
+        className="add-server-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add server"
+        style={{ opacity: 0.75 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="add-server-dialog__close"
+          aria-label="Close add server"
+          onClick={() => setIsAddServerDialogOpen(false)}
+        >
+          x
+        </button>
+        <LoginPage
+          onSubmit={handleAddServerSubmit}
+          hasRememberedAccounts={loginAccounts.length > 0}
+          presentation="embedded"
+        />
+        {addServerErrorMessage ? <p role="alert">{addServerErrorMessage}</p> : null}
+      </div>
+    </div>
+  ) : null;
 
   async function handleSelectAccount(nextAccountId: string) {
     if (
@@ -68,6 +112,7 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
         accounts={accounts}
         activeAccountId={activeAccountId}
         serverDisplayNamesByUrl={serverDisplayNamesByUrl}
+        onAddServer={openAddServerDialog}
         onSelectAccount={handleSelectAccount}
         onServerDisplayNameSave={handleServerDisplayNameSave}
       />
@@ -78,7 +123,10 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
       <div className="desktop-shell">
         <AppTitleBar title={title} />
         <main className="app-layout app-layout--no-sidebar">
-          <section className="app-main">{children}</section>
+          <section className="app-main">
+            {children}
+            {addServerDialog}
+          </section>
         </main>
       </div>
     );
@@ -90,7 +138,10 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
       <main className="app-layout">
         <aside className="app-sidebar">{resolvedSidebar}</aside>
 
-        <section className="app-main">{children}</section>
+        <section className="app-main">
+          {children}
+          {addServerDialog}
+        </section>
       </main>
     </div>
   );

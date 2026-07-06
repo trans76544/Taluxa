@@ -3609,6 +3609,58 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Bob/ })).toHaveClass('is-active');
   });
 
+  it('opens add server in a translucent dialog without leaving the current route', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    window.location.hash = '#/libraries';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: DEFAULT_HOME_HEADING })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('link', { name: /添加服务器/ }));
+
+    expect(window.location.hash).toBe('#/libraries');
+
+    const dialog = await screen.findByRole('dialog', { name: 'Add server' });
+    expect(dialog).toHaveClass('add-server-dialog');
+    expect(dialog).toHaveStyle({ opacity: '0.75' });
+    expect(screen.getByText('Add another account from this or another server.')).toBeInTheDocument();
+  });
+
+  it('opens add server in a dialog from settings without leaving settings', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('link', { name: /添加服务器/ }));
+
+    expect(window.location.hash).toBe('#/settings');
+    expect(await screen.findByRole('dialog', { name: 'Add server' })).toBeInTheDocument();
+  });
+
   it('persists the selected account and returns to libraries when switching from settings', async () => {
     const bobAccount = createSavedAccount({
       id: 'https://backup.emby.local::user-2',

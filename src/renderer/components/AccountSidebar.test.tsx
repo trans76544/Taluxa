@@ -145,6 +145,34 @@ describe('AccountSidebar', () => {
     expect(onSelectAccount).toHaveBeenCalledWith('https://demo.emby.local::user-2');
   });
 
+  it('calls onAddServer from the add server footer link', () => {
+    const onAddServer = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <AccountSidebar
+          accounts={[createAccount()]}
+          activeAccountId="https://demo.emby.local::user-1"
+          serverDisplayNamesByUrl={{}}
+          onSelectAccount={vi.fn()}
+          onAddServer={onAddServer}
+        />
+      </MemoryRouter>
+    );
+
+    const addServerLink = screen.getByRole('link', { name: /\+/ });
+
+    expect(addServerLink).toHaveClass('footer-item');
+    expect(addServerLink).not.toHaveClass('footer-item--add-server');
+    expect(addServerLink).toHaveAttribute('href', '/login');
+    expect(addServerLink.tagName).toBe(screen.getByRole('link', { name: /设置/ }).tagName);
+    expect(addServerLink.className).toBe(screen.getByRole('link', { name: /设置/ }).className);
+
+    fireEvent.click(addServerLink);
+
+    expect(onAddServer).toHaveBeenCalledTimes(1);
+  });
+
   it('opens server configuration from the server context menu', async () => {
     const onServerDisplayNameSave = vi.fn().mockResolvedValue(undefined);
 

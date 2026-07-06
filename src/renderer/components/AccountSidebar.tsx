@@ -8,6 +8,7 @@ interface AccountSidebarProps {
   activeAccountId: string | null;
   serverDisplayNamesByUrl: Record<string, string>;
   onSelectAccount: (accountId: string) => void | Promise<void>;
+  onAddServer?: () => void;
   onServerDisplayNameSave?: (serverUrl: string, nextName: string) => void | Promise<void>;
 }
 
@@ -27,6 +28,7 @@ export function AccountSidebar({
   accounts,
   activeAccountId,
   serverDisplayNamesByUrl,
+  onAddServer,
   onSelectAccount,
   onServerDisplayNameSave,
 }: AccountSidebarProps) {
@@ -205,7 +207,18 @@ export function AccountSidebar({
       ) : null}
 
       <div className="account-sidebar__footer">
-        <Link to="/login" className="footer-item">
+        <Link
+          to="/login"
+          className="footer-item"
+          onClick={
+            onAddServer
+              ? (event) => {
+                  event.preventDefault();
+                  onAddServer();
+                }
+              : undefined
+          }
+        >
           <span className="nav-icon">+</span>
           <span>添加服务器</span>
         </Link>

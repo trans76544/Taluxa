@@ -26,7 +26,6 @@ import type {
   LibraryEpisode,
 } from '@shared/models/library';
 import type { PlaybackProgress } from '@shared/models/progress';
-import type { SavedAccount } from '@shared/models/session';
 import type {
   CacheSettings,
   DanmakuSettings,
@@ -53,7 +52,6 @@ import {
   type PersistedHomeCacheEntry,
   type PersistedState,
 } from '@shared/store/persistence';
-import { normalizeServerUrl } from '@shared/utils/normalizeServerUrl';
 import {
   createConfirmedProgressUpdate,
   createFailedProgressUpdate,
@@ -83,6 +81,7 @@ import { Layout } from '@renderer/components/Layout';
 import { AppTitleBar } from '@renderer/components/AppTitleBar';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
+import { useLoginFlow } from '@renderer/features/auth/useLoginFlow';
 import { HomePage } from '@renderer/features/home/HomePage';
 import {
   createHomeCacheEntry,
@@ -375,18 +374,6 @@ function sortEpisodesByIndex(episodes: LibraryEpisode[]): LibraryEpisode[] {
 
     return leftIndex - rightIndex || left.name.localeCompare(right.name);
   });
-}
-
-function mergeSavedAccounts(currentAccounts: SavedAccount[], nextAccount: SavedAccount) {
-  const accountsById = new Map<string, SavedAccount>();
-
-  for (const account of currentAccounts) {
-    accountsById.set(account.id, account);
-  }
-
-  accountsById.set(nextAccount.id, nextAccount);
-
-  return Array.from(accountsById.values());
 }
 
 function AuthenticatedLayout({
@@ -1269,64 +1256,7 @@ function ItemDetailsRoute() {
 }
 
 function LoginRoute() {
-  const navigate = useNavigate();
-  const { accounts, upsertAccount } = useAuth();
-  const [errorMessage, setErrorMessage] = useState('');
-
-  async function handleSubmit({
-    serverUrl,
-    userName,
-    password,
-  }: {
-    serverUrl: string;
-    userName: string;
-    password: string;
-  }) {
-    try {
-      const desktopBridge = window.embyDesktop;
-      const storageBridge = desktopBridge?.storage;
-      const authBridge = desktopBridge?.auth;
-
-      if (!storageBridge?.write || !authBridge?.login) {
-        setErrorMessage('Desktop integration is unavailable. Restart the app and try again.');
-        return;
-      }
-
-      const normalizedServerUrl = normalizeServerUrl(serverUrl);
-      const session = await authBridge.login({
-        serverUrl: normalizedServerUrl,
-        userName,
-        password,
-      });
-      const accountId = createAccountId(normalizedServerUrl, session.userId);
-      const savedAccount: SavedAccount = {
-        id: accountId,
-        serverUrl: normalizedServerUrl,
-        userId: session.userId,
-        userName: session.userName,
-        accessToken: session.accessToken,
-        lastUsedAt: new Date().toISOString(),
-      };
-
-      const nextState = {
-        accounts: mergeSavedAccounts(accounts, savedAccount),
-        activeAccountId: accountId,
-      };
-
-      try {
-        await storageBridge.write(nextState);
-      } catch {
-        setErrorMessage('Could not save your session. Try again.');
-        return;
-      }
-
-      upsertAccount(savedAccount);
-      setErrorMessage('');
-      navigate('/libraries');
-    } catch {
-      setErrorMessage('Sign in failed. Check your server URL and credentials.');
-    }
-  }
+  const { accounts, errorMessage, handleSubmit } = useLoginFlow();
 
   return (
     <div className="desktop-shell">
