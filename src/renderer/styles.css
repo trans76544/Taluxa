@@ -479,7 +479,7 @@ a {
 .poster-row-grid {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(200px, 228px);
+  grid-auto-columns: minmax(138px, 156px);
   gap: 18px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -592,6 +592,108 @@ a {
   overflow-y: hidden;
   padding: 4px 2px 10px;
   scrollbar-width: thin;
+}
+
+.home-section--libraries {
+  gap: 18px;
+}
+
+.home-section--libraries .library-card-grid {
+  grid-auto-columns: minmax(300px, 360px);
+  gap: 18px;
+  padding: 2px 2px 12px;
+}
+
+.home-section--libraries .library-card {
+  position: relative;
+  display: block;
+  min-height: 188px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #202024;
+}
+
+.home-section--libraries .library-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.04) 35%, rgba(0, 0, 0, 0.78) 100%);
+}
+
+.home-section--libraries .library-card__image {
+  display: block;
+  height: 100%;
+  min-height: 188px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.home-section--libraries .library-card__collage {
+  display: grid;
+  grid-template-columns: 1.12fr 0.88fr;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  min-height: 188px;
+  overflow: hidden;
+  border: 1px solid rgba(157, 177, 255, 0.12);
+  border-radius: 10px;
+  background: #101014;
+}
+
+.home-section--libraries .library-card__collage--1 {
+  display: block;
+}
+
+.home-section--libraries .library-card__collage--2 {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.home-section--libraries .library-card__collage-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+}
+
+.home-section--libraries .library-card__collage-image:first-child {
+  grid-row: 1 / -1;
+}
+
+.home-section--libraries .library-card__collage--1 .library-card__collage-image {
+  min-height: 188px;
+}
+
+.home-section--libraries .library-card__title {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  z-index: 1;
+  color: #fff;
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.72);
+}
+
+.home-section--continue .poster-row-grid {
+  grid-auto-columns: minmax(196px, 204px);
+  gap: 14px;
+}
+
+.home-section--continue .poster-card--continue {
+  gap: 6px;
+}
+
+.home-section--featured .poster-row-grid {
+  grid-auto-columns: minmax(138px, 156px);
+  overflow-x: auto;
 }
 
 .library-items-page {

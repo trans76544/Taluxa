@@ -1,8 +1,98 @@
 import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HomePage } from './HomePage';
+import type { HomeLibraryCard, HomePosterItem, HomePosterRow } from '@shared/api/emby/home';
+
+function createLibraries(): HomeLibraryCard[] {
+  return [
+    {
+      id: 'latest',
+      title: 'Latest Episodes',
+      posterUrl: 'https://demo.local/latest.jpg',
+      imageCandidates: [],
+      href: '/libraries/latest',
+      state: { libraryName: 'Latest Episodes' },
+    },
+    {
+      id: 'domestic',
+      title: 'Domestic Dramas',
+      posterUrl: 'https://demo.local/domestic.jpg',
+      imageCandidates: [],
+      href: '/libraries/domestic',
+      state: { libraryName: 'Domestic Dramas' },
+    },
+    {
+      id: 'global',
+      title: 'Global Shows',
+      posterUrl: 'https://demo.local/global.jpg',
+      imageCandidates: [],
+      href: '/libraries/global',
+      state: { libraryName: 'Global Shows' },
+    },
+  ];
+}
+
+function createContinueWatching(): HomePosterItem[] {
+  return [
+    {
+      id: 'resume-1',
+      title: 'Resume Movie',
+      subtitle: 'Resume from 12 min',
+      posterUrl: 'https://demo.local/resume-1.jpg',
+      imageCandidates: [],
+      href: '/player/resume-1',
+      state: { title: 'Resume Movie' },
+      progressPercent: 42,
+    },
+  ];
+}
+
+function createFeaturedRows(): HomePosterRow[] {
+  return [
+    {
+      id: 'featured',
+      title: 'Featured Movies',
+      href: '/libraries/featured',
+      state: { libraryName: 'Featured Movies' },
+      items: [
+        {
+          id: 'feature-1',
+          title: 'Feature 1',
+          subtitle: '2026',
+          posterUrl: 'https://demo.local/feature-1.jpg',
+          imageCandidates: [],
+          href: '/player/feature-1',
+          state: { title: 'Feature 1' },
+        },
+      ],
+    },
+  ];
+}
+
+function LocationStateProbe() {
+  const location = useLocation();
+
+  return <output data-testid="location-state">{JSON.stringify(location.state)}</output>;
+}
+
+function renderHome(overrides: Partial<React.ComponentProps<typeof HomePage>> = {}) {
+  return render(
+    <MemoryRouter>
+      <HomePage
+        accountLabel="ShrekMedia / trans"
+        continueWatching={createContinueWatching()}
+        libraries={createLibraries()}
+        featuredRows={createFeaturedRows()}
+        sortMode="latest_added"
+        onSortModeChange={() => undefined}
+        {...overrides}
+      />
+      <LocationStateProbe />
+    </MemoryRouter>
+  );
+}
 
 describe('HomePage', () => {
   afterEach(() => {
@@ -63,6 +153,162 @@ describe('HomePage', () => {
     expect(screen.getByRole('heading', { name: 'Featured Movies' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Feature 1/ })).toBeInTheDocument();
+  });
+
+  it('exposes stable normal home structure hooks', () => {
+    const { container } = renderHome();
+
+    expect(container.querySelector('.home-screen')).toBeInTheDocument();
+    expect(container.querySelector('.home-screen--aggregate')).not.toBeInTheDocument();
+    expect(container.querySelector('.home-section')).toBeInTheDocument();
+    expect(container.querySelector('.library-card-grid')).toBeInTheDocument();
+    expect(container.querySelector('.poster-row-grid')).toBeInTheDocument();
+  });
+
+  it('renders media libraries before resume and detailed rows', () => {
+    const { container } = renderHome();
+    const sections = Array.from(container.querySelectorAll('.home-section'));
+    const headings = sections.map((section) => section.querySelector('h2')?.textContent);
+
+    expect(headings).toEqual(['媒体库', '继续观看', 'Featured Movies']);
+  });
+
+  it('preserves library destination href and route state', () => {
+    renderHome();
+
+    const domesticLink = screen.getByRole('link', { name: /Domestic Dramas/ });
+    expect(domesticLink).toHaveAttribute('href', '/libraries/domestic');
+
+    fireEvent.click(domesticLink);
+
+    expect(screen.getByTestId('location-state')).toHaveTextContent(
+      JSON.stringify({ libraryName: 'Domestic Dramas' })
+    );
+  });
+
+  it('uses larger primary library columns than detailed poster columns', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const libraryGridRule = styles.match(/\.home-section--libraries\s+\.library-card-grid\s*\{(?<body>[^}]*)\}/);
+    const posterGridRule = styles.match(/\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
+    const libraryCardRule = styles.match(/\.home-section--libraries\s+\.library-card\s*\{(?<body>[^}]*)\}/);
+    const libraryCollageRule = styles.match(
+      /\.home-section--libraries\s+\.library-card__collage\s*\{(?<body>[^}]*)\}/
+    );
+
+    expect(libraryGridRule?.groups?.body).toContain('grid-auto-columns: minmax(300px, 360px)');
+    expect(posterGridRule?.groups?.body).toContain('grid-auto-columns: minmax(138px, 156px)');
+    expect(libraryCardRule?.groups?.body).toContain('min-height: 188px');
+    expect(libraryCollageRule?.groups?.body).toContain('grid-template-columns: 1.12fr 0.88fr');
+    expect(libraryCollageRule?.groups?.body).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
+  });
+
+  it('renders library artwork as a multi-image side-by-side collage', () => {
+    render(
+      <MemoryRouter>
+        <HomePage
+          accountLabel="ShrekMedia / trans"
+          continueWatching={[]}
+          libraries={[
+            {
+              id: 'library-1',
+              title: 'Library 1',
+              posterUrl: 'https://demo.local/lib-primary.jpg',
+              imageCandidates: [
+                {
+                  url: 'https://demo.local/lib-thumb.jpg',
+                  kind: 'thumb' as const,
+                },
+                {
+                  url: 'https://demo.local/lib-backdrop.jpg',
+                  kind: 'backdrop' as const,
+                },
+              ],
+              href: '/libraries/library-1',
+            },
+          ]}
+          featuredRows={[]}
+          sortMode="latest_added"
+          onSortModeChange={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const libraryCard = screen.getByRole('link', { name: /Library 1/ });
+    const collage = libraryCard.querySelector('.library-card__collage');
+
+    expect(collage).toBeInTheDocument();
+    expect(collage?.querySelectorAll('.library-card__collage-image')).toHaveLength(3);
+  });
+
+  it('keeps continue watching below libraries with playback links intact', () => {
+    const { container } = renderHome();
+    const sections = Array.from(container.querySelectorAll('.home-section'));
+    const sectionClasses = sections.map((section) => section.className);
+
+    expect(sectionClasses[0]).toContain('home-section--libraries');
+    expect(sectionClasses[1]).toContain('home-section--continue');
+    expect(screen.getByRole('link', { name: /Resume Movie/ })).toHaveAttribute(
+      'href',
+      '/player/resume-1'
+    );
+  });
+
+  it('keeps continue watching context menu callbacks working', () => {
+    const onRemoveFromContinueWatching = vi.fn();
+    renderHome({ onRemoveFromContinueWatching });
+
+    fireEvent.contextMenu(screen.getByRole('link', { name: /Resume Movie/ }));
+    fireEvent.click(screen.getAllByRole('menuitem')[0]);
+
+    expect(onRemoveFromContinueWatching).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'resume-1' })
+    );
+  });
+
+  it('uses compact secondary sizing for continue-watching rows', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const continueGridRule = styles.match(/\.home-section--continue\s+\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
+    const continueCardRule = styles.match(/\.home-section--continue\s+\.poster-card--continue\s*\{(?<body>[^}]*)\}/);
+
+    expect(continueGridRule?.groups?.body).toContain('grid-auto-columns: minmax(196px, 204px)');
+    expect(continueCardRule?.groups?.body).toContain('gap: 6px');
+  });
+
+  it('renders detailed featured rows after primary sections', () => {
+    const { container } = renderHome();
+    const sections = Array.from(container.querySelectorAll('.home-section'));
+
+    expect(sections[2].className).toContain('home-section--featured');
+    expect(sections[2].querySelector('h2')).toHaveTextContent('Featured Movies');
+  });
+
+  it('preserves featured row view-all href and route state', () => {
+    renderHome();
+
+    const viewAllLink = screen.getByRole('link', { name: 'View all' });
+    expect(viewAllLink).toHaveAttribute('href', '/libraries/featured');
+
+    fireEvent.click(viewAllLink);
+
+    expect(screen.getByTestId('location-state')).toHaveTextContent(
+      JSON.stringify({ libraryName: 'Featured Movies' })
+    );
+  });
+
+  it('keeps normal detailed rows scrollable and smaller than library tiles', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const featuredGridRule = styles.match(/\.home-section--featured\s+\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
+
+    expect(featuredGridRule?.groups?.body).toContain('grid-auto-columns: minmax(138px, 156px)');
+    expect(featuredGridRule?.groups?.body).toContain('overflow-x: auto');
+  });
+
+  it('keeps aggregate home row sizing isolated from normal home rows', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const aggregateGridRule = styles.match(/\.home-screen--aggregate\s+\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
+
+    expect(aggregateGridRule?.groups?.body).toContain('grid-auto-columns: 186px');
+    expect(aggregateGridRule?.groups?.body).toContain('scrollbar-width: none');
   });
 
   it('does not render aggregate tabs on the normal home screen', () => {

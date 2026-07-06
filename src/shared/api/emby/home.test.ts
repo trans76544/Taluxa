@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildHomeLibraryCards,
   buildServerContinueWatchingItems,
   buildContinueWatchingItems,
   buildHomeRefreshStatusMessage,
@@ -8,6 +9,93 @@ import {
 } from './home';
 
 describe('home helpers', () => {
+  it('builds library cards with artwork from multiple preview items', () => {
+    expect(
+      buildHomeLibraryCards({
+        views: [{ id: 'shows', name: 'Shows', collectionType: 'tvshows' }],
+        previewItemsByViewId: new Map([
+          [
+            'shows',
+            [
+              {
+                id: 'episode-1',
+                name: 'Episode 1',
+                posterUrl: 'https://demo.local/episode-1.jpg',
+                imageCandidates: [
+                  {
+                    url: 'https://demo.local/episode-1.jpg',
+                    kind: 'primary',
+                  },
+                ],
+                runtimeTicks: null,
+                serverPositionTicks: null,
+                communityRating: null,
+                productionYear: 2026,
+                type: 'Episode',
+              },
+              {
+                id: 'movie-1',
+                name: 'Movie 1',
+                posterUrl: 'https://demo.local/movie-1.jpg',
+                imageCandidates: [
+                  {
+                    url: 'https://demo.local/movie-1.jpg',
+                    kind: 'primary',
+                  },
+                ],
+                runtimeTicks: null,
+                serverPositionTicks: null,
+                communityRating: null,
+                productionYear: 2026,
+                type: 'Movie',
+              },
+              {
+                id: 'movie-2',
+                name: 'Movie 2',
+                posterUrl: 'https://demo.local/movie-2.jpg',
+                imageCandidates: [
+                  {
+                    url: 'https://demo.local/movie-2.jpg',
+                    kind: 'primary',
+                  },
+                ],
+                runtimeTicks: null,
+                serverPositionTicks: null,
+                communityRating: null,
+                productionYear: 2026,
+                type: 'Movie',
+              },
+            ],
+          ],
+        ]),
+      })
+    ).toEqual([
+      {
+        id: 'shows',
+        title: 'Shows',
+        posterUrl: 'https://demo.local/episode-1.jpg',
+        imageCandidates: [
+          {
+            url: 'https://demo.local/episode-1.jpg',
+            kind: 'primary',
+          },
+          {
+            url: 'https://demo.local/movie-1.jpg',
+            kind: 'primary',
+          },
+          {
+            url: 'https://demo.local/movie-2.jpg',
+            kind: 'primary',
+          },
+        ],
+        href: '/libraries/shows',
+        state: {
+          libraryName: 'Shows',
+        },
+      },
+    ]);
+  });
+
   it('builds continue watching from server resume items only', () => {
     expect(
       buildServerContinueWatchingItems({

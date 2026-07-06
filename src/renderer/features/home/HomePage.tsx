@@ -44,6 +44,8 @@ export function HomePage({
         </p>
       ) : null}
 
+      {libraries && libraries.length > 0 && <LibraryCardRow title="媒体库" items={libraries} />}
+
       {continueWatching && continueWatching.length > 0 && (
         <ContinueWatchingRow
           title="继续观看"
@@ -53,8 +55,6 @@ export function HomePage({
           onMarkPlayed={onMarkPlayed}
         />
       )}
-
-      {libraries && libraries.length > 0 && <LibraryCardRow title="媒体库" items={libraries} />}
 
       {featuredRows.filter((row) => row.items.length > 0).map((row) => (
         <PosterRow

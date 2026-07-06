@@ -26,30 +26,61 @@ function getLibraryCardCandidates(item: HomeLibraryCard): string[] {
   return candidates;
 }
 
+function LibraryCardCollageImage({
+  alt,
+  url,
+  onError,
+}: {
+  alt: string;
+  url: string;
+  onError: () => void;
+}) {
+  const resolvedUrl = useCachedImageUrl(url);
+
+  return (
+    <img
+      className="library-card__collage-image"
+      alt={alt}
+      src={resolvedUrl ?? url}
+      loading="lazy"
+      decoding="async"
+      onError={onError}
+    />
+  );
+}
+
 function LibraryCard({ item }: { item: HomeLibraryCard }) {
   const candidates = getLibraryCardCandidates(item);
-  const [candidateIndex, setCandidateIndex] = useState(0);
+  const candidateKey = candidates.join('\n');
+  const [failedCandidates, setFailedCandidates] = useState<string[]>([]);
 
   useEffect(() => {
-    setCandidateIndex(0);
-  }, [item.posterUrl, item.imageCandidates]);
+    setFailedCandidates([]);
+  }, [candidateKey]);
 
-  const activePosterUrl = candidates[candidateIndex] ?? null;
-  const resolvedPosterUrl = useCachedImageUrl(activePosterUrl);
+  const visibleCandidates = candidates
+    .filter((candidateUrl) => !failedCandidates.includes(candidateUrl))
+    .slice(0, 3);
 
   return (
     <Link className="library-card" to={item.href} state={item.state}>
-      {activePosterUrl ? (
-        <img
-          className="library-card__image"
-          alt={item.title}
-          src={resolvedPosterUrl ?? activePosterUrl}
-          loading="lazy"
-          decoding="async"
-          onError={() => {
-            setCandidateIndex((currentIndex) => currentIndex + 1);
-          }}
-        />
+      {visibleCandidates.length > 0 ? (
+        <div className={`library-card__collage library-card__collage--${visibleCandidates.length}`}>
+          {visibleCandidates.map((candidateUrl, index) => (
+            <LibraryCardCollageImage
+              key={candidateUrl}
+              alt={index === 0 ? item.title : ''}
+              url={candidateUrl}
+              onError={() => {
+                setFailedCandidates((currentCandidates) =>
+                  currentCandidates.includes(candidateUrl)
+                    ? currentCandidates
+                    : [...currentCandidates, candidateUrl]
+                );
+              }}
+            />
+          ))}
+        </div>
       ) : (
         <div className="library-card__image library-card__image--placeholder" aria-hidden="true" />
       )}
@@ -60,13 +91,13 @@ function LibraryCard({ item }: { item: HomeLibraryCard }) {
 
 export function LibraryCardRow({ title, items }: LibraryCardRowProps) {
   return (
-    <section className="home-section">
+    <section className="home-section home-section--libraries">
       <div className="home-section__header">
         <h2>{title}</h2>
       </div>
 
       {items.length > 0 ? (
-        <div className="library-card-grid">
+        <div className="library-card-grid" aria-label={title}>
           {items.map((item) => (
             <LibraryCard key={item.id} item={item} />
           ))}

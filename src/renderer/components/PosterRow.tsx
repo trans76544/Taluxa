@@ -15,7 +15,7 @@ interface PosterRowProps {
 
 export function PosterRow({ title, href, state, items, landscape = false }: PosterRowProps) {
   return (
-    <section className="home-section">
+    <section className="home-section home-section--featured">
       <div className="home-section__header">
         <h2>{title}</h2>
         <Link to={href} state={state}>

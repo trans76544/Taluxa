@@ -36,6 +36,7 @@ import type {
 } from '@shared/models/settings';
 import {
   buildContinueWatchingItems,
+  buildHomeLibraryCards,
   buildHomeRefreshStatusMessage,
   buildServerContinueWatchingItems,
   dedupeContinueWatchingPosterItems,
@@ -1567,16 +1568,10 @@ function LibrariesRoute() {
         continueWatching: buildServerContinueWatchingItems({
           serverItems: [...serverResumeItems, ...serverResumableItems],
         }),
-        libraries: nextViews.map((view) => ({
-          id: view.id,
-          title: view.name,
-          posterUrl: previewItemsByViewId.get(view.id)?.[0]?.posterUrl ?? '',
-          imageCandidates: previewItemsByViewId.get(view.id)?.[0]?.imageCandidates ?? [],
-          href: `/libraries/${view.id}`,
-          state: {
-            libraryName: view.name,
-          },
-        })),
+        libraries: buildHomeLibraryCards({
+          views: nextViews,
+          previewItemsByViewId,
+        }),
         featuredRows: featuredViews.map((view) => ({
           id: view.id,
           title: view.name,

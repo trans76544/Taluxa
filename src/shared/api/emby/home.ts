@@ -45,6 +45,66 @@ export interface HomeLibraryCard {
   };
 }
 
+export function buildHomeLibraryCards(args: {
+  views: LibraryView[];
+  previewItemsByViewId: Map<string, LibraryItem[]>;
+}): HomeLibraryCard[] {
+  return args.views.map((view) => {
+    const imageCandidates = getLibraryPreviewImageCandidates(
+      args.previewItemsByViewId.get(view.id) ?? []
+    );
+
+    return {
+      id: view.id,
+      title: view.name,
+      posterUrl: imageCandidates[0]?.url ?? '',
+      imageCandidates,
+      href: `/libraries/${view.id}`,
+      state: {
+        libraryName: view.name,
+      },
+    };
+  });
+}
+
+function getLibraryPreviewImageCandidates(items: LibraryItem[]): LibraryImageCandidate[] {
+  const candidates: LibraryImageCandidate[] = [];
+
+  for (const item of items) {
+    const candidate = getRepresentativeImageCandidate(item);
+
+    if (!candidate || candidates.some((existingCandidate) => existingCandidate.url === candidate.url)) {
+      continue;
+    }
+
+    candidates.push(candidate);
+  }
+
+  return candidates;
+}
+
+function getRepresentativeImageCandidate(item: LibraryItem): LibraryImageCandidate | null {
+  const posterUrl = item.posterUrl.trim();
+
+  if (posterUrl) {
+    return (
+      item.imageCandidates.find((candidate) => candidate.url === posterUrl) ?? {
+        url: posterUrl,
+        kind: 'primary',
+      }
+    );
+  }
+
+  const fallbackCandidate = item.imageCandidates.find((candidate) => candidate.url.trim());
+
+  return fallbackCandidate
+    ? {
+        ...fallbackCandidate,
+        url: fallbackCandidate.url.trim(),
+      }
+    : null;
+}
+
 export function buildContinueWatchingItems(args: {
   progressByItemId: Record<string, PlaybackProgress>;
   itemsById: Record<string, LibraryItem>;

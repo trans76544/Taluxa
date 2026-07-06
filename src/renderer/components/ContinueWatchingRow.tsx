@@ -63,7 +63,7 @@ export function ContinueWatchingRow({
   }
 
   return (
-    <section className="home-section">
+    <section className="home-section home-section--continue">
       <div className="home-section__header">
         <h2>{title}</h2>
       </div>
