@@ -56,19 +56,27 @@ function createFeaturedRows(): HomePosterRow[] {
       title: 'Featured Movies',
       href: '/libraries/featured',
       state: { libraryName: 'Featured Movies' },
-      items: [
-        {
-          id: 'feature-1',
-          title: 'Feature 1',
-          subtitle: '2026',
-          posterUrl: 'https://demo.local/feature-1.jpg',
-          imageCandidates: [],
-          href: '/player/feature-1',
-          state: { title: 'Feature 1' },
-        },
-      ],
+      items: Array.from({ length: 8 }, (_, index) => ({
+        id: `feature-${index + 1}`,
+        title: `Feature ${index + 1}`,
+        subtitle: '2026',
+        posterUrl: `https://demo.local/feature-${index + 1}.jpg`,
+        imageCandidates: [],
+        href: `/player/feature-${index + 1}`,
+        state: { title: `Feature ${index + 1}` },
+      })),
     },
   ];
+}
+
+function getCssRuleBody(selector: string) {
+  const styles = readFileSync('src/renderer/styles.css', 'utf8');
+  const selectorPattern = selector
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+');
+  return styles.match(new RegExp(`${selectorPattern}\\s*\\{(?<body>[^}]*)\\}`))?.groups?.body ?? '';
 }
 
 function LocationStateProbe() {
@@ -187,31 +195,25 @@ describe('HomePage', () => {
   });
 
   it('uses larger primary library columns than detailed poster columns', () => {
-    const styles = readFileSync('src/renderer/styles.css', 'utf8');
-    const libraryGridRule = styles.match(/\.home-section--libraries\s+\.library-card-grid\s*\{(?<body>[^}]*)\}/);
-    const posterGridRule = styles.match(/\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
-    const libraryCardRule = styles.match(/\.home-section--libraries\s+\.library-card\s*\{(?<body>[^}]*)\}/);
-    const libraryCollageRule = styles.match(
-      /\.home-section--libraries\s+\.library-card__collage\s*\{(?<body>[^}]*)\}/
-    );
+    const libraryGridRule = getCssRuleBody('.home-section--libraries .library-card-grid');
+    const posterGridRule = getCssRuleBody('.poster-row-grid');
+    const libraryCardRule = getCssRuleBody('.home-section--libraries .library-card');
+    const libraryCollageRule = getCssRuleBody('.home-section--libraries .library-card__collage');
 
-    expect(libraryGridRule?.groups?.body).toContain('grid-auto-columns: minmax(300px, 360px)');
-    expect(posterGridRule?.groups?.body).toContain('grid-auto-columns: minmax(138px, 156px)');
-    expect(libraryCardRule?.groups?.body).toContain('min-height: 188px');
-    expect(libraryCollageRule?.groups?.body).toContain('grid-template-columns: 1.12fr 0.88fr');
-    expect(libraryCollageRule?.groups?.body).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
+    expect(libraryGridRule).toContain('grid-auto-columns: minmax(300px, 360px)');
+    expect(posterGridRule).toContain('grid-auto-columns: minmax(138px, 156px)');
+    expect(libraryCardRule).toContain('min-height: 188px');
+    expect(libraryCollageRule).toContain('grid-template-columns: 1.12fr 0.88fr');
+    expect(libraryCollageRule).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
   });
 
   it('locks library artwork height so portrait-heavy servers cannot stretch thumbnails', () => {
-    const styles = readFileSync('src/renderer/styles.css', 'utf8');
-    const libraryCardRule = styles.match(/\.home-section--libraries\s+\.library-card\s*\{(?<body>[^}]*)\}/);
-    const libraryCollageRule = styles.match(
-      /\.home-section--libraries\s+\.library-card__collage\s*\{(?<body>[^}]*)\}/
-    );
+    const libraryCardRule = getCssRuleBody('.home-section--libraries .library-card');
+    const libraryCollageRule = getCssRuleBody('.home-section--libraries .library-card__collage');
 
-    expect(libraryCardRule?.groups?.body).toMatch(/(?:^|\n)\s*height: 188px;/);
-    expect(libraryCollageRule?.groups?.body).toContain('height: 100%');
-    expect(libraryCollageRule?.groups?.body).toContain('min-height: 0');
+    expect(libraryCardRule).toMatch(/(?:^|\n)\s*height: 188px;/);
+    expect(libraryCollageRule).toContain('height: 100%');
+    expect(libraryCollageRule).toContain('min-height: 0');
   });
 
   it('renders library artwork as a multi-image side-by-side collage', () => {
@@ -278,12 +280,11 @@ describe('HomePage', () => {
   });
 
   it('uses compact secondary sizing for continue-watching rows', () => {
-    const styles = readFileSync('src/renderer/styles.css', 'utf8');
-    const continueGridRule = styles.match(/\.home-section--continue\s+\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
-    const continueCardRule = styles.match(/\.home-section--continue\s+\.poster-card--continue\s*\{(?<body>[^}]*)\}/);
+    const continueGridRule = getCssRuleBody('.home-section--continue .poster-row-grid');
+    const continueCardRule = getCssRuleBody('.home-section--continue .poster-card--continue');
 
-    expect(continueGridRule?.groups?.body).toContain('grid-auto-columns: minmax(196px, 204px)');
-    expect(continueCardRule?.groups?.body).toContain('gap: 6px');
+    expect(continueGridRule).toContain('grid-auto-columns: minmax(196px, 204px)');
+    expect(continueCardRule).toContain('gap: 6px');
   });
 
   it('renders detailed featured rows after primary sections', () => {
@@ -307,20 +308,65 @@ describe('HomePage', () => {
     );
   });
 
-  it('keeps normal detailed rows scrollable and smaller than library tiles', () => {
-    const styles = readFileSync('src/renderer/styles.css', 'utf8');
-    const featuredGridRule = styles.match(/\.home-section--featured\s+\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
+  it('preserves featured row card href and route state', () => {
+    renderHome();
 
-    expect(featuredGridRule?.groups?.body).toContain('grid-auto-columns: minmax(138px, 156px)');
-    expect(featuredGridRule?.groups?.body).toContain('overflow-x: auto');
+    const featureLink = screen.getByRole('link', { name: /Feature 2/ });
+    expect(featureLink).toHaveAttribute('href', '/player/feature-2');
+
+    fireEvent.click(featureLink);
+
+    expect(screen.getByTestId('location-state')).toHaveTextContent(
+      JSON.stringify({ title: 'Feature 2' })
+    );
+  });
+
+  it('keeps normal detailed rows bounded without a visible horizontal scrollbar', () => {
+    const featuredGridRule = getCssRuleBody('.home-section--featured .poster-row-grid');
+
+    expect(featuredGridRule).toContain('grid-template-columns: repeat(auto-fill, minmax(138px, 156px))');
+    expect(featuredGridRule).toContain('overflow: hidden');
+    expect(featuredGridRule).not.toContain('overflow-x: auto');
+    expect(featuredGridRule).not.toContain('scrollbar-width: thin');
+  });
+
+  it('renders featured row cards without placeholder slots', () => {
+    const { container } = renderHome({
+      featuredRows: [
+        {
+          id: 'short-row',
+          title: 'Short Row',
+          href: '/libraries/short-row',
+          items: createFeaturedRows()[0].items.slice(0, 2),
+        },
+      ],
+    });
+
+    const featuredSection = Array.from(container.querySelectorAll('.home-section')).find((section) =>
+      section.textContent?.includes('Short Row')
+    );
+    const cards = featuredSection?.querySelectorAll('.poster-card');
+
+    expect(cards).toHaveLength(2);
+  });
+
+  it('keeps poster row titles and subtitles contained inside bounded cards', () => {
+    const titleRule = getCssRuleBody('.poster-card__title');
+    const subtitleRule = getCssRuleBody('.poster-card__subtitle');
+
+    expect(titleRule).toContain('white-space: nowrap');
+    expect(titleRule).toContain('overflow: hidden');
+    expect(titleRule).toContain('text-overflow: ellipsis');
+    expect(subtitleRule).toContain('white-space: nowrap');
+    expect(subtitleRule).toContain('overflow: hidden');
+    expect(subtitleRule).toContain('text-overflow: ellipsis');
   });
 
   it('keeps aggregate home row sizing isolated from normal home rows', () => {
-    const styles = readFileSync('src/renderer/styles.css', 'utf8');
-    const aggregateGridRule = styles.match(/\.home-screen--aggregate\s+\.poster-row-grid\s*\{(?<body>[^}]*)\}/);
+    const aggregateGridRule = getCssRuleBody('.home-screen--aggregate .poster-row-grid');
 
-    expect(aggregateGridRule?.groups?.body).toContain('grid-auto-columns: 186px');
-    expect(aggregateGridRule?.groups?.body).toContain('scrollbar-width: none');
+    expect(aggregateGridRule).toContain('grid-auto-columns: 186px');
+    expect(aggregateGridRule).toContain('scrollbar-width: none');
   });
 
   it('does not render aggregate tabs on the normal home screen', () => {
@@ -534,17 +580,12 @@ describe('HomePage', () => {
   });
 
   it('uses compact text spacing for continue-watching cards', () => {
-    const styles = readFileSync('src/renderer/styles.css', 'utf8');
-    const continueCardRule = styles.match(/\.poster-card--continue\s*\{(?<body>[^}]*)\}/);
-    const continueTitleRule = styles.match(
-      /\.poster-card--continue\s+\.poster-card__title\s*\{(?<body>[^}]*)\}/
-    );
-    const continueSubtitleRule = styles.match(
-      /\.poster-card--continue\s+\.poster-card__subtitle\s*\{(?<body>[^}]*)\}/
-    );
+    const continueCardRule = getCssRuleBody('.poster-card--continue');
+    const continueTitleRule = getCssRuleBody('.poster-card--continue .poster-card__title');
+    const continueSubtitleRule = getCssRuleBody('.poster-card--continue .poster-card__subtitle');
 
-    expect(continueCardRule?.groups?.body).toContain('gap: 6px');
-    expect(continueTitleRule?.groups?.body).toContain('margin-top: 4px');
-    expect(continueSubtitleRule?.groups?.body).toContain('margin-top: 1px');
+    expect(continueCardRule).toContain('gap: 6px');
+    expect(continueTitleRule).toContain('margin-top: 4px');
+    expect(continueSubtitleRule).toContain('margin-top: 1px');
   });
 });
