@@ -581,6 +581,9 @@ a {
 .poster-card__subtitle {
   color: var(--muted);
   font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .library-card-grid {
@@ -694,8 +697,10 @@ a {
 }
 
 .home-section--featured .poster-row-grid {
-  grid-auto-columns: minmax(138px, 156px);
-  overflow-x: auto;
+  grid-auto-flow: row;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 156px));
+  max-height: 286px;
+  overflow: hidden;
 }
 
 .library-items-page {
