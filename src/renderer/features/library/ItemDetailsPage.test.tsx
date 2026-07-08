@@ -121,6 +121,49 @@ function createSeriesDetails(overrides: Partial<LibraryItemDetails> = {}): Libra
   });
 }
 
+function createLongTitleMovieDetails(overrides: Partial<LibraryItemDetails> = {}): LibraryItemDetails {
+  return createMovieDetails({
+    name: '关于我转生变成史莱姆这档事 苍海之泪篇',
+    overview:
+      '舞台设定在崇拜水龙守护神的海底王国，这里因神秘污染和强行唤醒沉睡水龙的阴谋陷入危机。',
+    genres: ['动画', '奇幻', '冒险', '喜剧'],
+    ...overrides,
+  });
+}
+
+function createNoBackdropMovieDetails(
+  overrides: Partial<LibraryItemDetails> = {}
+): LibraryItemDetails {
+  return createMovieDetails({
+    backdropUrl: null,
+    ...overrides,
+  });
+}
+
+function createLongMediaSourceDetails(
+  overrides: Partial<LibraryItemDetails> = {}
+): LibraryItemDetails {
+  return createLongTitleMovieDetails({
+    mediaSources: [
+      createMediaSource('source-long-1080', {
+        path:
+          '/movies/关于我转生变成史莱姆这档事 苍海之泪篇 (2026) - 1080p h264 high bitrate theatrical edition.mkv',
+        audioStreams: [
+          {
+            Index: 11,
+            DisplayTitle: 'Japanese AAC stereo commentary and default theatrical mix',
+            Codec: 'aac',
+            Channels: 2,
+            ChannelLayout: 'stereo',
+            IsDefault: true,
+          },
+        ],
+      }),
+    ],
+    ...overrides,
+  });
+}
+
 function createEpisode(overrides: Partial<LibraryEpisode> = {}): LibraryEpisode {
   return {
     id: 'episode-1',
@@ -161,13 +204,30 @@ function createSimilarItems(count: number): LibraryItem[] {
 }
 
 function getCssRuleBody(selector: string) {
-  const styles = readFileSync('src/renderer/styles.css', 'utf8');
+  const styles = getStylesheet();
   const selectorPattern = selector
     .trim()
     .split(/\s+/)
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('\\s+');
   return styles.match(new RegExp(`${selectorPattern}\\s*\\{(?<body>[^}]*)\\}`))?.groups?.body ?? '';
+}
+
+function getStylesheet() {
+  return readFileSync('src/renderer/styles.css', 'utf8');
+}
+
+function expectCssRule(selector: string) {
+  const ruleBody = getCssRuleBody(selector);
+
+  return {
+    toContainDeclaration(declaration: string) {
+      expect(ruleBody).toContain(declaration);
+    },
+    notToContainDeclaration(declaration: string) {
+      expect(ruleBody).not.toContain(declaration);
+    },
+  };
 }
 
 function installCarouselLayoutMocks(width = 500) {
@@ -714,6 +774,140 @@ describe('ItemDetailsPage', () => {
     expect(castRule).not.toContain('overflow-x: auto');
     expect(moviesRule).not.toContain('overflow-x: auto');
     expect(viewportRule).toContain('overflow: hidden');
+  });
+
+  it('uses full-page detail layout rules without an inset app-main gutter', () => {
+    expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration('padding: 0');
+    expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration('background: #111113');
+    expectCssRule('.item-details-page').toContainDeclaration('min-height: 100%');
+    expectCssRule('.item-details-page').toContainDeclaration('background: #111113');
+    expectCssRule('.item-hero').toContainDeclaration(
+      'min-height: min(700px, calc(100vh - 44px))'
+    );
+    expectCssRule('.item-details-body').toContainDeclaration(
+      'padding: 0 var(--detail-page-pad) 86px'
+    );
+  });
+
+  it('renders movie details inside the full-page detail surface with backdrop artwork', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createLongTitleMovieDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(container.querySelector('.item-details-page')).not.toBeNull();
+    expect(container.querySelector('.item-hero')).toHaveStyle({
+      backgroundImage: 'url(https://demo.local/backdrop.jpg)',
+    });
+  });
+
+  it('renders series details inside the same full-page detail surface', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails({ backdropUrl: 'https://demo.local/series-backdrop.jpg' })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[createEpisode()]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(container.querySelector('.item-details-page')).not.toBeNull();
+    expect(container.querySelector('.item-hero')).toHaveStyle({
+      backgroundImage: 'url(https://demo.local/series-backdrop.jpg)',
+    });
+  });
+
+  it('keeps the full-page hero surface when backdrop artwork is missing', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createNoBackdropMovieDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(container.querySelector('.item-details-page')).not.toBeNull();
+    expect(container.querySelector('.item-hero')).toHaveStyle({ backgroundImage: 'none' });
+  });
+
+  it('keeps media selectors contained within the full-page hero', () => {
+    expectCssRule('.item-hero__media-badge').toContainDeclaration(
+      'right: var(--detail-page-pad)'
+    );
+    expectCssRule('.item-hero__media-badge').toContainDeclaration('bottom: 54px');
+    expectCssRule('.item-hero__media-badge').toContainDeclaration(
+      'width: min(460px, calc(100% - (var(--detail-page-pad) * 2)))'
+    );
+    expectCssRule('.media-select select').toContainDeclaration('min-width: 0');
+    expectCssRule('.media-select__summary').toContainDeclaration('overflow-wrap: anywhere');
+  });
+
+  it('preserves long media source selection behavior in the full hero layout', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createLongMediaSourceDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByLabelText('\u7248\u672c')).toHaveValue('source-long-1080');
+    expect(screen.getByLabelText('\u97f3\u9891')).toHaveValue('11');
+  });
+
+  it('aligns detail rows and carousel fades with the full-page body', () => {
+    expectCssRule('.details-section').toContainDeclaration('min-width: 0');
+    expectCssRule('.detail-carousel').toContainDeclaration('width: 100%');
+    expectCssRule('.detail-carousel').toContainDeclaration('--detail-carousel-fade-bg: #111113');
+    expectCssRule('.episodes-row').toContainDeclaration(
+      'grid-template-columns: repeat(auto-fill, minmax(230px, 1fr))'
+    );
+    expectCssRule('.metadata-footer').toContainDeclaration('margin-top: 0');
+  });
+
+  it('scopes full-page detail behavior without changing app shell defaults', () => {
+    expectCssRule('.app-main').toContainDeclaration('padding: 40px');
+    expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration('padding: 0');
+    expectCssRule('.app-layout').toContainDeclaration('grid-template-columns: 260px minmax(0, 1fr)');
+    expectCssRule('.app-sidebar').toContainDeclaration('background: #18181b');
+    expectCssRule('.panel--content').toContainDeclaration('width: min(1040px, 100%)');
+  });
+
+  it('defines responsive detail breakpoints for desktop and narrow widths', () => {
+    const styles = getStylesheet();
+
+    expect(styles).toMatch(/@media \(max-width: 1100px\)/);
+    expect(styles).toMatch(/\.item-hero__content\s*\{[^}]*padding-bottom: 252px;/);
+    expect(styles).toMatch(/\.item-hero__media-badge\s*\{[^}]*left: var\(--detail-page-pad\);/);
+    expect(styles).toMatch(/@media \(max-width: 760px\)/);
+    expect(styles).toMatch(/\.media-select\s*\{[^}]*grid-template-columns: 1fr;/);
+    expect(styles).toMatch(/\.metadata-footer\s*\{[^}]*grid-template-columns: 1fr;/);
   });
 
   it('advances an overflowing cast row when the next button is clicked', () => {
