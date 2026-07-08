@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PosterCard } from '@renderer/components/PosterCard';
+import { DetailCarousel } from './DetailCarousel';
 import type {
   LibraryEpisode,
   LibraryItem,
@@ -553,7 +554,14 @@ export function ItemDetailsPage({
         {details.people.length > 0 && (
           <section className="details-section">
             <h3 className="section-title">演职人员</h3>
-            <div className="cast-carousel">
+            <DetailCarousel
+              label="演职人员"
+              previousLabel={'\u4e0a\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'}
+              nextLabel={'\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'}
+              itemCount={details.people.length}
+              itemStepFallback={156}
+              trackClassName="cast-carousel"
+            >
               {details.people.map(person => (
                 <div key={person.id} className="cast-card">
                   <div className="cast-card__image" style={{ backgroundImage: person.imageUrl ? `url(${person.imageUrl})` : 'none' }}>
@@ -565,7 +573,7 @@ export function ItemDetailsPage({
                   </div>
                 </div>
               ))}
-            </div>
+            </DetailCarousel>
           </section>
         )}
 
@@ -573,9 +581,17 @@ export function ItemDetailsPage({
         {similarItems.length > 0 && (
           <section className="details-section">
             <h3 className="section-title">更多类似</h3>
-            <ul className="movies-carousel">
+            <DetailCarousel
+              as="ul"
+              label="更多类似"
+              previousLabel={'\u4e0a\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'}
+              nextLabel={'\u4e0b\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'}
+              itemCount={similarItems.length}
+              itemStepFallback={196}
+              trackClassName="movies-carousel"
+            >
               {similarItems.map(item => (
-                <li key={item.id}>
+                <li key={item.id} className="detail-carousel__item detail-carousel__item--movie">
                   <PosterCard
                     title={item.name}
                     subtitle={formatRuntime(item.runtimeTicks) || ''}
@@ -586,7 +602,7 @@ export function ItemDetailsPage({
                   />
                 </li>
               ))}
-            </ul>
+            </DetailCarousel>
           </section>
         )}
 

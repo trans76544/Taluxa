@@ -1,8 +1,15 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ItemDetailsPage } from './ItemDetailsPage';
-import type { LibraryEpisode, LibraryItemDetails, LibraryItemMediaSource } from '@shared/models/library';
+import type { LibraryEpisode, LibraryItem, LibraryItemDetails, LibraryItemMediaSource } from '@shared/models/library';
+
+let observedResizeCallbacks: ResizeObserverCallback[] = [];
+let originalResizeObserver: typeof ResizeObserver | undefined;
+let originalClientWidthDescriptor: PropertyDescriptor | undefined;
+let originalGetBoundingClientRect: typeof HTMLElement.prototype.getBoundingClientRect;
+let mockedCarouselViewportWidth = 500;
 
 function createMediaSource(
   id: string,
@@ -129,7 +136,130 @@ function createEpisode(overrides: Partial<LibraryEpisode> = {}): LibraryEpisode 
   };
 }
 
+function createPeople(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `person-${index + 1}`,
+    name: `Actor ${index + 1}`,
+    role: `Role ${index + 1}`,
+    type: 'Actor',
+    imageUrl: `https://demo.local/person-${index + 1}.jpg`,
+  }));
+}
+
+function createSimilarItems(count: number): LibraryItem[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `similar-${index + 1}`,
+    name: `Similar ${index + 1}`,
+    type: 'Movie',
+    posterUrl: `https://demo.local/similar-${index + 1}.jpg`,
+    imageCandidates: [],
+    runtimeTicks: 60000000000 + index,
+    serverPositionTicks: index,
+    communityRating: null,
+    productionYear: 2026,
+  }));
+}
+
+function getCssRuleBody(selector: string) {
+  const styles = readFileSync('src/renderer/styles.css', 'utf8');
+  const selectorPattern = selector
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+');
+  return styles.match(new RegExp(`${selectorPattern}\\s*\\{(?<body>[^}]*)\\}`))?.groups?.body ?? '';
+}
+
+function installCarouselLayoutMocks(width = 500) {
+  mockedCarouselViewportWidth = width;
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get() {
+      return this.classList.contains('detail-carousel__viewport') ? mockedCarouselViewportWidth : 0;
+    },
+  });
+
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    if (this.classList.contains('cast-card')) {
+      return { width: 140 } as DOMRect;
+    }
+
+    if (this.classList.contains('poster-card')) {
+      return { width: 180 } as DOMRect;
+    }
+
+    return { width: 0 } as DOMRect;
+  };
+}
+
+function triggerResizeObservers() {
+  for (const callback of observedResizeCallbacks) {
+    callback([], {} as ResizeObserver);
+  }
+}
+
+function setCarouselViewportWidth(width: number) {
+  mockedCarouselViewportWidth = width;
+}
+
+function getCarouselTrackForButton(button: HTMLElement) {
+  const carousel = button.closest('.detail-carousel');
+  const track = carousel?.querySelector('.detail-carousel__track');
+  if (!(track instanceof HTMLElement)) {
+    throw new Error('Expected carousel track to exist');
+  }
+
+  return track;
+}
+
+function LocationStateProbe() {
+  const location = useLocation();
+
+  return (
+    <>
+      <output data-testid="location-path">{location.pathname}</output>
+      <output data-testid="location-state">{JSON.stringify(location.state)}</output>
+    </>
+  );
+}
+
 describe('ItemDetailsPage', () => {
+  beforeEach(() => {
+    observedResizeCallbacks = [];
+    originalResizeObserver = globalThis.ResizeObserver;
+    originalClientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+
+    class MockResizeObserver implements ResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {
+        observedResizeCallbacks.push(callback);
+      }
+
+      disconnect() {}
+      observe() {
+        this.callback([], this);
+      }
+      unobserve() {}
+    }
+
+    globalThis.ResizeObserver = MockResizeObserver;
+    installCarouselLayoutMocks();
+  });
+
+  afterEach(() => {
+    if (originalResizeObserver) {
+      globalThis.ResizeObserver = originalResizeObserver;
+    } else {
+      delete (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+    }
+
+    if (originalClientWidthDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalClientWidthDescriptor);
+    }
+
+    HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+  });
+
   it('plays the selected version and audio stream', () => {
     const onPlay = vi.fn();
 
@@ -513,5 +643,234 @@ describe('ItemDetailsPage', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Mark as played' }));
     expect(onMarkPlayed).toHaveBeenCalledWith('episode-2');
+  });
+
+  it('shows carousel buttons for overflowing cast and similar rows', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ people: createPeople(8) })}
+          similarItems={createSimilarItems(8)}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('button', { name: '上一组演职人员' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下一组演职人员' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '上一组更多类似' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下一组更多类似' })).toBeInTheDocument();
+  });
+
+  it('hides carousel buttons when cast and similar rows fit within the viewport', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ people: createPeople(2) })}
+          similarItems={createSimilarItems(2)}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: '上一组演职人员' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '下一组演职人员' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '上一组更多类似' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '下一组更多类似' })).not.toBeInTheDocument();
+  });
+
+  it('shows carousel buttons for overflowing series detail rows', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails({ people: createPeople(8) })}
+          similarItems={createSimilarItems(8)}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('button', { name: '上一组演职人员' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下一组更多类似' })).toBeInTheDocument();
+  });
+
+  it('removes native horizontal scrolling from detail carousel rows', () => {
+    const castRule = getCssRuleBody('.cast-carousel');
+    const moviesRule = getCssRuleBody('.movies-carousel');
+    const viewportRule = getCssRuleBody('.detail-carousel__viewport');
+
+    expect(castRule).not.toContain('overflow-x: auto');
+    expect(moviesRule).not.toContain('overflow-x: auto');
+    expect(viewportRule).toContain('overflow: hidden');
+  });
+
+  it('advances an overflowing cast row when the next button is clicked', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ people: createPeople(8) })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const nextButton = screen.getByRole('button', { name: '下一组演职人员' });
+    const track = getCarouselTrackForButton(nextButton);
+
+    expect(track).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' });
+
+    fireEvent.click(nextButton);
+
+    expect(track).toHaveStyle({ transform: 'translate3d(-280px, 0, 0)' });
+  });
+
+  it('moves an advanced similar row back when the previous button is clicked', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails()}
+          similarItems={createSimilarItems(8)}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const nextButton = screen.getByRole('button', { name: '下一组更多类似' });
+    const previousButton = screen.getByRole('button', { name: '上一组更多类似' });
+    const track = getCarouselTrackForButton(nextButton);
+
+    fireEvent.click(nextButton);
+    expect(track).toHaveStyle({ transform: 'translate3d(-196px, 0, 0)' });
+
+    fireEvent.click(previousButton);
+    expect(track).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' });
+  });
+
+  it('keeps similar recommendation links and route state after carousel movement', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails()}
+          similarItems={createSimilarItems(8)}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+        <LocationStateProbe />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '下一组更多类似' }));
+    fireEvent.click(screen.getByRole('link', { name: /Similar 2/ }));
+
+    expect(screen.getByTestId('location-path')).toHaveTextContent('/item/similar-2');
+    expect(screen.getByTestId('location-state')).toHaveTextContent(
+      JSON.stringify({ title: 'Similar 2', serverPositionTicks: 1 })
+    );
+  });
+
+  it('loops an overflowing row only after reaching the final position', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ people: createPeople(8) })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const nextButton = screen.getByRole('button', { name: '下一组演职人员' });
+    const track = getCarouselTrackForButton(nextButton);
+
+    fireEvent.click(nextButton);
+    fireEvent.click(nextButton);
+    fireEvent.click(nextButton);
+    expect(track).toHaveStyle({ transform: 'translate3d(-700px, 0, 0)' });
+
+    fireEvent.click(nextButton);
+    expect(track).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' });
+  });
+
+  it('loops an overflowing row from the beginning to the final position with the previous button', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ people: createPeople(8) })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const previousButton = screen.getByRole('button', { name: '上一组演职人员' });
+    const track = getCarouselTrackForButton(previousButton);
+
+    fireEvent.click(previousButton);
+
+    expect(track).toHaveStyle({ transform: 'translate3d(-700px, 0, 0)' });
+  });
+
+  it('updates carousel controls after row width changes', () => {
+    render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails({ people: createPeople(8) })}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('button', { name: '下一组演职人员' })).toBeInTheDocument();
+
+    act(() => {
+      setCarouselViewportWidth(2000);
+      triggerResizeObservers();
+    });
+
+    expect(screen.queryByRole('button', { name: '下一组演职人员' })).not.toBeInTheDocument();
+
+    act(() => {
+      setCarouselViewportWidth(300);
+      triggerResizeObservers();
+    });
+
+    expect(screen.getByRole('button', { name: '下一组演职人员' })).toBeInTheDocument();
   });
 });
