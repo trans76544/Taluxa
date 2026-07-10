@@ -271,7 +271,7 @@ describe('playback performance route behavior', () => {
     fetchServerInfoMock.mockResolvedValue({ serverName: null });
   });
 
-  it('acknowledges play immediately while playback source resolution is delayed', async () => {
+  it('keeps playback startup logs off the detail page while source resolution is delayed', async () => {
     const sourceDeferred = createDeferred<{
       httpHeaders: Record<string, string>;
       streamUrl: string;
@@ -300,13 +300,17 @@ describe('playback performance route behavior', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Preparing playback...');
-    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        itemId: 'movie-1',
-        mediaSourceId: 'slow-source',
-      })
-    );
+    await waitFor(() => {
+      expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'movie-1',
+          mediaSourceId: 'slow-source',
+        })
+      );
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText('Preparing playback...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Starting playback...')).not.toBeInTheDocument();
 
     await act(async () => {
       sourceDeferred.resolve({
@@ -513,7 +517,7 @@ describe('playback performance route behavior', () => {
     }
   });
 
-  it('emits playback ready timing and clears startup status when the current mpv launch resolves', async () => {
+  it('emits playback ready timing without showing startup status when the current mpv launch resolves', async () => {
     const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
 
     try {

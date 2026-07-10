@@ -492,7 +492,6 @@ function ItemDetailsRoute() {
   const [playbackEpisodeSelector, setPlaybackEpisodeSelector] = useState<PlayerEpisodeSelector | undefined>(undefined);
   const [initialPositionSeconds, setInitialPositionSeconds] = useState<number | null>(null);
   const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
-  const [playbackStartupMessage, setPlaybackStartupMessage] = useState('');
 
   const resolvedActiveAccountId = activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
   const progressStateRef = useRef<{ lastReportedAtMs: number | null; lastReportedPositionSeconds: number | null }>({ lastReportedAtMs: null, lastReportedPositionSeconds: null });
@@ -646,7 +645,6 @@ function ItemDetailsRoute() {
     setPlaybackTitle('');
     setPlaybackEpisodeSelector(undefined);
     setPlaybackErrorMessage('');
-    setPlaybackStartupMessage('');
     currentPlaybackLaunchRef.current = null;
 
     async function loadData() {
@@ -897,7 +895,6 @@ function ItemDetailsRoute() {
       timingRecorder,
     };
     setPlaybackErrorMessage('');
-    setPlaybackStartupMessage('Preparing playback...');
     emitLoadTimingMilestone(timingRecorder.mark('play-acknowledged'));
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
@@ -947,12 +944,10 @@ function ItemDetailsRoute() {
       
       setInitialPositionSeconds(getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }));
       setPlaybackSource(nextSource);
-      setPlaybackStartupMessage('Starting playback...');
       emitLoadTimingMilestone(timingRecorder.mark('player-launch-requested'));
     } catch (err) {
       if (playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
         setPlaybackSource(null);
-        setPlaybackStartupMessage('');
         setPlaybackErrorMessage('Could not prepare desktop playback.');
         currentPlaybackLaunchRef.current = null;
       }
@@ -971,7 +966,6 @@ function ItemDetailsRoute() {
       return;
     }
 
-    setPlaybackStartupMessage('');
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-ready'));
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
     currentPlaybackLaunchRef.current = null;
@@ -991,7 +985,6 @@ function ItemDetailsRoute() {
       return;
     }
 
-    setPlaybackStartupMessage('');
     setPlaybackErrorMessage(message);
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-recoverable-failure', 'failure'));
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
@@ -1219,8 +1212,6 @@ function ItemDetailsRoute() {
   return (
     <AuthenticatedLayout title={details.name}>
       {playbackErrorMessage ? <p role="alert">{playbackErrorMessage}</p> : null}
-      {playbackStartupMessage ? <p role="status">{playbackStartupMessage}</p> : null}
-      
       {session && initialPositionSeconds !== null && playbackSource ? (
         <PlayerPage
           authMode={playbackSource.authMode}

@@ -2354,7 +2354,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
   });
 
-  it('acknowledges play immediately while playback source resolution is delayed', async () => {
+  it('does not show playback startup logs while playback source resolution is delayed', async () => {
     const account = createSavedAccount();
     const sourceDeferred = createDeferred<{
       streamUrl: string;
@@ -2398,13 +2398,17 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Preparing playback...');
-    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        itemId: 'movie-1',
-        mediaSourceId: 'slow-source',
-      })
-    );
+    await waitFor(() => {
+      expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'movie-1',
+          mediaSourceId: 'slow-source',
+        })
+      );
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText('Preparing playback...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Starting playback...')).not.toBeInTheDocument();
 
     await act(async () => {
       sourceDeferred.resolve({
