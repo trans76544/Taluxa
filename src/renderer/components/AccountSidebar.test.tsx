@@ -1,9 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { AccountSidebar } from './AccountSidebar';
 
 import type { SavedAccount } from '@shared/models/session';
+
+function getCssRuleBody(selector: string): string {
+  const styles = readFileSync('src/renderer/styles.css', 'utf8');
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = styles.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`));
+
+  return match?.groups?.body ?? '';
+}
 
 function createAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
   const serverUrl = overrides.serverUrl ?? 'https://demo.emby.local';
@@ -32,7 +41,7 @@ describe('AccountSidebar', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('img', { name: 'Taluxa' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Taluxa' })).toHaveClass('brand-logo-mark');
     expect(screen.queryByRole('heading', { name: 'Taluxa' })).not.toBeInTheDocument();
   });
 
@@ -171,6 +180,50 @@ describe('AccountSidebar', () => {
     fireEvent.click(addServerLink);
 
     expect(onAddServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses theme variables for sidebar action buttons and text colors', () => {
+    expect(getCssRuleBody('.brand-logo-mark')).toContain('background: var(--surface-bg)');
+    expect(getCssRuleBody('.brand-logo-mark')).toContain('color: var(--text)');
+    expect(getCssRuleBody('.brand-logo-symbol')).toContain('color: var(--accent)');
+    expect(getCssRuleBody('.account-sidebar__footer .footer-item')).toContain(
+      'background: var(--surface-2)'
+    );
+    expect(getCssRuleBody('.account-sidebar__footer .footer-item')).toContain(
+      'color: var(--text)'
+    );
+    expect(getCssRuleBody('.nav-item')).toContain('color: var(--muted)');
+    expect(getCssRuleBody('.nav-item.is-active')).toContain('color: var(--text)');
+    expect(getCssRuleBody('.server-item')).toContain('color: var(--muted)');
+    expect(getCssRuleBody('.server-item__name')).toContain('color: var(--text)');
+  });
+
+  it('uses theme variables for add-server and server editor dialog backgrounds', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const addServerBackdropRule = styles.match(/\.add-server-backdrop\s*\{(?<body>[^}]*)\}/);
+    const addServerPanelRule = styles.match(/\.add-server-dialog \.panel\s*\{(?<body>[^}]*)\}/);
+    const addServerCloseRule = styles.match(/\.add-server-dialog__close\s*\{(?<body>[^}]*)\}/);
+    const serverEditorBackdropRule = styles.match(/\.server-editor-backdrop\s*\{(?<body>[^}]*)\}/);
+    const serverEditorDialogRule = styles.match(/\.server-editor-dialog\s*\{(?<body>[^}]*)\}/);
+    const serverEditorInputRule = styles.match(/\.server-editor-dialog input\s*\{(?<body>[^}]*)\}/);
+    const serverEditorButtonRule = styles.match(
+      /\.server-editor-dialog__header button,[\s\S]*?\.server-editor-dialog__actions button\s*\{(?<body>[^}]*)\}/
+    );
+
+    expect(addServerBackdropRule?.groups?.body).toContain(
+      'background: color-mix(in srgb, var(--app-bg) 72%, transparent)'
+    );
+    expect(addServerPanelRule?.groups?.body).toContain('background: var(--surface-bg)');
+    expect(addServerCloseRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(addServerCloseRule?.groups?.body).toContain('color: var(--text)');
+    expect(serverEditorBackdropRule?.groups?.body).toContain(
+      'background: color-mix(in srgb, var(--app-bg) 76%, transparent)'
+    );
+    expect(serverEditorDialogRule?.groups?.body).toContain('background: var(--surface-bg)');
+    expect(serverEditorInputRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(serverEditorInputRule?.groups?.body).toContain('color: var(--text)');
+    expect(serverEditorButtonRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(serverEditorButtonRule?.groups?.body).toContain('color: var(--text)');
   });
 
   it('opens server configuration from the server context menu', async () => {

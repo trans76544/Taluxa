@@ -207,6 +207,22 @@ describe('HomePage', () => {
     expect(libraryCollageRule).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
   });
 
+  it('uses theme text variables for home headings and aggregate row labels', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+
+    expect(getCssRuleBody('.home-screen__title')).toContain('color: var(--text)');
+    expect(getCssRuleBody('.home-screen--aggregate')).toContain('color: var(--text)');
+    expect(getCssRuleBody('.home-screen--aggregate .home-section__header h2')).toContain(
+      'color: var(--text)'
+    );
+    expect(styles).toMatch(
+      /\.home-screen--aggregate \.poster-card__title,\s*\.home-screen--aggregate \.library-card__title\s*\{[^}]*color: var\(--text\)/u
+    );
+    expect(getCssRuleBody('.home-screen--aggregate .poster-card__subtitle')).toContain(
+      'color: var(--muted)'
+    );
+  });
+
   it('locks library artwork height so portrait-heavy servers cannot stretch thumbnails', () => {
     const libraryCardRule = getCssRuleBody('.home-section--libraries .library-card');
     const libraryCollageRule = getCssRuleBody('.home-section--libraries .library-card__collage');
@@ -354,9 +370,11 @@ describe('HomePage', () => {
     const titleRule = getCssRuleBody('.poster-card__title');
     const subtitleRule = getCssRuleBody('.poster-card__subtitle');
 
+    expect(titleRule).toContain('color: var(--text)');
     expect(titleRule).toContain('white-space: nowrap');
     expect(titleRule).toContain('overflow: hidden');
     expect(titleRule).toContain('text-overflow: ellipsis');
+    expect(subtitleRule).toContain('color: var(--muted)');
     expect(subtitleRule).toContain('white-space: nowrap');
     expect(subtitleRule).toContain('overflow: hidden');
     expect(subtitleRule).toContain('text-overflow: ellipsis');

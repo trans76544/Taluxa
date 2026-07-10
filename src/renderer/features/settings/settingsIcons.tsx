@@ -7,6 +7,7 @@ export const settingsRowIconIds = {
   currentAccount: 'currentAccount',
   serverUrl: 'serverUrl',
   defaultVolume: 'defaultVolume',
+  themeMode: 'themeMode',
   playbackScale: 'playbackScale',
   subtitleEnabled: 'subtitleEnabled',
   subtitleFont: 'subtitleFont',
@@ -66,6 +67,7 @@ export const settingsIconRegistry: Record<SettingsIconId, SettingsIconMeta> = {
   currentAccount: { id: 'currentAccount', family: 'general', meaning: 'active account' },
   serverUrl: { id: 'serverUrl', family: 'general', meaning: 'server connection' },
   defaultVolume: { id: 'defaultVolume', family: 'general', meaning: 'startup volume' },
+  themeMode: { id: 'themeMode', family: 'general', meaning: 'client color tone' },
   playbackScale: { id: 'playbackScale', family: 'playback', meaning: 'player scale mode' },
   subtitleEnabled: { id: 'subtitleEnabled', family: 'subtitle', meaning: 'subtitle visibility' },
   subtitleFont: { id: 'subtitleFont', family: 'subtitle', meaning: 'subtitle font family' },
@@ -143,6 +145,14 @@ function renderIconGlyph(id: SettingsIconId): ReactNode {
         <>
           <path d="M5 10v4h3l4 3V7l-4 3H5z" />
           <path d="M15 9c1.2 1.8 1.2 4.2 0 6M18 7c2.2 3 2.2 7 0 10" />
+        </>
+      );
+    case 'themeMode':
+      return (
+        <>
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 5a7 7 0 0 1 0 14V5z" />
+          <path d="M7 12h10" />
         </>
       );
     case 'playbackScale':

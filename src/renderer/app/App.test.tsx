@@ -7,7 +7,11 @@ import { AppProviders } from './providers';
 import { AuthProvider, useAuth } from '@renderer/features/auth/AuthContext';
 
 import { createDefaultSettings } from '@shared/models/settings';
-import type { PersistedHomeCacheEntry, PersistedState } from '@shared/store/persistence';
+import type {
+  PersistedHomeCacheEntry,
+  PersistedState,
+  SettingsSyncEvent,
+} from '@shared/store/persistence';
 import type { SavedAccount } from '@shared/models/session';
 import { createAccountScopedProgressKey } from '@shared/store/persistence';
 
@@ -102,6 +106,7 @@ interface PlayerProgressEvent {
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
   const progressListeners = new Set<(event: PlayerProgressEvent) => void>();
   const episodeSelectListeners = new Set<(itemId: string) => void>();
+  const settingsSyncListeners = new Set<(event: SettingsSyncEvent) => void>();
   const launch = vi.fn().mockResolvedValue(undefined);
   const switchEpisode = vi.fn().mockResolvedValue(undefined);
   const preflight = vi.fn().mockResolvedValue(undefined);
@@ -117,6 +122,13 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
 
     return () => {
       episodeSelectListeners.delete(listener);
+    };
+  });
+  const onSettingsSync = vi.fn((listener: (event: SettingsSyncEvent) => void) => {
+    settingsSyncListeners.add(listener);
+
+    return () => {
+      settingsSyncListeners.delete(listener);
     };
   });
   const read = vi.fn().mockResolvedValue(state);
@@ -152,6 +164,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       read,
       write,
       clearSession,
+      onSettingsSync,
     },
     imageCache: {
       resolve: resolveImage,
@@ -165,6 +178,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     launch,
     switchEpisode,
     onEpisodeSelect,
+    onSettingsSync,
     preflight,
     onProgress,
     read,
@@ -183,6 +197,11 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     emitEpisodeSelect(itemId: string) {
       for (const listener of episodeSelectListeners) {
         listener(itemId);
+      }
+    },
+    emitSettingsSync(event: SettingsSyncEvent) {
+      for (const listener of settingsSyncListeners) {
+        listener(event);
       }
     },
   };
@@ -3782,6 +3801,140 @@ describe('App', () => {
         },
       });
     });
+  });
+
+  it('persists client theme changes from settings without leaving settings', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ defaultVolume: 0.8 }),
+      })
+    );
+    const persistedThemeState = createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ defaultVolume: 0.8, themeMode: 'eye' }),
+    });
+    storage.write.mockImplementation(async (patch) => {
+      if (patch.settings) {
+        storage.emitSettingsSync({
+          origin: 'renderer-settings',
+          patch: patch.settings,
+          persistedAt: '2026-07-09T00:00:00.000Z',
+          status: 'saved',
+        });
+      }
+
+      return persistedThemeState;
+    });
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Eye Protection Mode' }));
+
+    await waitFor(() => {
+      expect(storage.write).toHaveBeenCalledWith({
+        settings: {
+          themeMode: 'eye',
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute('data-theme', 'eye');
+    });
+    expect(screen.queryByRole('button', { name: /Sign in/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/settings');
+  });
+
+  it('hydrates a persisted eye protection theme at app startup', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ themeMode: 'eye' }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute('data-theme', 'eye');
+    });
+    expect(screen.getByRole('radio', { name: 'Eye Protection Mode' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
+  it('falls back to daily mode when persisted theme mode is missing', async () => {
+    const legacySettings = createSettings({ themeMode: 'dark' }) as Partial<PersistedState['settings']>;
+    delete legacySettings.themeMode;
+
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: legacySettings as PersistedState['settings'],
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute('data-theme', 'daily');
+    });
+    expect(screen.getByRole('radio', { name: 'Daily Mode' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('falls back to daily mode when persisted theme mode is invalid', async () => {
+    mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+        settings: createSettings({ themeMode: 'sepia' as PersistedState['settings']['themeMode'] }),
+      })
+    );
+
+    window.location.hash = '#/settings';
+
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: SETTINGS_HEADING })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute('data-theme', 'daily');
+    });
+    expect(screen.getByRole('radio', { name: 'Daily Mode' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('rejects invalid custom proxy settings before persistence at the route layer', async () => {

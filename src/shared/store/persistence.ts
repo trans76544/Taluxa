@@ -3,6 +3,7 @@ import type { SavedAccount, Session } from '@shared/models/session';
 import {
   createDefaultDanmakuServers,
   createDefaultSettings,
+  normalizeThemeMode,
   type CacheSettings,
   type DanmakuSettings,
   type PlaybackSettings,
@@ -230,6 +231,7 @@ function mergeSettings(
   return {
     rememberSession: nextSettings?.rememberSession ?? currentSettings.rememberSession,
     defaultVolume: nextSettings?.defaultVolume ?? currentSettings.defaultVolume,
+    themeMode: normalizeThemeMode(nextSettings?.themeMode ?? currentSettings.themeMode),
     librarySortMode: nextSettings?.librarySortMode ?? currentSettings.librarySortMode,
     proxy: {
       ...currentSettings.proxy,

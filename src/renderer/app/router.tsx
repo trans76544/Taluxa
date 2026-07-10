@@ -111,8 +111,9 @@ import {
   createPlaybackSettingsPatch,
   createProxySettingsPatch,
   createSubtitleSettingsPatch,
+  createThemeModeSettingsPatch,
 } from '@renderer/features/settings/settingsActions';
-import type { DanmakuServerSettings, ProxyMode } from '@shared/models/settings';
+import type { DanmakuServerSettings, ProxyMode, ThemeMode } from '@shared/models/settings';
 import {
   choosePlaybackPreparationDecision,
   createEpisodeSelector,
@@ -2167,6 +2168,15 @@ function SettingsRoute() {
     updateSettings(settingsPatch);
   }
 
+  async function handleThemeModeSave(next: ThemeMode) {
+    const settingsPatch = createThemeModeSettingsPatch(next);
+
+    await window.embyDesktop.storage.write({
+      settings: settingsPatch,
+    });
+    updateSettings(settingsPatch);
+  }
+
   async function handleCacheSettingsSave(next: CacheSettings) {
     const imageCacheResolutionChanged =
       next.imageCacheResolution !== settings.cache.imageCacheResolution;
@@ -2210,6 +2220,7 @@ function SettingsRoute() {
       customProxyUrl={settings.proxy.customProxyUrl}
       playbackSettings={settings.playback}
       subtitleSettings={settings.subtitles}
+      themeMode={settings.themeMode}
       danmakuServers={settings.danmakuServers}
       danmakuSettings={settings.danmaku}
       cacheSettings={settings.cache}
@@ -2223,12 +2234,29 @@ function SettingsRoute() {
       onPlaybackSettingsSave={handlePlaybackSettingsSave}
       onProxySettingsSave={handleProxySettingsSave}
       onSubtitleSettingsSave={handleSubtitleSettingsSave}
+      onThemeModeSave={handleThemeModeSave}
       onLogout={handleLogout}
     />
   );
 }
 
 export function AppRouter() {
+  const { settings } = useAuth();
+
+  useEffect(() => {
+    const previousTheme = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', settings.themeMode);
+
+    return () => {
+      if (previousTheme) {
+        document.documentElement.setAttribute('data-theme', previousTheme);
+        return;
+      }
+
+      document.documentElement.removeAttribute('data-theme');
+    };
+  }, [settings.themeMode]);
+
   return (
     <Routes>
       <Route path="/" element={<HomeGate />} />

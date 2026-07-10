@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Client Theme Modes Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --font:
+          "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", "PingFang SC",
+          system-ui, sans-serif;
+        --radius: 8px;
+        --sidebar-width: 248px;
+        --app-bg: #f3f5f7;
+        --titlebar: #ffffff;
+        --sidebar: #eef2f5;
+        --surface: #ffffff;
+        --surface-2: #f7f9fb;
+        --surface-3: #e8edf2;
+        --line: rgba(27, 39, 51, 0.12);
+        --line-strong: rgba(27, 39, 51, 0.2);
+        --text: #17202a;
+        --muted: #5d6b78;
+        --soft: #7a8793;
+        --accent: #1f8a70;
+        --accent-2: #2f68c5;
+        --accent-text: #ffffff;
+        --poster-a: #345c72;
+        --poster-b: #1f8a70;
+        --shadow: 0 18px 44px rgba(26, 38, 50, 0.12);
+      }
+
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --app-bg: #0f1115;
+        --titlebar: #171a20;
+        --sidebar: #15191f;
+        --surface: #1d222a;
+        --surface-2: #242a33;
+        --surface-3: #2d3540;
+        --line: rgba(255, 255, 255, 0.09);
+        --line-strong: rgba(255, 255, 255, 0.18);
+        --text: #f4f7fb;
+        --muted: #bac4ce;
+        --soft: #8d99a6;
+        --accent: #40c7a3;
+        --accent-2: #86a8ff;
+        --accent-text: #071411;
+        --poster-a: #22384a;
+        --poster-b: #2c7c69;
+        --shadow: 0 20px 48px rgba(0, 0, 0, 0.34);
+      }
+
+      [data-theme="eye"] {
+        color-scheme: light;
+        --app-bg: #eef2e8;
+        --titlebar: #f8f5eb;
+        --sidebar: #e7eddf;
+        --surface: #fbf8ef;
+        --surface-2: #f1eddc;
+        --surface-3: #e2dcc8;
+        --line: rgba(73, 83, 57, 0.14);
+        --line-strong: rgba(73, 83, 57, 0.24);
+        --text: #28321f;
+        --muted: #667157;
+        --soft: #818973;
+        --accent: #4d7c3d;
+        --accent-2: #8a6f31;
+        --accent-text: #ffffff;
+        --poster-a: #64764f;
+        --poster-b: #9a7d3a;
+        --shadow: 0 18px 42px rgba(75, 84, 55, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100%;
+        background: var(--app-bg);
+        color: var(--text);
+        font-family: var(--font);
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .window {
+        display: grid;
+        grid-template-rows: 48px minmax(0, 1fr);
+        width: 100vw;
+        min-height: 100vh;
+        background: var(--app-bg);
+      }
+
+      .titlebar {
+        display: grid;
+        grid-template-columns: 150px minmax(180px, 390px) 1fr auto;
+        align-items: center;
+        gap: 16px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--titlebar);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 7px;
+        background: var(--accent);
+        color: var(--accent-text);
+        font-size: 15px;
+        font-weight: 900;
+      }
+
+      .search {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface-2);
+        color: var(--soft);
+      }
+
+      .search input {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+      }
+
+      .window-actions {
+        display: flex;
+        gap: 18px;
+        justify-content: flex-end;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+        min-height: 0;
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        padding: 22px 14px;
+        border-right: 1px solid var(--line);
+        background: var(--sidebar);
+      }
+
+      .nav-group {
+        display: grid;
+        gap: 6px;
+      }
+
+      .nav-label {
+        padding: 0 12px 4px;
+        color: var(--soft);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .nav-item {
+        display: grid;
+        grid-template-columns: 26px minmax(0, 1fr);
+        align-items: center;
+        min-height: 42px;
+        gap: 8px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--muted);
+        text-align: left;
+      }
+
+      .nav-item.is-active {
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--text);
+      }
+
+      .nav-item span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .content {
+        min-width: 0;
+        overflow: auto;
+        padding: clamp(20px, 3vw, 36px);
+      }
+
+      .settings-layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 440px) minmax(360px, 1fr);
+        gap: clamp(18px, 3vw, 32px);
+        align-items: start;
+        max-width: 1280px;
+        margin: 0 auto;
+      }
+
+      .settings-panel,
+      .preview-panel,
+      .card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .settings-panel {
+        padding: 24px;
+      }
+
+      .section-title {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.25;
+      }
+
+      .section-subtitle {
+        margin: 8px 0 22px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .theme-options {
+        display: grid;
+        gap: 10px;
+      }
+
+      .theme-option {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) 22px;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-height: 70px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--text);
+        cursor: pointer;
+        text-align: left;
+      }
+
+      .theme-option:hover,
+      .theme-option.is-selected {
+        border-color: var(--accent);
+      }
+
+      .theme-option.is-selected {
+        background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+      }
+
+      .swatch {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        overflow: hidden;
+        width: 42px;
+        height: 42px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+      }
+
+      .swatch i {
+        display: block;
+      }
+
+      .swatch.dark i:nth-child(1) {
+        background: #101318;
+      }
+
+      .swatch.dark i:nth-child(2) {
+        background: #222a34;
+      }
+
+      .swatch.dark i:nth-child(3) {
+        background: #40c7a3;
+      }
+
+      .swatch.dark i:nth-child(4) {
+        background: #86a8ff;
+      }
+
+      .swatch.daily i:nth-child(1) {
+        background: #f3f5f7;
+      }
+
+      .swatch.daily i:nth-child(2) {
+        background: #ffffff;
+      }
+
+      .swatch.daily i:nth-child(3) {
+        background: #1f8a70;
+      }
+
+      .swatch.daily i:nth-child(4) {
+        background: #2f68c5;
+      }
+
+      .swatch.eye i:nth-child(1) {
+        background: #eef2e8;
+      }
+
+      .swatch.eye i:nth-child(2) {
+        background: #fbf8ef;
+      }
+
+      .swatch.eye i:nth-child(3) {
+        background: #4d7c3d;
+      }
+
+      .swatch.eye i:nth-child(4) {
+        background: #8a6f31;
+      }
+
+      .option-title {
+        display: block;
+        font-weight: 750;
+      }
+
+      .option-copy {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .radio {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        border: 2px solid var(--line-strong);
+        border-radius: 50%;
+      }
+
+      .theme-option.is-selected .radio {
+        border-color: var(--accent);
+      }
+
+      .theme-option.is-selected .radio::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .preview-panel {
+        overflow: hidden;
+      }
+
+      .preview-hero {
+        position: relative;
+        min-height: 260px;
+        padding: 28px;
+        background:
+          linear-gradient(110deg, rgba(0, 0, 0, 0.36), transparent 68%),
+          radial-gradient(
+            circle at 82% 20%,
+            color-mix(in srgb, var(--accent-2) 52%, transparent),
+            transparent 28%
+          ),
+          linear-gradient(135deg, var(--poster-a), var(--poster-b));
+        color: #ffffff;
+      }
+
+      .hero-kicker {
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 750;
+        opacity: 0.82;
+      }
+
+      .hero-title {
+        max-width: 560px;
+        margin: 0;
+        font-size: clamp(30px, 5vw, 54px);
+        line-height: 1;
+      }
+
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 18px 0 0;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+        color: #ffffff;
+        font-size: 13px;
+      }
+
+      .preview-body {
+        display: grid;
+        gap: 18px;
+        padding: 22px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .primary,
+      .secondary {
+        min-height: 38px;
+        padding: 0 16px;
+        border-radius: 7px;
+        cursor: pointer;
+      }
+
+      .primary {
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-text);
+        font-weight: 750;
+      }
+
+      .secondary {
+        border: 1px solid var(--line-strong);
+        background: var(--surface-2);
+        color: var(--text);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        min-height: 120px;
+        padding: 14px;
+        box-shadow: none;
+      }
+
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .progress {
+        overflow: hidden;
+        height: 7px;
+        margin-top: 14px;
+        border-radius: 999px;
+        background: var(--surface-3);
+      }
+
+      .progress span {
+        display: block;
+        width: 64%;
+        height: 100%;
+        background: var(--accent);
+      }
+
+      .list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+      }
+
+      .thumb {
+        width: 44px;
+        height: 44px;
+        border-radius: 7px;
+        background: linear-gradient(135deg, var(--poster-a), var(--poster-b));
+      }
+
+      .row strong,
+      .row span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .row span {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .tag {
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      @media (max-width: 920px) {
+        .titlebar {
+          grid-template-columns: 1fr auto;
+        }
+
+        .search,
+        .window-actions {
+          display: none;
+        }
+
+        .shell,
+        .settings-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          display: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .content {
+          padding: 14px;
+        }
+
+        .settings-panel,
+        .preview-body,
+        .preview-hero {
+          padding: 18px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .theme-option {
+          grid-template-columns: 38px minmax(0, 1fr) 20px;
+        }
+      }
+    </style>
+  </head>
+  <body data-theme="daily">
+    <div class="window">
+      <header class="titlebar">
+        <div class="brand">
+          <span class="brand-mark">T</span>
+          <span>Taluxa</span>
+        </div>
+        <label class="search">
+          <span>搜索</span>
+          <input value="星际旅行" aria-label="搜索" />
+        </label>
+        <div></div>
+        <div class="window-actions" aria-hidden="true">
+          <span>最小化</span>
+          <span>最大化</span>
+          <span>关闭</span>
+        </div>
+      </header>
+
+      <main class="shell">
+        <aside class="sidebar" aria-label="客户端导航">
+          <div class="nav-group">
+            <div class="nav-label">媒体库</div>
+            <button class="nav-item"><span>⌂</span><span>首页</span></button>
+            <button class="nav-item"><span>▦</span><span>电影</span></button>
+            <button class="nav-item"><span>▤</span><span>剧集</span></button>
+            <button class="nav-item is-active"><span>⚙</span><span>设置</span></button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">服务器</div>
+            <button class="nav-item"><span>●</span><span>家庭媒体中心</span></button>
+            <button class="nav-item"><span>○</span><span>本地测试服</span></button>
+          </div>
+        </aside>
+
+        <section class="content">
+          <div class="settings-layout">
+            <section class="settings-panel" aria-labelledby="theme-title">
+              <h1 class="section-title" id="theme-title">客户端色调</h1>
+              <p class="section-subtitle">
+                选择一个适合当前环境的整体界面色调，设置会影响导航、设置页、媒体列表、详情页和常用控件。
+              </p>
+
+              <div class="theme-options" role="radiogroup" aria-label="客户端色调">
+                <button
+                  class="theme-option"
+                  type="button"
+                  data-select-theme="dark"
+                  role="radio"
+                  aria-checked="false"
+                >
+                  <span class="swatch dark" aria-hidden="true">
+                    <i></i><i></i><i></i><i></i>
+                  </span>
+                  <span>
+                    <span class="option-title">暗黑模式</span>
+                    <span class="option-copy">低亮度界面，适合夜间或暗光观影环境。</span>
+                  </span>
+                  <span class="radio" aria-hidden="true"></span>
+                </button>
+
+                <button
+                  class="theme-option is-selected"
+                  type="button"
+                  data-select-theme="daily"
+                  role="radio"
+                  aria-checked="true"
+                >
+                  <span class="swatch daily" aria-hidden="true">
+                    <i></i><i></i><i></i><i></i>
+                  </span>
+                  <span>
+                    <span class="option-title">日常模式</span>
+                    <span class="option-copy">清爽平衡的默认观感，适合白天和普通桌面使用。</span>
+                  </span>
+                  <span class="radio" aria-hidden="true"></span>
+                </button>
+
+                <button
+                  class="theme-option"
+                  type="button"
+                  data-select-theme="eye"
+                  role="radio"
+                  aria-checked="false"
+                >
+                  <span class="swatch eye" aria-hidden="true">
+                    <i></i><i></i><i></i><i></i>
+                  </span>
+                  <span>
+                    <span class="option-title">护眼模式</span>
+                    <span class="option-copy">暖色、低刺激界面，适合长时间浏览媒体库。</span>
+                  </span>
+                  <span class="radio" aria-hidden="true"></span>
+                </button>
+              </div>
+            </section>
+
+            <section class="preview-panel" aria-label="主题效果预览">
+              <div class="preview-hero">
+                <p class="hero-kicker">正在预览 · 电影详情</p>
+                <h2 class="hero-title">星际漫游者：归途</h2>
+                <div class="hero-meta">
+                  <span class="pill">4K HDR</span>
+                  <span class="pill">2026</span>
+                  <span class="pill">科幻</span>
+                  <span class="pill">2小时18分钟</span>
+                </div>
+              </div>
+
+              <div class="preview-body">
+                <div class="actions">
+                  <button class="primary" type="button">播放</button>
+                  <button class="secondary" type="button">收藏</button>
+                  <button class="secondary" type="button">标记已看</button>
+                </div>
+
+                <div class="grid">
+                  <article class="card">
+                    <h3>播放进度</h3>
+                    <p>继续从 01:26:14 观看，界面状态随主题保持清晰。</p>
+                    <div class="progress" aria-hidden="true"><span></span></div>
+                  </article>
+                  <article class="card">
+                    <h3>媒体信息</h3>
+                    <p>视频、音频、字幕和元数据区域在三种色调下保持可读。</p>
+                  </article>
+                  <article class="card">
+                    <h3>全局生效</h3>
+                    <p>导航、设置、卡片、按钮和列表使用同一套主题色。</p>
+                  </article>
+                </div>
+
+                <div class="list" aria-label="列表效果">
+                  <div class="row">
+                    <span class="thumb" aria-hidden="true"></span>
+                    <span>
+                      <strong>第 1 集 · 抵达</strong>
+                      <span>长标题与次级文字在不同背景中不溢出。</span>
+                    </span>
+                    <span class="tag">已同步</span>
+                  </div>
+                  <div class="row">
+                    <span class="thumb" aria-hidden="true"></span>
+                    <span>
+                      <strong>相似推荐 · 深空档案</strong>
+                      <span>选中、悬停、强调色需要在三种主题中区分明确。</span>
+                    </span>
+                    <span class="tag">推荐</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const labels = {
+        dark: "暗黑模式",
+        daily: "日常模式",
+        eye: "护眼模式",
+      };
+
+      const applyTheme = (theme) => {
+        document.body.dataset.theme = theme;
+        for (const option of document.querySelectorAll("[data-select-theme]")) {
+          const selected = option.dataset.selectTheme === theme;
+          option.classList.toggle("is-selected", selected);
+          option.setAttribute("aria-checked", String(selected));
+        }
+        document.title = `${labels[theme]} - Client Theme Modes Demo`;
+      };
+
+      for (const option of document.querySelectorAll("[data-select-theme]")) {
+        option.addEventListener("click", () => {
+          applyTheme(option.dataset.selectTheme);
+        });
+      }
+    </script>
+  </body>
+</html>

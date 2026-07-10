@@ -13,6 +13,7 @@ import type {
   ProxyMode,
   ProxySettings,
   SubtitleSettings,
+  ThemeMode,
 } from '@shared/models/settings';
 import { Layout } from '@renderer/components/Layout';
 import { SettingsIcon } from './settingsIcons';
@@ -28,6 +29,7 @@ interface SettingsPageProps {
   danmakuServers: DanmakuServerSettings[];
   danmakuSettings: DanmakuSettings;
   cacheSettings: CacheSettings;
+  themeMode: ThemeMode;
   dataCacheBytes: number;
   imageCacheBytes: number;
   onCacheSettingsSave: (next: CacheSettings) => void | Promise<void>;
@@ -38,6 +40,7 @@ interface SettingsPageProps {
   onPlaybackSettingsSave: (next: PlaybackSettings) => void | Promise<void>;
   onProxySettingsSave: (next: ProxySettings) => void | Promise<void>;
   onSubtitleSettingsSave: (next: SubtitleSettings) => void | Promise<void>;
+  onThemeModeSave: (next: ThemeMode) => void | Promise<void>;
   onLogout: () => void;
 }
 
@@ -61,6 +64,22 @@ const IMAGE_CACHE_RESOLUTION_OPTIONS: Array<{ label: string; value: ImageCacheRe
   { label: '720p', value: 720 },
   { label: '480p', value: 480 },
 ];
+
+const THEME_MODE_OPTIONS: Array<{
+  label: string;
+  description: string;
+  value: ThemeMode;
+}> = [
+  { label: '暗黑模式', description: '低亮度界面，适合夜间或暗光观影环境', value: 'dark' },
+  { label: '日常模式', description: '清爽平衡的默认观感，适合白天和普通桌面使用', value: 'daily' },
+  { label: '护眼模式', description: '暖色、低刺激界面，适合长时间浏览媒体库', value: 'eye' },
+];
+
+const THEME_MODE_ARIA_LABELS: Record<ThemeMode, string> = {
+  dark: 'Dark Mode',
+  daily: 'Daily Mode',
+  eye: 'Eye Protection Mode',
+};
 
 function formatCacheBytes(bytes: number): string {
   if (bytes < 1024) {
@@ -118,6 +137,7 @@ export function SettingsPage({
   danmakuServers,
   danmakuSettings,
   cacheSettings,
+  themeMode,
   dataCacheBytes,
   imageCacheBytes,
   onCacheSettingsSave,
@@ -128,6 +148,7 @@ export function SettingsPage({
   onPlaybackSettingsSave,
   onProxySettingsSave,
   onSubtitleSettingsSave,
+  onThemeModeSave,
   onLogout,
 }: SettingsPageProps) {
   const [draftProxyMode, setDraftProxyMode] = useState(proxyMode);
@@ -259,6 +280,43 @@ export function SettingsPage({
                 <p>播放器启动时使用的音量</p>
               </div>
               <strong className="settings-row__value">{Math.round(defaultVolume * 100)}%</strong>
+            </div>
+
+            <div className="settings-row settings-row--theme">
+              <SettingsIcon id="themeMode" />
+              <div className="settings-row__body">
+                <h3>客户端色调</h3>
+                <p>改变整个客户端的色调</p>
+              </div>
+              <div
+                aria-label="Client theme"
+                className="settings-theme-options"
+                role="radiogroup"
+              >
+                {THEME_MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    aria-checked={themeMode === option.value}
+                    aria-label={THEME_MODE_ARIA_LABELS[option.value]}
+                    className="settings-theme-option"
+                    data-theme-option={option.value}
+                    role="radio"
+                    type="button"
+                    onClick={() => void onThemeModeSave(option.value)}
+                  >
+                    <span className="settings-theme-option__swatch" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span className="settings-theme-option__text">
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </section>

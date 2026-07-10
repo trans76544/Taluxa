@@ -5,6 +5,7 @@ import {
   createDanmakuServersSettingsPatch,
   createPlaybackSettingsPatch,
   createProxySettingsPatch,
+  createThemeModeSettingsPatch,
 } from './settingsActions';
 
 describe('settingsActions', () => {
@@ -71,5 +72,15 @@ describe('settingsActions', () => {
     expect(createCacheSettingsPatch(settings.cache)).toEqual({
       cache: settings.cache,
     });
+  });
+
+  it('creates theme mode patches and rejects invalid modes', () => {
+    expect(createThemeModeSettingsPatch('eye')).toEqual({
+      themeMode: 'eye',
+    });
+
+    expect(() =>
+      createThemeModeSettingsPatch('sepia' as Parameters<typeof createThemeModeSettingsPatch>[0])
+    ).toThrow('invalid theme mode');
   });
 });
