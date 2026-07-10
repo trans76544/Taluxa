@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { fetchServerInfo } from '@shared/api/emby/system';
 import { createAccountId, isSettingsSyncEvent } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
-import { createDefaultSettings, type Settings } from '@shared/models/settings';
+import { createDefaultSettings, normalizeThemeMode, type Settings } from '@shared/models/settings';
 
 interface AuthState {
   accounts: SavedAccount[];
@@ -69,6 +69,7 @@ function mergeSettings(currentSettings: Settings, nextSettings?: Partial<Setting
     ...defaultSettings,
     ...currentSettings,
     ...nextSettings,
+    themeMode: normalizeThemeMode(nextSettings?.themeMode ?? currentSettings.themeMode),
     proxy: {
       ...defaultSettings.proxy,
       ...currentSettings.proxy,
@@ -173,15 +174,17 @@ export function AuthProvider({
   const [fetchedServerDisplayNamesByUrl, setFetchedServerDisplayNamesByUrl] = useState<
     Record<string, string>
   >({});
+  const latestInitialStateRef = useRef(initialState);
   const inFlightServerDisplayNameRequestsRef = useRef(new Map<string, string>());
   const serverDisplayNameGenerationByUrlRef = useRef(new Map<string, number>());
+  latestInitialStateRef.current = initialState;
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
     null;
 
   function updateState(updater: (current: AuthState) => AuthState) {
-    setAuthState((current) => updater(current ?? normalizeAuthState(initialState)));
+    setAuthState((current) => updater(current ?? normalizeAuthState(latestInitialStateRef.current)));
   }
 
   function setActiveAccountId(accountId: string) {

@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { SavedAccount } from '@shared/models/session';
-import logoUrl from '../../../sources/logo.png';
 
 interface AccountSidebarProps {
   accounts: SavedAccount[];
@@ -75,7 +74,18 @@ export function AccountSidebar({
     <div className="account-sidebar" onClick={() => setServerContextMenu(null)}>
       <div className="account-sidebar__brand">
         <div className="brand-lockup">
-          <img className="brand-logo" src={logoUrl} alt="Taluxa" />
+          <span className="brand-logo-mark" role="img" aria-label="Taluxa">
+            <svg
+              className="brand-logo-symbol"
+              viewBox="0 0 32 32"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M5 7h22l-6 6h-5.5v15l-5-4.2V13H5z" />
+              <path d="M16 13h5.8l4.2 4.6-8.3 1.3z" />
+            </svg>
+            <span className="brand-logo-word">Taluxa</span>
+          </span>
         </div>
       </div>
 

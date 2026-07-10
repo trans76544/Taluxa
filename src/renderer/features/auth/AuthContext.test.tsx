@@ -13,7 +13,12 @@ vi.mock('@shared/api/emby/system', () => ({
 function SettingsProbe() {
   const { settings } = useAuth();
 
-  return <p data-testid="scale-mode">{settings.playback.scaleMode}</p>;
+  return (
+    <>
+      <p data-testid="scale-mode">{settings.playback.scaleMode}</p>
+      <p data-testid="theme-mode">{settings.themeMode}</p>
+    </>
+  );
 }
 
 function ServerDisplayNameProbe() {
@@ -80,6 +85,49 @@ describe('AuthProvider settings sync events', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('scale-mode')).toHaveTextContent('crop');
+    });
+  });
+
+  it('merges saved theme settings patches without dropping nested settings', async () => {
+    let listener: ((event: SettingsSyncEvent) => void) | null = null;
+    window.embyDesktop = {
+      storage: {
+        onSettingsSync: vi.fn((nextListener: (event: SettingsSyncEvent) => void) => {
+          listener = nextListener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as Window['embyDesktop'];
+
+    render(
+      <AuthProvider
+        initialState={{
+          accounts: [],
+          activeAccountId: null,
+          settings: createDefaultSettings(),
+        }}
+      >
+        <SettingsProbe />
+      </AuthProvider>
+    );
+
+    expect(screen.getByTestId('scale-mode')).toHaveTextContent('fit');
+    expect(screen.getByTestId('theme-mode')).toHaveTextContent('daily');
+
+    act(() => {
+      listener?.({
+        origin: 'renderer-settings',
+        patch: {
+          themeMode: 'eye',
+        },
+        persistedAt: '2026-07-09T00:00:00.000Z',
+        status: 'saved',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('theme-mode')).toHaveTextContent('eye');
+      expect(screen.getByTestId('scale-mode')).toHaveTextContent('fit');
     });
   });
 

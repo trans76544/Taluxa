@@ -14,7 +14,7 @@ describe('settings icon system', () => {
   it('defines one approved icon assignment for every settings row', () => {
     const ids = Object.values(settingsRowIconIds);
 
-    expect(ids).toHaveLength(35);
+    expect(ids).toHaveLength(36);
     expect(new Set(ids).size).toBe(ids.length);
 
     for (const id of ids) {
@@ -68,5 +68,7 @@ describe('settings icon system', () => {
     }
 
     expect(settingsIconRegistry.logout.accent).toBe('danger');
+    expect(settingsIconRegistry.themeMode.family).toBe('general');
+    expect(settingsIconRegistry.themeMode.meaning).toBe('client color tone');
   });
 });

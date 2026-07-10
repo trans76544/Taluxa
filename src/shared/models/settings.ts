@@ -6,6 +6,17 @@ export type ImageCacheResolution = 'original' | 1080 | 720 | 480;
 export type DanmakuMatchMode = 'fileName' | 'hashAndFileName';
 export type DanmakuConversionMode = 'off' | 'simplified' | 'traditional';
 export type PlaybackScaleMode = 'fit' | 'stretch' | 'crop';
+export type ThemeMode = 'dark' | 'daily' | 'eye';
+
+export const THEME_MODES: ThemeMode[] = ['dark', 'daily', 'eye'];
+
+export function isThemeMode(value: unknown): value is ThemeMode {
+  return typeof value === 'string' && THEME_MODES.includes(value as ThemeMode);
+}
+
+export function normalizeThemeMode(value: unknown): ThemeMode {
+  return isThemeMode(value) ? value : 'daily';
+}
 
 export interface ProxySettings {
   mode: ProxyMode;
@@ -66,6 +77,7 @@ export interface CacheSettings {
 export interface Settings {
   rememberSession: boolean;
   defaultVolume: number;
+  themeMode: ThemeMode;
   librarySortMode: LibrarySortMode;
   proxy: ProxySettings;
   playback: PlaybackSettings;
@@ -91,6 +103,7 @@ export function createDefaultSettings(): Settings {
   return {
     rememberSession: true,
     defaultVolume: 1,
+    themeMode: 'daily',
     librarySortMode: 'latest_added',
     proxy: {
       mode: 'system',

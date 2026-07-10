@@ -14,7 +14,7 @@ interface LayoutProps {
 
 export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   const navigate = useNavigate();
-  const { accounts, activeAccountId, getServerDisplayName, session, setActiveAccountId, updateSettings } =
+  const { accounts, activeAccountId, getServerDisplayName, session, settings, setActiveAccountId, updateSettings } =
     useAuth();
   const [isAddServerDialogOpen, setIsAddServerDialogOpen] = useState(false);
   const {
@@ -120,7 +120,7 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
 
   if (!resolvedSidebar) {
     return (
-      <div className="desktop-shell">
+      <div className="desktop-shell" data-theme={settings.themeMode}>
         <AppTitleBar title={title} />
         <main className="app-layout app-layout--no-sidebar">
           <section className="app-main">
@@ -133,7 +133,7 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   }
 
   return (
-    <div className="desktop-shell">
+    <div className="desktop-shell" data-theme={settings.themeMode}>
       <AppTitleBar title="Taluxa" />
       <main className="app-layout">
         <aside className="app-sidebar">{resolvedSidebar}</aside>

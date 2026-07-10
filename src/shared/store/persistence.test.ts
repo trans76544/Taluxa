@@ -7,6 +7,7 @@ import {
   mergePersistedState,
   migrateLegacyPersistedState,
   type PersistedState,
+  type PersistedStatePatch,
 } from './persistence';
 import type { DanmakuSettings } from '../models/settings';
 
@@ -64,12 +65,13 @@ describe('persistence', () => {
     expect(state).toEqual({
       accounts: [],
       activeAccountId: null,
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-        librarySortMode: 'latest_added',
-        proxy: {
-          mode: 'system',
+        settings: {
+          rememberSession: true,
+          defaultVolume: 1,
+          themeMode: 'daily',
+          librarySortMode: 'latest_added',
+          proxy: {
+            mode: 'system',
           customProxyUrl: '',
         },
         playback: DEFAULT_PLAYBACK_SETTINGS,
@@ -89,6 +91,7 @@ describe('persistence', () => {
   it('creates default playback and subtitle settings', () => {
     const state = createEmptyPersistedState();
 
+    expect(state.settings.themeMode).toBe('daily');
     expect(state.settings.playback).toEqual({
       scaleMode: 'fit',
     });
@@ -125,6 +128,24 @@ describe('persistence', () => {
       scale: 1,
       secondaryEnabled: true,
     });
+  });
+
+  it('normalizes missing and invalid persisted theme values to daily mode', () => {
+    expect(mergePersistedState().settings.themeMode).toBe('daily');
+    expect(
+      mergePersistedState({
+        settings: {
+          themeMode: 'dark',
+        },
+      }).settings.themeMode
+    ).toBe('dark');
+    expect(
+      mergePersistedState({
+        settings: {
+          themeMode: 'sepia',
+        } as unknown as PersistedStatePatch['settings'],
+      }).settings.themeMode
+    ).toBe('daily');
   });
 
   it('merges cache settings without losing existing settings', () => {
@@ -219,6 +240,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: false,
         defaultVolume: 0.5,
+        themeMode: 'daily',
         librarySortMode: 'release_date',
         proxy: {
           mode: 'system',
@@ -264,6 +286,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: false,
         defaultVolume: 0.5,
+        themeMode: 'daily',
         librarySortMode: 'release_date',
         proxy: {
           mode: 'custom',
@@ -369,6 +392,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 0.8,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'system',
@@ -411,12 +435,13 @@ describe('persistence', () => {
         },
       ],
       activeAccountId: 'https://a.local::user-1',
-      settings: {
-        rememberSession: true,
-        defaultVolume: 1,
-        librarySortMode: 'latest_added',
-        proxy: {
-          mode: 'system',
+        settings: {
+          rememberSession: true,
+          defaultVolume: 1,
+          themeMode: 'daily',
+          librarySortMode: 'latest_added',
+          proxy: {
+            mode: 'system',
           customProxyUrl: '',
         },
         playback: DEFAULT_PLAYBACK_SETTINGS,
@@ -500,6 +525,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'release_date',
         proxy: {
           mode: 'system',
@@ -550,6 +576,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'system',
@@ -588,6 +615,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'system',
@@ -630,6 +658,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'system',
@@ -677,6 +706,7 @@ describe('persistence', () => {
           settings: {
             rememberSession: true,
             defaultVolume: 1,
+            themeMode: 'daily',
             librarySortMode: 'latest_added',
             proxy: {
               mode: 'system',
@@ -715,6 +745,7 @@ describe('persistence', () => {
       settings: {
         rememberSession: true,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'system',

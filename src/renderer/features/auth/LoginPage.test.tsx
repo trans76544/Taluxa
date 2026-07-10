@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { LoginPage } from './LoginPage';
 
@@ -76,5 +77,21 @@ describe('LoginPage', () => {
 
     expect(passwordInput).toHaveAttribute('type', 'password');
     expect(passwordInput).toHaveValue('secret');
+  });
+
+  it('uses theme variables for the sign-in panel and fields', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const panelRule = styles.match(/\.panel\s*\{(?<body>[^}]*)\}/);
+    const fieldRule = styles.match(/\.field\s*\{(?<body>[^}]*)\}/);
+    const inputRule = styles.match(/\.field-input\s*\{(?<body>[^}]*)\}/);
+    const toggleRule = styles.match(/\.panel form \.password-field__toggle\s*\{(?<body>[^}]*)\}/);
+
+    expect(panelRule?.groups?.body).toContain('background: var(--surface-bg)');
+    expect(panelRule?.groups?.body).not.toContain('rgba(17, 25, 46');
+    expect(fieldRule?.groups?.body).toContain('color: var(--text)');
+    expect(inputRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(inputRule?.groups?.body).toContain('color: var(--text)');
+    expect(toggleRule?.groups?.body).toContain('background: var(--surface-3)');
+    expect(toggleRule?.groups?.body).toContain('color: var(--text)');
   });
 });

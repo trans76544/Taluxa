@@ -4,7 +4,9 @@ import type {
   DanmakuSettings,
   PlaybackSettings,
   SubtitleSettings,
+  ThemeMode,
 } from '@shared/models/settings';
+import { isThemeMode } from '@shared/models/settings';
 import type { ProxyMode } from '@shared/models/settings';
 import { isValidCustomProxyUrl } from '@shared/network/proxy';
 
@@ -57,5 +59,15 @@ export function createSubtitleSettingsPatch(next: SubtitleSettings) {
 export function createCacheSettingsPatch(next: CacheSettings) {
   return {
     cache: next,
+  };
+}
+
+export function createThemeModeSettingsPatch(next: ThemeMode) {
+  if (!isThemeMode(next)) {
+    throw new Error('invalid theme mode');
+  }
+
+  return {
+    themeMode: next,
   };
 }

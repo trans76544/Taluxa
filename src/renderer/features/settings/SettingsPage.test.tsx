@@ -11,6 +11,7 @@ import type {
   DanmakuSettings,
   PlaybackSettings,
   SubtitleSettings,
+  ThemeMode,
 } from '@shared/models/settings';
 
 describe('SettingsPage', () => {
@@ -21,6 +22,7 @@ describe('SettingsPage', () => {
     onDanmakuSettingsSave = vi.fn().mockResolvedValue(undefined),
     onPlaybackSettingsSave = vi.fn().mockResolvedValue(undefined),
     onSubtitleSettingsSave = vi.fn().mockResolvedValue(undefined),
+    onThemeModeSave = vi.fn().mockResolvedValue(undefined),
     onCacheSettingsSave = vi.fn().mockResolvedValue(undefined),
     onClearDataCache = vi.fn().mockResolvedValue(undefined),
     onClearImageCache = vi.fn().mockResolvedValue(undefined),
@@ -61,6 +63,7 @@ describe('SettingsPage', () => {
       imageCacheMaxBytes: 524288000,
       imageCacheResolution: 'original',
     },
+    themeMode = 'daily',
     dataCacheBytes = 1024,
     imageCacheBytes = 2048,
   }: {
@@ -70,6 +73,7 @@ describe('SettingsPage', () => {
     onDanmakuSettingsSave?: ReturnType<typeof vi.fn>;
     onPlaybackSettingsSave?: ReturnType<typeof vi.fn>;
     onSubtitleSettingsSave?: ReturnType<typeof vi.fn>;
+    onThemeModeSave?: ReturnType<typeof vi.fn>;
     onCacheSettingsSave?: ReturnType<typeof vi.fn>;
     onClearDataCache?: ReturnType<typeof vi.fn>;
     onClearImageCache?: ReturnType<typeof vi.fn>;
@@ -80,6 +84,7 @@ describe('SettingsPage', () => {
     playbackSettings?: PlaybackSettings;
     subtitleSettings?: SubtitleSettings;
     cacheSettings?: CacheSettings;
+    themeMode?: ThemeMode;
     dataCacheBytes?: number;
     imageCacheBytes?: number;
   } = {}) {
@@ -94,6 +99,7 @@ describe('SettingsPage', () => {
             customProxyUrl={customProxyUrl}
             playbackSettings={playbackSettings}
             subtitleSettings={subtitleSettings}
+            themeMode={themeMode}
             danmakuServers={danmakuServers}
             danmakuSettings={danmakuSettings}
             cacheSettings={cacheSettings}
@@ -105,6 +111,7 @@ describe('SettingsPage', () => {
             onProxySettingsSave={onProxySettingsSave}
             onPlaybackSettingsSave={onPlaybackSettingsSave}
             onSubtitleSettingsSave={onSubtitleSettingsSave}
+            onThemeModeSave={onThemeModeSave}
             onDanmakuServersSave={onDanmakuServersSave}
             onDanmakuSettingsSave={onDanmakuSettingsSave}
             onLogout={onLogout}
@@ -122,6 +129,7 @@ describe('SettingsPage', () => {
       onDanmakuSettingsSave,
       onPlaybackSettingsSave,
       onSubtitleSettingsSave,
+      onThemeModeSave,
       onProxySettingsSave,
     };
   }
@@ -149,6 +157,35 @@ describe('SettingsPage', () => {
     renderSettingsPage({ proxyMode: 'system' });
 
     expect(screen.queryByLabelText('Custom proxy URL')).not.toBeInTheDocument();
+  });
+
+  it('renders three client theme options with daily mode selected by default', () => {
+    renderSettingsPage();
+
+    expect(screen.getByRole('radiogroup', { name: 'Client theme' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Dark Mode' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
+    expect(screen.getByRole('radio', { name: 'Daily Mode' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    expect(screen.getByRole('radio', { name: 'Eye Protection Mode' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
+  });
+
+  it('saves selected client theme options from settings', () => {
+    const onThemeModeSave = vi.fn().mockResolvedValue(undefined);
+    renderSettingsPage({ onThemeModeSave });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Dark Mode' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Eye Protection Mode' }));
+
+    expect(onThemeModeSave).toHaveBeenNthCalledWith(1, 'dark');
+    expect(onThemeModeSave).toHaveBeenNthCalledWith(2, 'eye');
   });
 
   it('selecting custom proxy reveals the input', () => {
@@ -451,5 +488,76 @@ describe('SettingsPage', () => {
     expect(iconSvgRule?.groups?.body).toContain('width: 18px');
     expect(iconSvgRule?.groups?.body).toContain('height: 18px');
     expect(stackedIconRule?.groups?.body).toContain('margin-top: 3px');
+  });
+
+  it('defines theme tokens for dark, daily, and eye protection modes', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const darkRule = styles.match(/html\[data-theme='dark'\]\s*\{(?<body>[^}]*)\}/);
+    const dailyRule = styles.match(/html\[data-theme='daily'\]\s*\{(?<body>[^}]*)\}/);
+    const eyeRule = styles.match(/html\[data-theme='eye'\]\s*\{(?<body>[^}]*)\}/);
+
+    expect(darkRule?.groups?.body).toContain('--app-bg: #0f1115');
+    expect(darkRule?.groups?.body).toContain('--accent: #40c7a3');
+    expect(dailyRule?.groups?.body).toContain('--app-bg: #f3f5f7');
+    expect(dailyRule?.groups?.body).toContain('--accent: #1f8a70');
+    expect(eyeRule?.groups?.body).toContain('--app-bg: #eef2e8');
+    expect(eyeRule?.groups?.body).toContain('--accent: #4d7c3d');
+  });
+
+  it('uses theme variables for settings page and form control backgrounds', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+    const settingsPageRule = styles.match(/\.settings-page\s*\{(?<body>[^}]*)\}/);
+    const settingsRowRule = styles.match(/\.settings-row\s*\{(?<body>[^}]*)\}/);
+    const settingsInputRule = styles.match(
+      /\.settings-row__control input\[type='text'\],[\s\S]*?\.settings-row__control input\[type='number'\]\s*\{(?<body>[^}]*)\}/
+    );
+    const settingsSelectRule = styles.match(/\.settings-select\s*\{(?<body>[^}]*)\}/);
+    const settingsTextareaRule = styles.match(/\.settings-textarea\s*\{(?<body>[^}]*)\}/);
+    const settingsSegmentedRule = styles.match(/\.settings-segmented\s*\{(?<body>[^}]*)\}/);
+    const settingsSegmentedCheckedRule = styles.match(
+      /\.settings-segmented label:has\(input:checked\)\s*\{(?<body>[^}]*)\}/
+    );
+    const settingsButtonRule = styles.match(
+      /\.settings-row__control button,[\s\S]*?\.settings-danger-button\s*\{(?<body>[^}]*)\}/
+    );
+
+    expect(settingsPageRule?.groups?.body).toContain('background: var(--app-bg)');
+    expect(settingsRowRule?.groups?.body).toContain('background: var(--surface-bg)');
+    expect(settingsInputRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(settingsInputRule?.groups?.body).toContain('color: var(--text)');
+    expect(settingsSelectRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(settingsSelectRule?.groups?.body).toContain('color: var(--text)');
+    expect(settingsTextareaRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(settingsTextareaRule?.groups?.body).toContain('color: var(--text)');
+    expect(settingsSegmentedRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(settingsSegmentedCheckedRule?.groups?.body).toContain('background: var(--surface-3)');
+    expect(settingsSegmentedCheckedRule?.groups?.body).toContain('color: var(--text)');
+    expect(settingsButtonRule?.groups?.body).toContain('background: var(--surface-2)');
+    expect(settingsButtonRule?.groups?.body).toContain('color: var(--text)');
+  });
+
+  it('keeps the standalone theme demo aligned with the three supported modes', () => {
+    const demo = readFileSync('specs/012-client-theme-modes/demo.html', 'utf8');
+
+    expect(demo.match(/data-select-theme="dark"/g)).toHaveLength(1);
+    expect(demo.match(/data-select-theme="daily"/g)).toHaveLength(1);
+    expect(demo.match(/data-select-theme="eye"/g)).toHaveLength(1);
+    expect(demo).toContain('<body data-theme="daily">');
+    expect(demo).toContain('[data-theme="dark"]');
+    expect(demo).toContain('[data-theme="eye"]');
+    expect(demo).toContain('--app-bg: #f3f5f7');
+    expect(demo).toContain('--accent: #1f8a70');
+    expect(demo).toContain('--app-bg: #0f1115');
+    expect(demo).toContain('--accent: #40c7a3');
+    expect(demo).toContain('--app-bg: #eef2e8');
+    expect(demo).toContain('--accent: #4d7c3d');
+  });
+
+  it('does not globally recolor media images through theme-specific filters', () => {
+    const styles = readFileSync('src/renderer/styles.css', 'utf8');
+
+    expect(styles).not.toMatch(
+      /html\[data-theme=['"][^'"]+['"]\][^{]*(?:img|video|\.poster|\.item-hero__backdrop)[^{]*\{[^}]*\bfilter\s*:/u
+    );
   });
 });

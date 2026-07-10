@@ -253,6 +253,7 @@ describe('writePersistedStatePatch', () => {
       settings: {
         rememberSession: false,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'custom',
@@ -374,6 +375,7 @@ describe('writePersistedStatePatch', () => {
       settings: {
         rememberSession: false,
         defaultVolume: 1,
+        themeMode: 'daily',
         librarySortMode: 'latest_added',
         proxy: {
           mode: 'system',

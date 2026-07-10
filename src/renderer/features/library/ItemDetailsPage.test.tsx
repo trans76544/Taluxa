@@ -123,10 +123,10 @@ function createSeriesDetails(overrides: Partial<LibraryItemDetails> = {}): Libra
 
 function createLongTitleMovieDetails(overrides: Partial<LibraryItemDetails> = {}): LibraryItemDetails {
   return createMovieDetails({
-    name: '关于我转生变成史莱姆这档事 苍海之泪篇',
+    name: 'A very long detail page title for backdrop layout testing',
     overview:
-      '舞台设定在崇拜水龙守护神的海底王国，这里因神秘污染和强行唤醒沉睡水龙的阴谋陷入危机。',
-    genres: ['动画', '奇幻', '冒险', '喜剧'],
+      'A long overview used to verify the full-page detail hero remains readable across layouts.',
+    genres: ['Animation', 'Fantasy', 'Adventure', 'Comedy'],
     ...overrides,
   });
 }
@@ -147,7 +147,7 @@ function createLongMediaSourceDetails(
     mediaSources: [
       createMediaSource('source-long-1080', {
         path:
-          '/movies/关于我转生变成史莱姆这档事 苍海之泪篇 (2026) - 1080p h264 high bitrate theatrical edition.mkv',
+          '/movies/a-very-long-detail-page-title-for-backdrop-layout-testing-2026-1080p-h264-high-bitrate-theatrical-edition.mkv',
         audioStreams: [
           {
             Index: 11,
@@ -720,10 +720,10 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('button', { name: '上一组演职人员' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下一组演职人员' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '上一组更多类似' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下一组更多类似' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0a\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0a\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'})).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'})).toBeInTheDocument();
   });
 
   it('hides carousel buttons when cast and similar rows fit within the viewport', () => {
@@ -741,10 +741,10 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByRole('button', { name: '上一组演职人员' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '下一组演职人员' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '上一组更多类似' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '下一组更多类似' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '\u4e0a\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '\u4e0a\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '\u4e0b\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'})).not.toBeInTheDocument();
   });
 
   it('shows carousel buttons for overflowing series detail rows', () => {
@@ -762,8 +762,8 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('button', { name: '上一组演职人员' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下一组更多类似' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0a\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'})).toBeInTheDocument();
   });
 
   it('removes native horizontal scrolling from detail carousel rows', () => {
@@ -778,9 +778,11 @@ describe('ItemDetailsPage', () => {
 
   it('uses full-page detail layout rules without an inset app-main gutter', () => {
     expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration('padding: 0');
-    expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration('background: #111113');
+    expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration(
+      'background: var(--app-bg)'
+    );
     expectCssRule('.item-details-page').toContainDeclaration('min-height: 100%');
-    expectCssRule('.item-details-page').toContainDeclaration('background: #111113');
+    expectCssRule('.item-details-page').toContainDeclaration('background: var(--app-bg)');
     expectCssRule('.item-hero').toContainDeclaration(
       'min-height: min(700px, calc(100vh - 44px))'
     );
@@ -883,19 +885,49 @@ describe('ItemDetailsPage', () => {
 
   it('aligns detail rows and carousel fades with the full-page body', () => {
     expectCssRule('.details-section').toContainDeclaration('min-width: 0');
+    expectCssRule('.details-section .section-title').toContainDeclaration('color: var(--text)');
     expectCssRule('.detail-carousel').toContainDeclaration('width: 100%');
-    expectCssRule('.detail-carousel').toContainDeclaration('--detail-carousel-fade-bg: #111113');
+    expectCssRule('.detail-carousel').toContainDeclaration(
+      '--detail-carousel-fade-bg: var(--app-bg)'
+    );
     expectCssRule('.episodes-row').toContainDeclaration(
       'grid-template-columns: repeat(auto-fill, minmax(230px, 1fr))'
     );
     expectCssRule('.metadata-footer').toContainDeclaration('margin-top: 0');
   });
 
+  it('uses theme text variables for detail body labels and carousel captions', () => {
+    expectCssRule('.cast-card__name').toContainDeclaration('color: var(--text)');
+    expectCssRule('.cast-card__role').toContainDeclaration('color: var(--muted)');
+    expectCssRule('.metadata-title').toContainDeclaration('color: var(--text)');
+    expectCssRule('.metadata-text').toContainDeclaration('color: var(--muted)');
+    expectCssRule('.media-source-block').toContainDeclaration('background: var(--surface-2)');
+    expectCssRule('.source-filePath').toContainDeclaration('color: var(--muted)');
+    expectCssRule('.stream-box h5').toContainDeclaration('color: var(--text)');
+    expectCssRule('.stream-box p').toContainDeclaration('color: var(--muted)');
+  });
+
+  it('tints detail backdrop artwork with the active theme palette', () => {
+    const styles = getStylesheet();
+
+    expect(styles).toMatch(/html\[data-theme='dark'\]\s*\{[^}]*--detail-hero-scrim:/u);
+    expect(styles).toMatch(/html\[data-theme='daily'\]\s*\{[^}]*--detail-hero-scrim:/u);
+    expect(styles).toMatch(/html\[data-theme='eye'\]\s*\{[^}]*--detail-hero-scrim:/u);
+    expect(styles).toMatch(/html\[data-theme='daily'\]\s*\{[^}]*--detail-hero-tint:/u);
+    expect(styles).toMatch(/html\[data-theme='eye'\]\s*\{[^}]*--detail-hero-tint:/u);
+
+    expectCssRule('.item-hero__gradient').toContainDeclaration('var(--detail-hero-scrim)');
+    expectCssRule('.item-hero__gradient').toContainDeclaration('var(--detail-hero-tint)');
+    expectCssRule('.item-hero__gradient').notToContainDeclaration('#111113');
+    expectCssRule('.item-hero__title').toContainDeclaration('color: var(--detail-hero-text)');
+    expectCssRule('.item-hero__meta').toContainDeclaration('color: var(--detail-hero-muted)');
+    expectCssRule('.item-hero__overview').toContainDeclaration('color: var(--detail-hero-muted)');
+  });
   it('scopes full-page detail behavior without changing app shell defaults', () => {
     expectCssRule('.app-main').toContainDeclaration('padding: 40px');
     expectCssRule('.app-main:has(.item-details-page)').toContainDeclaration('padding: 0');
     expectCssRule('.app-layout').toContainDeclaration('grid-template-columns: 260px minmax(0, 1fr)');
-    expectCssRule('.app-sidebar').toContainDeclaration('background: #18181b');
+    expectCssRule('.app-sidebar').toContainDeclaration('background: var(--sidebar)');
     expectCssRule('.panel--content').toContainDeclaration('width: min(1040px, 100%)');
   });
 
@@ -925,7 +957,7 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    const nextButton = screen.getByRole('button', { name: '下一组演职人员' });
+    const nextButton = screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'});
     const track = getCarouselTrackForButton(nextButton);
 
     expect(track).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' });
@@ -950,8 +982,8 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    const nextButton = screen.getByRole('button', { name: '下一组更多类似' });
-    const previousButton = screen.getByRole('button', { name: '上一组更多类似' });
+    const nextButton = screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'});
+    const previousButton = screen.getByRole('button', { name: '\u4e0a\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'});
     const track = getCarouselTrackForButton(nextButton);
 
     fireEvent.click(nextButton);
@@ -977,7 +1009,7 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '下一组更多类似' }));
+    fireEvent.click(screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u66f4\u591a\u7c7b\u4f3c'}));
     fireEvent.click(screen.getByRole('link', { name: /Similar 2/ }));
 
     expect(screen.getByTestId('location-path')).toHaveTextContent('/item/similar-2');
@@ -1001,7 +1033,7 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    const nextButton = screen.getByRole('button', { name: '下一组演职人员' });
+    const nextButton = screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'});
     const track = getCarouselTrackForButton(nextButton);
 
     fireEvent.click(nextButton);
@@ -1028,7 +1060,7 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    const previousButton = screen.getByRole('button', { name: '上一组演职人员' });
+    const previousButton = screen.getByRole('button', { name: '\u4e0a\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'});
     const track = getCarouselTrackForButton(previousButton);
 
     fireEvent.click(previousButton);
@@ -1051,20 +1083,20 @@ describe('ItemDetailsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('button', { name: '下一组演职人员' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).toBeInTheDocument();
 
     act(() => {
       setCarouselViewportWidth(2000);
       triggerResizeObservers();
     });
 
-    expect(screen.queryByRole('button', { name: '下一组演职人员' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).not.toBeInTheDocument();
 
     act(() => {
       setCarouselViewportWidth(300);
       triggerResizeObservers();
     });
 
-    expect(screen.getByRole('button', { name: '下一组演职人员' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u4e0b\u4e00\u7ec4\u6f14\u804c\u4eba\u5458'})).toBeInTheDocument();
   });
 });
