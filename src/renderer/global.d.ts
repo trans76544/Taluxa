@@ -11,6 +11,7 @@ import type { EmbyLoginInput, EmbyLoginSession } from '@shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/imageCache';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import type { ReportPlaybackProgressInput } from '@shared/api/emby/playback';
 
 export {};
 
@@ -24,6 +25,11 @@ declare global {
       };
       auth: {
         login: (input: EmbyLoginInput) => Promise<EmbyLoginSession>;
+      };
+      playback?: {
+        reportStarted: (input: ReportPlaybackProgressInput) => Promise<void>;
+        reportProgress: (input: ReportPlaybackProgressInput) => Promise<void>;
+        reportStopped: (input: ReportPlaybackProgressInput) => Promise<void>;
       };
       player: {
         launch: (input: PlayerLaunchInput) => Promise<void>;

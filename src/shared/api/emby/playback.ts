@@ -1,4 +1,4 @@
-import { createEmbyRequest } from './client';
+import { createEmbyRequest, type EmbyFetch } from './client';
 import { DEFAULT_NETWORK_TIMEOUT_MS } from '@shared/models/network';
 import { redactSensitiveValue } from '@shared/network/redaction';
 
@@ -487,7 +487,8 @@ export async function fetchPlaybackStreamSource({
 
 async function reportPlaybackCheckIn(
   kind: 'started' | 'progress' | 'stopped',
-  input: ReportPlaybackProgressInput
+  input: ReportPlaybackProgressInput,
+  fetcher?: EmbyFetch
 ): Promise<void> {
   const path = kind === 'started'
     ? '/Sessions/Playing'
@@ -513,6 +514,7 @@ async function reportPlaybackCheckIn(
   const response = await createEmbyRequest(input.serverUrl, path, {
     method: 'POST',
     accessToken: input.accessToken,
+    fetcher,
     operation: 'progress',
     headers: {
       'Content-Type': 'application/json',
@@ -525,9 +527,9 @@ async function reportPlaybackCheckIn(
   }
 }
 
-export const reportPlaybackStarted = (input: ReportPlaybackProgressInput) => reportPlaybackCheckIn('started', input);
-export const reportPlaybackProgress = (input: ReportPlaybackProgressInput) => reportPlaybackCheckIn('progress', input);
-export const reportPlaybackStopped = (input: ReportPlaybackProgressInput) => reportPlaybackCheckIn('stopped', input);
+export const reportPlaybackStarted = (input: ReportPlaybackProgressInput, fetcher?: EmbyFetch) => reportPlaybackCheckIn('started', input, fetcher);
+export const reportPlaybackProgress = (input: ReportPlaybackProgressInput, fetcher?: EmbyFetch) => reportPlaybackCheckIn('progress', input, fetcher);
+export const reportPlaybackStopped = (input: ReportPlaybackProgressInput, fetcher?: EmbyFetch) => reportPlaybackCheckIn('stopped', input, fetcher);
 
 export async function markItemPlayed({
   serverUrl,

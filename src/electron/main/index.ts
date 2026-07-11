@@ -17,7 +17,13 @@ import {
 import { HlsProxyServer } from './player/hlsProxy';
 import { fetchDandanplayDanmaku } from './player/danmaku';
 import { createMainWindow } from './window';
-import { preflightPlaybackStreamSource } from '@shared/api/emby/playback';
+import {
+  preflightPlaybackStreamSource,
+  reportPlaybackProgress,
+  reportPlaybackStarted,
+  reportPlaybackStopped,
+  type ReportPlaybackProgressInput,
+} from '@shared/api/emby/playback';
 import type { ImageCacheResolution } from '@shared/models/settings';
 import type { Settings, ProxySettings } from '@shared/models/settings';
 import type { PersistedState, SettingsSyncEvent } from '@shared/store/persistence';
@@ -282,6 +288,17 @@ app.whenReady().then(() => {
       );
       registerImageCacheProtocol(imageCache);
       registerImageCacheIpc(imageCache);
+      const playbackFetcher = (url: RequestInfo | URL, init?: RequestInit) =>
+        session.defaultSession.fetch(url instanceof URL ? url.toString() : url, init);
+      ipcMain.handle('playback:report-started', (_event, input: ReportPlaybackProgressInput) =>
+        reportPlaybackStarted(input, playbackFetcher)
+      );
+      ipcMain.handle('playback:report-progress', (_event, input: ReportPlaybackProgressInput) =>
+        reportPlaybackProgress(input, playbackFetcher)
+      );
+      ipcMain.handle('playback:report-stopped', (_event, input: ReportPlaybackProgressInput) =>
+        reportPlaybackStopped(input, playbackFetcher)
+      );
       ipcMain.handle('player:launch', async (_event, input: LaunchMpvInput) => {
         const settings = readPersistedState().settings;
         const preparedInput = await prepareEpisodeSelectorThumbnails(

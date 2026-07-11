@@ -13,9 +13,9 @@ export function PlaybackSyncProvider({ children }: { children: ReactNode }) {
     coordinatorRef.current = new PlaybackSyncCoordinator({
       readState: () => window.embyDesktop.storage.read(),
       writeState: (patch) => window.embyDesktop.storage.write(patch),
-      reportStarted: reportPlaybackStarted,
-      reportProgress: reportPlaybackProgress,
-      reportStopped: reportPlaybackStopped,
+      reportStarted: (input) => window.embyDesktop.playback?.reportStarted(input) ?? reportPlaybackStarted(input),
+      reportProgress: (input) => window.embyDesktop.playback?.reportProgress(input) ?? reportPlaybackProgress(input),
+      reportStopped: (input) => window.embyDesktop.playback?.reportStopped(input) ?? reportPlaybackStopped(input),
     });
   }
   useEffect(() => {

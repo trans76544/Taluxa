@@ -36,10 +36,16 @@ describe('PlaybackSyncProvider', () => {
   it('owns one player-event subscription and forwards events to the coordinator', async () => {
     let listener: ((event: Parameters<NonNullable<typeof window.embyDesktop.player.onPlaybackEvent>>[0] extends (event: infer T) => void ? T : never) => void) | undefined;
     const unsubscribe = vi.fn();
+    const reportStartedBridge = vi.fn().mockResolvedValue(undefined);
     const state = createEmptyPersistedState();
     window.embyDesktop = {
       storage: { read: vi.fn().mockResolvedValue(state), write: vi.fn().mockResolvedValue(state) },
       player: { onPlaybackEvent: vi.fn((next) => { listener = next; return unsubscribe; }) },
+      playback: {
+        reportStarted: reportStartedBridge,
+        reportProgress: vi.fn().mockResolvedValue(undefined),
+        reportStopped: vi.fn().mockResolvedValue(undefined),
+      },
     } as unknown as typeof window.embyDesktop;
     const view = render(
       <AuthProvider initialState={{ accounts: [], activeAccountId: null }} isHydrated>
@@ -50,7 +56,7 @@ describe('PlaybackSyncProvider', () => {
 
     await act(async () => listener?.({ playbackId: '1:1', sequence: 1, phase: 'started', itemId: 'item-1', positionSeconds: 0, durationSeconds: 180 }));
 
-    await waitFor(() => expect(reportPlaybackStarted).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reportStartedBridge).toHaveBeenCalledTimes(1));
     view.unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });

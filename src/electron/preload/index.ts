@@ -8,6 +8,7 @@ import type { EmbyLoginInput, EmbyLoginSession } from '../../shared/api/emby/aut
 import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
 import { isPlayerPlaybackEvent, type PlayerPlaybackEvent } from '../../shared/models/playback';
+import type { ReportPlaybackProgressInput } from '../../shared/api/emby/playback';
 
 export interface PlayerLaunchInput {
   authMode?: 'header' | 'local-proxy' | 'tokenless';
@@ -52,6 +53,14 @@ contextBridge.exposeInMainWorld('embyDesktop', {
   auth: {
     login: (input: EmbyLoginInput) =>
       ipcRenderer.invoke('auth:login', input) as Promise<EmbyLoginSession>,
+  },
+  playback: {
+    reportStarted: (input: ReportPlaybackProgressInput) =>
+      ipcRenderer.invoke('playback:report-started', input) as Promise<void>,
+    reportProgress: (input: ReportPlaybackProgressInput) =>
+      ipcRenderer.invoke('playback:report-progress', input) as Promise<void>,
+    reportStopped: (input: ReportPlaybackProgressInput) =>
+      ipcRenderer.invoke('playback:report-stopped', input) as Promise<void>,
   },
   player: {
     launch: (input: PlayerLaunchInput) =>
