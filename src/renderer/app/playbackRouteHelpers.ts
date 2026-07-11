@@ -1,7 +1,9 @@
 import type {
   LibraryEpisode,
+  LibraryItemDetails,
   LibraryItemMediaSource,
 } from '@shared/models/library';
+import type { PlaybackResumeItemSnapshot } from '@shared/models/progress';
 
 export type PlayerEpisodeSelector = NonNullable<
   Parameters<Window['embyDesktop']['player']['launch']>[0]['episodeSelector']
@@ -127,6 +129,30 @@ export function isFastDirectPlaybackMediaSource(mediaSource: LibraryItemMediaSou
 
 export function formatEpisodeSelectorTitle(episode: LibraryEpisode): string {
   return `S${episode.parentIndexNumber}E${episode.indexNumber} - ${episode.name}`;
+}
+
+export function createPlaybackResumeItemSnapshot(input: {
+  details: LibraryItemDetails;
+  episodes: LibraryEpisode[];
+  itemId: string;
+}): PlaybackResumeItemSnapshot | null {
+  const episode = input.episodes.find((candidate) => candidate.id === input.itemId);
+  if (episode) {
+    return {
+      itemId: episode.id, itemType: 'Episode', title: episode.name,
+      posterUrl: episode.posterUrl ?? input.details.posterUrl,
+      imageCandidates: episode.imageCandidates ?? input.details.imageCandidates,
+      seriesId: input.details.id, seriesName: input.details.name,
+      seasonIndex: episode.parentIndexNumber,
+      episodeIndex: episode.indexNumber,
+    };
+  }
+  if (input.details.id !== input.itemId) return null;
+  return {
+    itemId: input.details.id, itemType: input.details.type ?? 'Video', title: input.details.name,
+    posterUrl: input.details.posterUrl, imageCandidates: input.details.imageCandidates,
+    productionYear: input.details.productionYear ?? undefined,
+  };
 }
 
 function runtimeTicksToSeconds(runtimeTicks: number | null): number | null {

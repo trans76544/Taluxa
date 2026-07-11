@@ -38,7 +38,9 @@ import {
   buildContinueWatchingItems,
   buildHomeLibraryCards,
   buildHomeRefreshStatusMessage,
+  buildLocalContinueWatchingItems,
   buildServerContinueWatchingItems,
+  mergeContinueWatchingItems,
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
   type HomeRefreshFailure,
@@ -98,6 +100,7 @@ import {
 } from '@renderer/features/home/AggregateViewPage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
+import { PlaybackSyncProvider, usePlaybackSync } from '@renderer/features/player/PlaybackSyncProvider';
 import {
   getPlaybackMediaSourcesForItem,
   resolvePlaybackTitle,
@@ -118,6 +121,7 @@ import {
   choosePlaybackPreparationDecision,
   createEpisodeSelector,
   createPlaybackPreparationKey,
+  createPlaybackResumeItemSnapshot,
   formatEpisodeSelectorTitle,
   isPlaybackPreparationKeyMatch,
   isFastDirectPlaybackMediaSource,
@@ -467,6 +471,7 @@ function SearchGate() {
 function ItemDetailsRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
+  const { registerPlaybackContext } = usePlaybackSync();
   const location = useLocation();
   const itemRouteState = (location.state as ItemRouteState | null | undefined) ?? {};
   const resumeEpisodeId = itemRouteState.resumeEpisodeId;
@@ -942,6 +947,14 @@ function ItemDetailsRoute() {
       const progressByItemId = getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId);
       const savedPositionSeconds = progressByItemId[playItemId]?.positionSeconds ?? null;
       
+      const resumeItem = details ? createPlaybackResumeItemSnapshot({ details, episodes, itemId: playItemId }) : null;
+      if (resumeItem && resolvedActiveAccountId) registerPlaybackContext({
+        accountId: resolvedActiveAccountId, serverUrl, userId: session.userId,
+        accessToken: session.accessToken, itemId: playItemId,
+        playSessionId: nextSource.playSessionId, mediaSourceId: nextSource.mediaSourceId,
+        playMethod: nextSource.playMethod, audioStreamIndex: descriptor.audioStreamIndex,
+        resumeItem,
+      });
       setInitialPositionSeconds(getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }));
       setPlaybackSource(nextSource);
       emitLoadTimingMilestone(timingRecorder.mark('player-launch-requested'));
@@ -1042,6 +1055,14 @@ function ItemDetailsRoute() {
         serverPositionTicks: episode.serverPositionTicks,
       });
       const nextEpisodeSelector = createEpisodeSelector(episode.id, episodes);
+
+      const resumeItem = createPlaybackResumeItemSnapshot({ details, episodes, itemId: episode.id });
+      if (resumeItem && resolvedActiveAccountId) registerPlaybackContext({
+        accountId: resolvedActiveAccountId, serverUrl, userId: session!.userId,
+        accessToken: session!.accessToken, itemId: episode.id,
+        playSessionId: nextSource.playSessionId, mediaSourceId: nextSource.mediaSourceId,
+        playMethod: nextSource.playMethod, audioStreamIndex: null, resumeItem,
+      });
 
       await window.embyDesktop.player.switchEpisode({
         authMode: nextSource.authMode,
@@ -1497,6 +1518,7 @@ function LibrariesRoute() {
 
     let cancelled = false;
     let emittedHomePrimaryVisible = false;
+    let localContinueWatching = buildLocalContinueWatchingItems({ progressByItemId: {} });
     const timingRecorder = createLoadTimingRecorder({
       attemptId: Date.now(),
       surface: 'home',
@@ -1557,9 +1579,9 @@ function LibrariesRoute() {
       const refreshStatusMessage = buildHomeRefreshStatusMessage(failedSections);
       return {
         accountLabel: currentHomeAccountLabelRef.current,
-        continueWatching: buildServerContinueWatchingItems({
+        continueWatching: mergeContinueWatchingItems({ localItems: localContinueWatching, serverItems: buildServerContinueWatchingItems({
           serverItems: [...serverResumeItems, ...serverResumableItems],
-        }),
+        }) }),
         libraries: buildHomeLibraryCards({
           views: nextViews,
           previewItemsByViewId,
@@ -1628,9 +1650,9 @@ function LibrariesRoute() {
         return null;
       }
 
-      return buildServerContinueWatchingItems({
+      return mergeContinueWatchingItems({ localItems: localContinueWatching, serverItems: buildServerContinueWatchingItems({
         serverItems: [...(serverResumeItems ?? []), ...(serverResumableItems ?? [])],
-      });
+      }) });
     }
 
     async function loadHomeData() {
@@ -1642,6 +1664,12 @@ function LibrariesRoute() {
         if (cancelled) {
           return;
         }
+        localContinueWatching = buildLocalContinueWatchingItems({
+          progressByItemId: getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId),
+        });
+        if (homeSnapshot) {
+          setContinueWatching(mergeContinueWatchingItems({ localItems: localContinueWatching, serverItems: homeSnapshot.continueWatching }));
+        }
 
         const cacheKey = resolvedActiveAccountId
           ? createHomeCacheKey(resolvedActiveAccountId, settings.librarySortMode)
@@ -1652,9 +1680,9 @@ function LibrariesRoute() {
         if (settings.cache.dataCacheEnabled && hasCompleteCacheEntry) {
           renderHomeData({
             accountLabel: cacheEntry.accountLabel,
-            continueWatching: Array.isArray(cacheEntry.continueWatching)
+            continueWatching: mergeContinueWatchingItems({ localItems: localContinueWatching, serverItems: Array.isArray(cacheEntry.continueWatching)
               ? dedupeContinueWatchingPosterItems(cacheEntry.continueWatching)
-              : [],
+              : [] }),
             libraries: Array.isArray(cacheEntry.libraries) ? cacheEntry.libraries : [],
             featuredRows: Array.isArray(cacheEntry.featuredRows) ? cacheEntry.featuredRows : [],
           });
@@ -2249,6 +2277,7 @@ export function AppRouter() {
   }, [settings.themeMode]);
 
   return (
+    <PlaybackSyncProvider>
     <Routes>
       <Route path="/" element={<HomeGate />} />
       <Route path="/login" element={<LoginRoute />} />
@@ -2260,5 +2289,6 @@ export function AppRouter() {
       <Route path="/settings" element={<SettingsGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </PlaybackSyncProvider>
   );
 }

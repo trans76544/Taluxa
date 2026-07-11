@@ -13,6 +13,7 @@ import {
   ProxySettings,
 } from '@shared/models/settings';
 import { isCustomProxyConfigured } from '@shared/network/proxy';
+import type { PlayerPlaybackEvent } from '@shared/models/playback';
 import {
   DanmakuSourceError,
   fetchDandanplayDanmaku,
@@ -139,6 +140,15 @@ interface ActiveSession {
   sessionId: number;
   logFilePath: string;
   stderrLines: string[];
+  eventSequence: number;
+  itemSequence: number;
+  currentItemStarted: boolean;
+  currentItemStopped: boolean;
+  pendingReplacement: {
+    input: LaunchMpvInput;
+    danmakuServers: DanmakuServerSettings[];
+    danmakuSettings: DanmakuSettings;
+  } | null;
 }
 
 const IPC_CONNECTED_READY_FALLBACK_MS = 1500;
@@ -1508,6 +1518,7 @@ export interface MpvControllerOptions {
   onEpisodeSelect?: (itemId: string) => void;
   onPlayerSettingsPatch?: (patch: PlayerSettingsPatch) => void | Promise<void>;
   onProgress?: (snapshot: MpvProgressSnapshot) => void;
+  onPlaybackEvent?: (event: PlayerPlaybackEvent) => void;
   readTextFile?: (targetPath: string) => string;
   resourcesPath?: string;
   spawnProcess?: SpawnProcess;
@@ -1840,6 +1851,7 @@ export class MpvController {
   private readonly onPlayerSettingsPatch: (patch: PlayerSettingsPatch) => void | Promise<void>;
 
   private readonly onProgress: (snapshot: MpvProgressSnapshot) => void;
+  private readonly onPlaybackEvent: (event: PlayerPlaybackEvent) => void;
 
   private readonly readTextFile: (targetPath: string) => string;
 
@@ -1882,6 +1894,7 @@ export class MpvController {
     this.onEpisodeSelect = options.onEpisodeSelect ?? (() => undefined);
     this.onPlayerSettingsPatch = options.onPlayerSettingsPatch ?? (() => undefined);
     this.onProgress = options.onProgress ?? (() => undefined);
+    this.onPlaybackEvent = options.onPlaybackEvent ?? (() => undefined);
     this.readTextFile =
       options.readTextFile ?? ((targetPath) => readFileSync(targetPath, 'utf8'));
     this.resourcesPath = options.resourcesPath ?? process.resourcesPath;
@@ -2026,7 +2039,7 @@ export class MpvController {
         }
 
         if (activeSession.isReady) {
-          this.emitProgress(activeSession, true);
+          this.emitProgress(activeSession, true, 'quit');
           this.clearActiveSession();
           return;
         }
@@ -2062,12 +2075,11 @@ export class MpvController {
     const normalizedPlayerSettings = normalizeLaunchPlayerSettings(playerSettings);
     const proxyValue = getPlaybackProxyValue(input.streamUrl, proxy);
 
-    session.itemId = input.itemId;
-    session.positionSeconds = null;
-    session.durationSeconds = 0;
-    session.danmakuComments = [];
-    session.danmakuSettings = normalizedPlayerSettings.danmaku;
-    session.hasDanmakuSubtitle = false;
+    session.pendingReplacement = {
+      input,
+      danmakuServers: normalizedPlayerSettings.danmakuServers,
+      danmakuSettings: normalizedPlayerSettings.danmaku,
+    };
 
     this.queueSessionCommand(session.sessionId, [
       'set_property',
@@ -2096,13 +2108,6 @@ export class MpvController {
       displayTitle,
       displaySubtitle,
     ]);
-    this.startDanmakuLookup(
-      session.sessionId,
-      input,
-      normalizedPlayerSettings.danmakuServers,
-      session.danmakuFilePath,
-      normalizedPlayerSettings.danmaku
-    );
   }
 
   private clearActiveSession(): void {
@@ -2233,8 +2238,10 @@ export class MpvController {
     const session = this.activeSession;
 
     if (session && !session.isReady) {
-      this.markSessionReady(session);
+      session.onReady();
     }
+
+    if (session?.isReady) this.emitProgress(session, true, 'replace');
 
     this.clearActiveSession();
   }
@@ -2321,17 +2328,35 @@ export class MpvController {
     return String.raw`\\.\pipe\emby-player-${process.pid}-${Date.now()}-${this.ipcEndpointCounter}`;
   }
 
-  private emitProgress(session: ActiveSession, final = false): void {
-    if (session.positionSeconds === null) {
-      return;
-    }
+  private emitProgress(
+    session: ActiveSession,
+    final = false,
+    reason: 'eof' | 'stop' | 'quit' | 'switch' | 'replace' | 'error' = 'stop',
+    completed = false
+  ): void {
+    if (final && session.currentItemStopped) return;
+    if (session.positionSeconds === null && !final) return;
 
-    this.onProgress({
+    const positionSeconds = Math.floor(session.positionSeconds ?? 0);
+    if (session.positionSeconds !== null) {
+      this.onProgress({
+        itemId: session.itemId,
+        positionSeconds,
+        durationSeconds: Math.floor(session.durationSeconds),
+        ...(final ? { final: true } : {}),
+      });
+    }
+    if (!session.currentItemStarted) return;
+    this.onPlaybackEvent({
+      playbackId: `${session.sessionId}:${session.itemSequence}`,
+      sequence: ++session.eventSequence,
+      phase: final ? 'stopped' : 'progress',
       itemId: session.itemId,
-      positionSeconds: Math.floor(session.positionSeconds),
+      positionSeconds,
       durationSeconds: Math.floor(session.durationSeconds),
-      ...(final ? { final: true } : {}),
-    });
+      ...(final ? { reason, completed } : {}),
+    } as PlayerPlaybackEvent);
+    if (final) session.currentItemStopped = true;
   }
 
   private getDevelopmentExecutablePath(): string {
@@ -2375,7 +2400,8 @@ export class MpvController {
         };
 
         if (payload.event === 'file-loaded') {
-          this.markSessionReady(session);
+          if (session.isReady) this.emitStarted(session);
+          else this.markSessionReady(session);
           continue;
         }
 
@@ -2401,7 +2427,13 @@ export class MpvController {
         }
 
         if (payload.event === 'end-file') {
-          this.emitProgress(session, true);
+          if (session.pendingReplacement) {
+            this.emitProgress(session, true, 'switch');
+            this.promotePendingReplacement(session);
+            continue;
+          }
+          const completed = payload.reason === 'eof';
+          this.emitProgress(session, true, completed ? 'eof' : payload.reason === 'error' ? 'error' : 'stop', completed);
           this.clearActiveSession();
           continue;
         }
@@ -2485,6 +2517,7 @@ export class MpvController {
     }
 
     session.isReady = true;
+    this.emitStarted(session);
     if (session.connectTimeout) {
       clearTimeout(session.connectTimeout);
       session.connectTimeout = null;
@@ -2495,6 +2528,42 @@ export class MpvController {
     }
     session.onReady();
     this.flushPendingCommands(session);
+  }
+
+  private emitStarted(session: ActiveSession): void {
+    if (session.currentItemStarted) return;
+    session.currentItemStarted = true;
+    session.currentItemStopped = false;
+    this.onPlaybackEvent({
+      playbackId: `${session.sessionId}:${session.itemSequence}`,
+      sequence: ++session.eventSequence,
+      phase: 'started',
+      itemId: session.itemId,
+      positionSeconds: Math.floor(session.positionSeconds ?? 0),
+      durationSeconds: Math.floor(session.durationSeconds),
+    });
+  }
+
+  private promotePendingReplacement(session: ActiveSession): void {
+    const pending = session.pendingReplacement;
+    if (!pending) return;
+    session.pendingReplacement = null;
+    session.itemId = pending.input.itemId;
+    session.itemSequence += 1;
+    session.currentItemStarted = false;
+    session.currentItemStopped = false;
+    session.positionSeconds = null;
+    session.durationSeconds = 0;
+    session.danmakuComments = [];
+    session.danmakuSettings = pending.danmakuSettings;
+    session.hasDanmakuSubtitle = false;
+    this.startDanmakuLookup(
+      session.sessionId,
+      pending.input,
+      pending.danmakuServers,
+      session.danmakuFilePath,
+      pending.danmakuSettings
+    );
   }
 
   private toggleWindowMaximize(session: ActiveSession, currentState: unknown): void {
@@ -2580,6 +2649,11 @@ export class MpvController {
       retryTimeout: null,
       sessionId,
       stderrLines,
+      eventSequence: 0,
+      itemSequence: 1,
+      currentItemStarted: false,
+      currentItemStopped: false,
+      pendingReplacement: null,
     };
 
     this.activeSession = session;

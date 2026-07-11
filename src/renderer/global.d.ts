@@ -10,6 +10,7 @@ import type {
 import type { EmbyLoginInput, EmbyLoginSession } from '@shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/imageCache';
+import type { PlayerPlaybackEvent } from '@shared/models/playback';
 
 export {};
 
@@ -30,6 +31,7 @@ declare global {
         preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;
         onEpisodeSelect: (listener: (itemId: string) => void) => () => void;
         onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
+        onPlaybackEvent?: (listener: (event: PlayerPlaybackEvent) => void) => () => void;
       };
       imageCache: {
         resolve: (sourceUrl: string) => Promise<ImageCacheResolveResult>;

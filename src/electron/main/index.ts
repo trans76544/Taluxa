@@ -21,6 +21,7 @@ import { preflightPlaybackStreamSource } from '@shared/api/emby/playback';
 import type { ImageCacheResolution } from '@shared/models/settings';
 import type { Settings, ProxySettings } from '@shared/models/settings';
 import type { PersistedState, SettingsSyncEvent } from '@shared/store/persistence';
+import type { PlayerPlaybackEvent } from '@shared/models/playback';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -37,6 +38,10 @@ function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('player:progress', snapshot);
   }
+}
+
+function sendPlayerPlaybackEvent(event: PlayerPlaybackEvent) {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('player:playback-event', event);
 }
 
 function broadcastSettingsSync(event: SettingsSyncEvent) {
@@ -87,6 +92,7 @@ const mpvController = new MpvController({
     });
   },
   onProgress: sendPlayerProgress,
+  onPlaybackEvent: sendPlayerPlaybackEvent,
 });
 const hlsProxyServer = new HlsProxyServer((url, init) => session.defaultSession.fetch(url, init));
 const MPV_EPISODE_THUMBNAIL_WIDTH = 128;

@@ -168,6 +168,7 @@ export function PlayerPage({
   }, [launchKey]);
 
   useEffect(() => {
+    if (typeof window.embyDesktop.player.onPlaybackEvent === 'function') return undefined;
     return window.embyDesktop.player.onProgress((event) => {
       if (event.itemId !== itemId) {
         return;

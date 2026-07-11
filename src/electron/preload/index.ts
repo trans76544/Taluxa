@@ -7,6 +7,7 @@ import type {
 import type { EmbyLoginInput, EmbyLoginSession } from '../../shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
+import { isPlayerPlaybackEvent, type PlayerPlaybackEvent } from '../../shared/models/playback';
 
 export interface PlayerLaunchInput {
   authMode?: 'header' | 'local-proxy' | 'tokenless';
@@ -69,6 +70,13 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       return () => {
         ipcRenderer.removeListener('player:progress', handleProgress);
       };
+    },
+    onPlaybackEvent: (listener: (event: PlayerPlaybackEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (isPlayerPlaybackEvent(payload)) listener(payload);
+      };
+      ipcRenderer.on('player:playback-event', handler);
+      return () => ipcRenderer.removeListener('player:playback-event', handler);
     },
     onEpisodeSelect: (listener: (itemId: string) => void) => {
       const handleEpisodeSelect = (_event: Electron.IpcRendererEvent, itemId: string) => {

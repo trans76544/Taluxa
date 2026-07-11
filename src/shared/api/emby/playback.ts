@@ -43,6 +43,9 @@ export interface PlaybackStreamSource {
   redactedDisplayUrl: string;
   streamUrl: string;
   httpHeaders: Record<string, string>;
+  playSessionId: string | null;
+  mediaSourceId: string | null;
+  playMethod: PlaybackMethod;
 }
 
 export type PreflightPlaybackStreamSourceInput = Pick<
@@ -60,7 +63,14 @@ export interface ReportPlaybackProgressInput {
   accessToken: string;
   itemId: string;
   positionSeconds: number;
+  durationSeconds?: number;
+  playSessionId?: string | null;
+  mediaSourceId?: string | null;
+  playMethod?: PlaybackMethod;
+  audioStreamIndex?: number | null;
 }
+
+export type PlaybackMethod = 'DirectPlay' | 'DirectStream' | 'Transcode';
 
 export interface UserItemActionInput {
   serverUrl: string;
@@ -91,13 +101,17 @@ export function buildStreamUrl(serverUrl: string, itemId: string, accessToken: s
 
 function createPlaybackStreamSource(
   streamUrl: string,
-  httpHeaders: Record<string, string>
+  httpHeaders: Record<string, string>,
+  metadata: Partial<Pick<PlaybackStreamSource, 'playSessionId' | 'mediaSourceId' | 'playMethod'>> = {}
 ): PlaybackStreamSource {
   return {
     authMode: Object.keys(httpHeaders).length > 0 ? 'header' : 'tokenless',
     redactedDisplayUrl: redactPlaybackUrl(streamUrl),
     streamUrl,
     httpHeaders,
+    playSessionId: metadata.playSessionId ?? null,
+    mediaSourceId: metadata.mediaSourceId ?? null,
+    playMethod: metadata.playMethod ?? 'DirectPlay',
   };
 }
 
@@ -119,7 +133,8 @@ export function buildDirectPlaybackStreamSource({
     ),
     {
       'X-Emby-Token': accessToken,
-    }
+    },
+    { mediaSourceId: mediaSourceId ?? null, playMethod: 'DirectPlay' }
   );
 }
 
@@ -420,7 +435,8 @@ export async function fetchPlaybackStreamSource({
           {
             ...(mediaSource.RequiredHttpHeaders ?? {}),
             'X-Emby-Token': accessToken,
-          }
+          },
+          { playSessionId: payload.PlaySessionId ?? null, mediaSourceId: mediaSource.Id, playMethod: 'DirectPlay' }
         );
       }
 
@@ -433,13 +449,14 @@ export async function fetchPlaybackStreamSource({
           mediaSource.Id,
           selectedAudioStreamIndex
         ),
-        buildHlsHttpHeaders(accessToken, mediaSource.RequiredHttpHeaders)
+        buildHlsHttpHeaders(accessToken, mediaSource.RequiredHttpHeaders),
+        { playSessionId: payload.PlaySessionId ?? null, mediaSourceId: mediaSource.Id, playMethod: 'Transcode' }
       );
     }
 
     return createPlaybackStreamSource(buildStreamUrl(serverUrl, itemId, accessToken), {
       'X-Emby-Token': accessToken,
-    });
+    }, { playSessionId: payload.PlaySessionId ?? null, mediaSourceId: mediaSource?.Id ?? null, playMethod: 'DirectPlay' });
   }
 
   const streamUrl = buildPlaybackInfoStreamUrl(
@@ -459,34 +476,58 @@ export async function fetchPlaybackStreamSource({
       : {
           ...(mediaSource?.RequiredHttpHeaders ?? {}),
           'X-Emby-Token': accessToken,
-        }
+        },
+    {
+      playSessionId: payload.PlaySessionId ?? null,
+      mediaSourceId: mediaSource?.Id ?? null,
+      playMethod: isHlsStreamPath(streamPath) ? 'Transcode' : 'DirectStream',
+    }
   );
 }
 
-export async function reportPlaybackProgress({
-  serverUrl,
-  accessToken,
-  itemId,
-  positionSeconds,
-}: ReportPlaybackProgressInput): Promise<void> {
-  const response = await createEmbyRequest(serverUrl, '/Sessions/Playing/Progress', {
+async function reportPlaybackCheckIn(
+  kind: 'started' | 'progress' | 'stopped',
+  input: ReportPlaybackProgressInput
+): Promise<void> {
+  const path = kind === 'started'
+    ? '/Sessions/Playing'
+    : kind === 'stopped'
+      ? '/Sessions/Playing/Stopped'
+      : '/Sessions/Playing/Progress';
+  const body = {
+    ItemId: input.itemId,
+    PositionTicks: Math.floor(Math.max(0, input.positionSeconds) * 10000000),
+    ...(typeof input.durationSeconds === 'number'
+      ? { RunTimeTicks: Math.floor(Math.max(0, input.durationSeconds) * 10000000) }
+      : {}),
+    ...(input.playSessionId ? { PlaySessionId: input.playSessionId } : {}),
+    ...(input.mediaSourceId ? { MediaSourceId: input.mediaSourceId } : {}),
+    ...(typeof input.audioStreamIndex === 'number' ? { AudioStreamIndex: input.audioStreamIndex } : {}),
+    CanSeek: true,
+    IsPaused: false,
+    IsMuted: false,
+    PlayMethod: input.playMethod ?? 'DirectPlay',
+    QueueableMediaTypes: ['Video'],
+    ...(kind === 'progress' ? { EventName: 'TimeUpdate' } : {}),
+  };
+  const response = await createEmbyRequest(input.serverUrl, path, {
     method: 'POST',
-    accessToken,
+    accessToken: input.accessToken,
     operation: 'progress',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      ItemId: itemId,
-      PositionTicks: Math.floor(positionSeconds * 10000000),
-      IsPaused: false,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to report playback progress (${response.status})`);
+    throw new Error(`Failed to report playback ${kind} (${response.status})`);
   }
 }
+
+export const reportPlaybackStarted = (input: ReportPlaybackProgressInput) => reportPlaybackCheckIn('started', input);
+export const reportPlaybackProgress = (input: ReportPlaybackProgressInput) => reportPlaybackCheckIn('progress', input);
+export const reportPlaybackStopped = (input: ReportPlaybackProgressInput) => reportPlaybackCheckIn('stopped', input);
 
 export async function markItemPlayed({
   serverUrl,

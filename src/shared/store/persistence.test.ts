@@ -33,6 +33,19 @@ const DEFAULT_DANMAKU_SETTINGS: DanmakuSettings = {
   conversionMode: 'off',
 };
 
+describe('playback progress lifecycle migration', () => {
+  it('adds safe lifecycle defaults to legacy progress', () => {
+    const state = migrateLegacyPersistedState({
+      progressByItemId: {
+        'item-1': { itemId: 'item-1', positionSeconds: 42, durationSeconds: 180, updatedAt: '2026-07-11T00:00:00.000Z' },
+      },
+    });
+    expect(state.progressByItemId['item-1']).toEqual(expect.objectContaining({
+      sequence: 0, completed: false, serverStatus: 'pending', retryCount: 0,
+    }));
+  });
+});
+
 const DEFAULT_DANMAKU_SERVERS = [
   {
     id: 'dandanplay-official',
@@ -414,6 +427,8 @@ describe('persistence', () => {
           serverStatus: 'pending',
           retryCount: 0,
           final: false,
+          sequence: 0,
+          completed: false,
         },
       },
       homeCacheByKey: {},
@@ -773,6 +788,8 @@ describe('persistence', () => {
           serverStatus: 'pending',
           retryCount: 0,
           final: false,
+          sequence: 0,
+          completed: false,
         },
       },
       homeCacheByKey: {},

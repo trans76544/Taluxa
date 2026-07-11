@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type {
   LibraryEpisode,
+  LibraryItemDetails,
   LibraryItemMediaSource,
 } from '@shared/models/library';
 import {
   choosePlaybackPreparationDecision,
   createPlaybackPreparationKey,
+  createPlaybackResumeItemSnapshot,
   createEpisodeSelector,
   formatEpisodeSelectorTitle,
   isPlaybackPreparationKeyMatch,
@@ -47,7 +49,30 @@ function createEpisode(overrides: Partial<LibraryEpisode> = {}): LibraryEpisode 
   };
 }
 
+function createDetails(overrides: Partial<LibraryItemDetails> = {}): LibraryItemDetails {
+  return {
+    id: 'series-1', name: 'A Series', type: 'Series', overview: '', genres: [],
+    posterUrl: 'https://example.test/series.jpg', imageCandidates: [], runtimeTicks: null,
+    serverPositionTicks: null, communityRating: null, productionYear: 2026, officialRating: '',
+    people: [], studios: [], externalUrls: [], mediaSources: [], backdropUrl: null,
+    ...overrides,
+  };
+}
+
 describe('playbackRouteHelpers', () => {
+  it('captures stable movie and episode metadata for local continue watching', () => {
+    const movie = createDetails({ id: 'movie-1', name: 'A Movie', type: 'Movie' });
+    expect(createPlaybackResumeItemSnapshot({ details: movie, episodes: [], itemId: movie.id })).toEqual(expect.objectContaining({
+      itemId: 'movie-1', itemType: 'Movie', title: 'A Movie', productionYear: 2026,
+    }));
+
+    const episode = createEpisode({ id: 'episode-2', name: 'Second Chapter', parentIndexNumber: 3, indexNumber: 4 });
+    expect(createPlaybackResumeItemSnapshot({ details: createDetails(), episodes: [episode], itemId: episode.id })).toEqual(expect.objectContaining({
+      itemId: 'episode-2', itemType: 'Episode', title: 'Second Chapter', seriesId: 'series-1',
+      seriesName: 'A Series', seasonIndex: 3, episodeIndex: 4,
+    }));
+  });
+
   it('picks a preferred media source when available', () => {
     const first = createMediaSource({ id: 'first' });
     const second = createMediaSource({ id: 'second' });

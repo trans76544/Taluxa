@@ -18,6 +18,51 @@ export interface HomePosterItem {
   };
 }
 
+export interface LocalContinueWatchingItem {
+  item: HomePosterItem;
+  serverStatus: 'pending' | 'confirmed' | 'failed';
+  updatedAt: string;
+}
+
+export function buildLocalContinueWatchingItems(args: {
+  progressByItemId: Record<string, PlaybackProgress>;
+}): LocalContinueWatchingItem[] {
+  return Object.values(args.progressByItemId)
+    .filter((progress) => progress.positionSeconds > 0 && !progress.completed && Boolean(progress.resumeItem))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map((progress) => {
+      const snapshot = progress.resumeItem!;
+      const percent = progress.durationSeconds > 0 ? Math.min(100, Math.max(0, progress.positionSeconds / progress.durationSeconds * 100)) : undefined;
+      const episode = snapshot.itemType === 'Episode';
+      return {
+        serverStatus: progress.serverStatus ?? 'pending', updatedAt: progress.updatedAt,
+        item: {
+          id: snapshot.itemId, title: episode ? snapshot.seriesName || snapshot.title : snapshot.title,
+          subtitle: episode ? `S${snapshot.seasonIndex ?? 0}E${snapshot.episodeIndex ?? 0} - ${snapshot.title}` : snapshot.productionYear ? String(snapshot.productionYear) : '',
+          posterUrl: snapshot.posterUrl, imageCandidates: snapshot.imageCandidates,
+          href: `/item/${episode ? snapshot.seriesId || snapshot.itemId : snapshot.itemId}`,
+          progressPercent: percent,
+          state: episode ? { title: snapshot.seriesName || snapshot.title, resumeEpisodeId: snapshot.itemId, resumeSeasonId: snapshot.seasonId, resumeSeasonIndex: snapshot.seasonIndex } : { title: snapshot.title },
+        },
+      };
+    });
+}
+
+export function mergeContinueWatchingItems(args: {
+  localItems: LocalContinueWatchingItem[];
+  serverItems: HomePosterItem[];
+}): HomePosterItem[] {
+  const key = (item: HomePosterItem) => item.state?.resumeEpisodeId ? `series:${item.href}` : `item:${item.href || item.id}`;
+  const pending = args.localItems.filter((entry) => entry.serverStatus !== 'confirmed');
+  const confirmed = args.localItems.filter((entry) => entry.serverStatus === 'confirmed');
+  const result: HomePosterItem[] = [];
+  const seen = new Set<string>();
+  for (const item of [...pending.map((entry) => entry.item), ...args.serverItems, ...confirmed.map((entry) => entry.item)]) {
+    const id = key(item); if (seen.has(id)) continue; seen.add(id); result.push(item);
+  }
+  return result;
+}
+
 export interface HomePosterRow {
   id: string;
   title: string;

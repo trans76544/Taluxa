@@ -6,9 +6,23 @@ import {
   buildHomeRefreshStatusMessage,
   dedupeContinueWatchingPosterItems,
   pickFeaturedViews,
+  buildLocalContinueWatchingItems,
+  mergeContinueWatchingItems,
 } from './home';
 
 describe('home helpers', () => {
+  it('builds and prioritizes a pending local continue watching item', () => {
+    const local = buildLocalContinueWatchingItems({ progressByItemId: {
+      'item-1': { itemId: 'item-1', positionSeconds: 40, durationSeconds: 100, updatedAt: '2026-07-11T00:00:00.000Z', serverStatus: 'pending', resumeItem: {
+        itemId: 'item-1', itemType: 'Movie', title: 'Movie', posterUrl: '', imageCandidates: [],
+      } },
+    } });
+    const merged = mergeContinueWatchingItems({ localItems: local, serverItems: [{
+      id: 'item-1', title: 'Movie', subtitle: '', posterUrl: '', imageCandidates: [], href: '/item/item-1', progressPercent: 20,
+    }] });
+    expect(merged).toHaveLength(1);
+    expect(merged[0].progressPercent).toBe(40);
+  });
   it('builds library cards with artwork from multiple preview items', () => {
     expect(
       buildHomeLibraryCards({

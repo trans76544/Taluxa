@@ -11,6 +11,7 @@ import {
 } from './mpvController';
 import type { DanmakuComment } from './danmaku';
 import type { DanmakuSettings, ProxySettings } from '@shared/models/settings';
+import type { PlayerPlaybackEvent } from '@shared/models/playback';
 
 class FakeSpawnedProcess extends EventEmitter implements SpawnedMpvProcess {
   readonly stderr = new EventEmitter();
@@ -475,6 +476,7 @@ describe('MpvController', () => {
     const child = new FakeSpawnedProcess();
     const ipcClient = new FakeIpcClient();
     const spawnProcess = vi.fn(() => child);
+    const onPlaybackEvent = vi.fn<(event: PlayerPlaybackEvent) => void>();
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
 
@@ -483,6 +485,7 @@ describe('MpvController', () => {
       createIpcEndpoint: () => ipcServerPath,
       moduleDir: devModuleDir,
       spawnProcess,
+      onPlaybackEvent,
     });
 
     const launchPromise = controller.launch(
@@ -493,6 +496,8 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
     await expect(launchPromise).resolves.toBeUndefined();
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 120 })}\n`));
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'time-pos', data: 45 })}\n`));
     ipcClient.write.mockClear();
 
     await controller.switchEpisode(
@@ -507,6 +512,13 @@ describe('MpvController', () => {
       }),
       createProxySettings()
     );
+
+    expect(onPlaybackEvent.mock.calls.flatMap(([event]) => event.phase === 'stopped' ? [event] : [])).toEqual([]);
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'stop' })}\n`));
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    expect(onPlaybackEvent.mock.calls.map(([event]) => `${event.phase}:${event.itemId}`)).toEqual([
+      'started:episode-1', 'progress:episode-1', 'stopped:episode-1', 'started:episode-2',
+    ]);
 
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     expect(ipcClient.write).toHaveBeenCalledWith(
@@ -1853,6 +1865,7 @@ describe('MpvController', () => {
     const spawnProcess = vi.fn(() => child);
     const connectIpc = vi.fn(() => ipcClient);
     const onProgress = vi.fn<(snapshot: MpvProgressSnapshot) => void>();
+    const onPlaybackEvent = vi.fn<(event: PlayerPlaybackEvent) => void>();
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
 
@@ -1862,6 +1875,7 @@ describe('MpvController', () => {
       connectIpc,
       createIpcEndpoint: () => ipcServerPath,
       onProgress,
+      onPlaybackEvent,
     });
 
     const launchPromise = controller.launch(
@@ -1872,6 +1886,9 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
     await expect(launchPromise).resolves.toBeUndefined();
+    expect(onPlaybackEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'started', itemId: 'episode-1', sequence: 1,
+    }));
 
     expect(connectIpc).toHaveBeenCalledWith(ipcServerPath);
 
@@ -1901,6 +1918,9 @@ describe('MpvController', () => {
       positionSeconds: 12,
       durationSeconds: 180,
     });
+    expect(onPlaybackEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: 'progress', itemId: 'episode-1', positionSeconds: 12,
+    }));
   });
 
   it('emits a final progress snapshot when mpv ends after playback is ready', async () => {
@@ -1910,6 +1930,7 @@ describe('MpvController', () => {
     const spawnProcess = vi.fn(() => child);
     const connectIpc = vi.fn(() => ipcClient);
     const onProgress = vi.fn<(snapshot: MpvProgressSnapshot) => void>();
+    const onPlaybackEvent = vi.fn<(event: PlayerPlaybackEvent) => void>();
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
 
@@ -1919,6 +1940,7 @@ describe('MpvController', () => {
       connectIpc,
       createIpcEndpoint: () => ipcServerPath,
       onProgress,
+      onPlaybackEvent,
     });
 
     const launchPromise = controller.launch(
@@ -1946,6 +1968,9 @@ describe('MpvController', () => {
       durationSeconds: 180,
       final: true,
     });
+    expect(onPlaybackEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: 'stopped', reason: 'eof', completed: true, itemId: 'episode-final', positionSeconds: 42,
+    }));
   });
 
   it('retries retryable ipc connection failures after the first socket closes', async () => {
@@ -1959,6 +1984,7 @@ describe('MpvController', () => {
       .fn<() => FakeIpcClient>()
       .mockReturnValueOnce(firstIpcClient)
       .mockReturnValueOnce(secondIpcClient);
+    const onPlaybackEvent = vi.fn<(event: PlayerPlaybackEvent) => void>();
     const onProgress = vi.fn<(snapshot: MpvProgressSnapshot) => void>();
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
@@ -2050,6 +2076,7 @@ describe('MpvController', () => {
       .fn<() => FakeIpcClient>()
       .mockReturnValueOnce(firstIpcClient)
       .mockReturnValueOnce(secondIpcClient);
+    const onPlaybackEvent = vi.fn<(event: PlayerPlaybackEvent) => void>();
     existingPaths.add(path.join(repoRoot, 'package.json'));
     existingPaths.add(expectedPath);
 
@@ -2058,6 +2085,7 @@ describe('MpvController', () => {
       moduleDir: devModuleDir,
       spawnProcess,
       createIpcEndpoint: () => ipcServerPath,
+      onPlaybackEvent,
     });
 
     const firstLaunch = controller.launch(createLaunchInput({ itemId: 'item-1' }), createProxySettings());
@@ -2073,6 +2101,9 @@ describe('MpvController', () => {
     await expect(secondLaunch).resolves.toBeUndefined();
     expect(firstChild.kill).toHaveBeenCalledTimes(1);
     expect(secondChild.kill).not.toHaveBeenCalled();
+    expect(onPlaybackEvent.mock.calls.map(([event]) => `${event.phase}:${event.itemId}`)).toEqual([
+      'started:item-2',
+    ]);
   });
 
   it('waits for file-loaded before resolving launch', async () => {

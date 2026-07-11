@@ -127,6 +127,8 @@ function normalizePlaybackProgress(progress: PlaybackProgress): PlaybackProgress
     serverStatus: progress.serverStatus ?? 'pending',
     retryCount: progress.retryCount ?? 0,
     final: progress.final ?? false,
+    sequence: progress.sequence ?? 0,
+    completed: progress.completed ?? false,
   };
 }
 

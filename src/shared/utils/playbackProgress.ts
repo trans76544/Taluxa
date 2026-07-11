@@ -1,6 +1,15 @@
 import type { PlaybackProgress } from '@shared/models/progress';
 import { redactErrorMessage } from '@shared/network/redaction';
 
+export interface ProgressRevision { playbackId: string; sequence: number }
+
+export function isSameProgressRevision(
+  progress: PlaybackProgress | undefined,
+  revision: ProgressRevision
+): boolean {
+  return progress?.playbackId === revision.playbackId && (progress.sequence ?? 0) === revision.sequence;
+}
+
 export interface ResumePositionInput {
   savedPositionSeconds: number | null;
   serverPositionTicks: number | null;

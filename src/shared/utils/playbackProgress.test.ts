@@ -4,6 +4,7 @@ import {
   createFailedProgressUpdate,
   createLocalProgressUpdate,
   getResumePositionSeconds,
+  isSameProgressRevision,
   shouldSyncPlaybackProgress,
 } from './playbackProgress';
 
@@ -28,6 +29,14 @@ describe('getResumePositionSeconds', () => {
 });
 
 describe('playback progress sync helpers', () => {
+  it('matches only the current playback revision', () => {
+    const progress = {
+      itemId: 'item-1', playbackId: 'play-1', sequence: 4, positionSeconds: 42,
+      durationSeconds: 180, updatedAt: '2026-07-11T00:00:00.000Z',
+    };
+    expect(isSameProgressRevision(progress, { playbackId: 'play-1', sequence: 4 })).toBe(true);
+    expect(isSameProgressRevision(progress, { playbackId: 'play-1', sequence: 3 })).toBe(false);
+  });
   it('creates local-first pending progress updates', () => {
     expect(
       createLocalProgressUpdate({

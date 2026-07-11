@@ -7,6 +7,9 @@ import {
   hideItemFromContinueWatching,
   markItemPlayed,
   preflightPlaybackStreamSource,
+  reportPlaybackProgress,
+  reportPlaybackStarted,
+  reportPlaybackStopped,
   type FetchPlaybackStreamSourceInput,
 } from './playback';
 
@@ -558,5 +561,28 @@ describe('playback api', () => {
     );
     const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it.each([
+    [reportPlaybackStarted, '/Sessions/Playing', false],
+    [reportPlaybackProgress, '/Sessions/Playing/Progress', true],
+    [reportPlaybackStopped, '/Sessions/Playing/Stopped', false],
+  ] as const)('reports the complete playback lifecycle', async (reporter, path, hasEventName) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+
+    await reporter({
+      serverUrl: 'https://demo.emby.local', accessToken: 'token-123', itemId: 'item-1',
+      positionSeconds: 12, durationSeconds: 180, playSessionId: 'play-1',
+      mediaSourceId: 'source-1', playMethod: 'Transcode',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`https://demo.emby.local${path}`);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      ItemId: 'item-1', PositionTicks: 120_000_000, RunTimeTicks: 1_800_000_000,
+      PlaySessionId: 'play-1', MediaSourceId: 'source-1', CanSeek: true,
+      IsPaused: false, IsMuted: false, PlayMethod: 'Transcode', QueueableMediaTypes: ['Video'],
+      ...(hasEventName ? { EventName: 'TimeUpdate' } : {}),
+    });
   });
 });
