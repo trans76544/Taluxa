@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { readPersistedState, registerStorageIpc, writeSettingsPatchFromMain } from './ipc/storage';
 import { registerImageCacheIpc } from './ipc/imageCache';
 import { registerAuthIpc } from './ipc/auth';
+import { registerStoryMarkerIpc } from './ipc/storyMarkers';
 import { ImageCache, IMAGE_CACHE_PROTOCOL } from './image/imageCache';
 import { registerImageCacheProtocol } from './image/protocol';
 import { applyProxySettings, applyProxySettingsWithFallback } from './network/proxy';
@@ -333,6 +334,7 @@ app.whenReady().then(() => {
           }
         );
       });
+      registerStoryMarkerIpc(mpvController);
       ipcMain.handle(
         'player:preflight',
         (_event, input: Pick<LaunchMpvInput, 'httpHeaders' | 'streamUrl'>) =>

@@ -9,6 +9,7 @@ import type { ImageCacheResolveResult } from '../main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache';
 import { isPlayerPlaybackEvent, type PlayerPlaybackEvent } from '../../shared/models/playback';
 import type { ReportPlaybackProgressInput } from '../../shared/api/emby/playback';
+import type { PlayerStoryMarkerUpdate } from '../../shared/models/storyLandmark';
 
 export interface PlayerLaunchInput {
   authMode?: 'header' | 'local-proxy' | 'tokenless';
@@ -63,6 +64,8 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       ipcRenderer.invoke('playback:report-stopped', input) as Promise<void>,
   },
   player: {
+    setStoryMarkers: (input: PlayerStoryMarkerUpdate) =>
+      ipcRenderer.invoke('player:set-story-markers', input) as Promise<void>,
     launch: (input: PlayerLaunchInput) =>
       ipcRenderer.invoke('player:launch', input) as Promise<void>,
     switchEpisode: (input: PlayerLaunchInput) =>

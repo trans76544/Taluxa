@@ -211,6 +211,26 @@ describe('MpvController', () => {
     expect(child.unref).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards story markers only for the active or pending item as one JSON argument', async () => {
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const controller = createController({ connectIpc: vi.fn(() => ipcClient), createIpcEndpoint: () => ipcServerPath, moduleDir: devModuleDir, spawnProcess: vi.fn(() => child) });
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe'));
+    const launch = controller.launch(createLaunchInput({ itemId: 'active' }), createProxySettings());
+    child.emit('spawn'); ipcClient.emit('connect'); ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`)); await launch;
+    ipcClient.write.mockClear();
+    const markers = [{ startSeconds: 12, names: ['A | "B" {中文}'], kinds: ['chapter' as const] }];
+    controller.setStoryMarkers({ itemId: 'active', markers });
+    expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'active', JSON.stringify(markers)] })}\n`);
+    await controller.switchEpisode(createLaunchInput({ itemId: 'pending' }), createProxySettings());
+    controller.setStoryMarkers({ itemId: 'pending', markers: [] });
+    expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'pending', '[]'] })}\n`);
+    const calls = ipcClient.write.mock.calls.length;
+    controller.setStoryMarkers({ itemId: 'stale', markers });
+    expect(ipcClient.write).toHaveBeenCalledTimes(calls);
+  });
+
   it('forwards player settings patches from mpv client messages', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const child = new FakeSpawnedProcess();

@@ -14,6 +14,7 @@ import {
 } from '@shared/models/settings';
 import { isCustomProxyConfigured } from '@shared/network/proxy';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import type { PlayerStoryMarkerUpdate } from '@shared/models/storyLandmark';
 import {
   DanmakuSourceError,
   fetchDandanplayDanmaku,
@@ -2108,6 +2109,13 @@ export class MpvController {
       displayTitle,
       displaySubtitle,
     ]);
+  }
+
+  setStoryMarkers(update: PlayerStoryMarkerUpdate): void {
+    const session = this.activeSession;
+    const pendingItemId = session?.pendingReplacement?.input.itemId;
+    if (!session || (session.itemId !== update.itemId && pendingItemId !== update.itemId)) return;
+    this.queueSessionCommand(session.sessionId, ['script-message', 'taluxa-story-markers', update.itemId, JSON.stringify(update.markers)]);
   }
 
   private clearActiveSession(): void {
