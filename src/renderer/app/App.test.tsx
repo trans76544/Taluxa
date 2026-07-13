@@ -3441,8 +3441,9 @@ describe('App', () => {
       expect.objectContaining({
         itemId: 'item-1',
         title: 'Movie 1',
-        streamUrl:
-          'https://demo.emby.local/Videos/item-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=direct-source',
+        streamUrl: expect.stringMatching(
+          /^https:\/\/demo\.emby\.local\/Videos\/item-1\/stream\?static=true&PlaySessionId=[a-f0-9]{32}&DeviceId=emby-player-desktop&MediaSourceId=direct-source$/u
+        ),
       })
     );
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({

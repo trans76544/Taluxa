@@ -622,8 +622,9 @@ describe('playback performance route behavior', () => {
         expect(bridge.launch).toHaveBeenCalledWith(
           expect.objectContaining({
             itemId: 'movie-1',
-            streamUrl:
-              'https://demo.emby.local/Videos/movie-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=direct-source',
+            streamUrl: expect.stringMatching(
+              /^https:\/\/demo\.emby\.local\/Videos\/movie-1\/stream\?static=true&PlaySessionId=[a-f0-9]{32}&DeviceId=emby-player-desktop&MediaSourceId=direct-source$/u
+            ),
           })
         );
       });

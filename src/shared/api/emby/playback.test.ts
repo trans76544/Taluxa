@@ -72,10 +72,17 @@ describe('playback api', () => {
 
   it('authenticates direct playback sources with headers', () => {
     const source = buildDirectPlaybackStreamSource(createDirectSourceInput());
+    const streamUrl = new URL(source.streamUrl);
 
-    expect(source.streamUrl).toBe(
-      'https://demo.emby.local/Videos/item-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=mediasource_3099&AudioStreamIndex=1'
+    expect(streamUrl.origin + streamUrl.pathname).toBe(
+      'https://demo.emby.local/Videos/item-1/stream'
     );
+    expect(streamUrl.searchParams.get('static')).toBe('true');
+    expect(streamUrl.searchParams.get('DeviceId')).toBe('emby-player-desktop');
+    expect(streamUrl.searchParams.get('MediaSourceId')).toBe('mediasource_3099');
+    expect(streamUrl.searchParams.get('AudioStreamIndex')).toBe('1');
+    expect(source.playSessionId).toMatch(/^[a-f0-9]{32}$/u);
+    expect(streamUrl.searchParams.get('PlaySessionId')).toBe(source.playSessionId);
     expect(source.streamUrl).not.toContain('token-123');
     expect(source.streamUrl).not.toContain('api_key');
     expect(source.httpHeaders).toEqual({
@@ -584,5 +591,21 @@ describe('playback api', () => {
       IsPaused: false, IsMuted: false, PlayMethod: 'Transcode',
       ...(hasEventName ? { EventName: 'TimeUpdate' } : {}),
     });
+  });
+
+  it('surfaces a short redacted Emby reason for rejected playback reports', async () => {
+    const fetcher = vi.fn(async () => new Response(
+      'PlaySessionId is required; token=secret-token',
+      { status: 400, statusText: 'Bad Request' }
+    ));
+
+    await expect(reportPlaybackStarted({
+      serverUrl: 'https://demo.emby.local',
+      accessToken: 'token-123',
+      itemId: 'item-1',
+      positionSeconds: 0,
+    }, fetcher)).rejects.toThrow(
+      'Failed to report playback started (400 Bad Request): PlaySessionId is required; token=[redacted]'
+    );
   });
 });

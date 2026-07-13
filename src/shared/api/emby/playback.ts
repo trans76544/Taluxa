@@ -115,6 +115,12 @@ function createPlaybackStreamSource(
   };
 }
 
+function createPlaySessionId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
 export function buildDirectPlaybackStreamSource({
   serverUrl,
   itemId,
@@ -122,19 +128,20 @@ export function buildDirectPlaybackStreamSource({
   mediaSourceId,
   audioStreamIndex,
 }: FetchPlaybackStreamSourceInput): PlaybackStreamSource {
+  const playSessionId = createPlaySessionId();
   return createPlaybackStreamSource(
     buildMediaSourceDirectUrl(
       serverUrl,
       itemId,
       accessToken,
-      null,
+      playSessionId,
       mediaSourceId,
       audioStreamIndex
     ),
     {
       'X-Emby-Token': accessToken,
     },
-    { mediaSourceId: mediaSourceId ?? null, playMethod: 'DirectPlay' }
+    { playSessionId, mediaSourceId: mediaSourceId ?? null, playMethod: 'DirectPlay' }
   );
 }
 
@@ -522,7 +529,17 @@ async function reportPlaybackCheckIn(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to report playback ${kind} (${response.status})`);
+    let responseReason = '';
+    try {
+      responseReason = redactSensitiveValue((await response.text()).replace(/\s+/gu, ' ').trim())
+        .slice(0, 300);
+    } catch {
+      // Some proxies return an unreadable error body. The status still remains useful.
+    }
+    const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+    throw new Error(
+      `Failed to report playback ${kind} (${status})${responseReason ? `: ${responseReason}` : ''}`
+    );
   }
 }
 
