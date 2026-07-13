@@ -35,6 +35,22 @@ const hideItemFromContinueWatchingMock = vi.hoisted(() => vi.fn());
 const addFavoriteItemMock = vi.hoisted(() => vi.fn());
 const fetchServerInfoMock = vi.hoisted(() => vi.fn());
 const fetchStoryTimelineMarkersMock = vi.hoisted(() => vi.fn());
+const itemDetailsLayoutCleanup = vi.hoisted(() => ({ current: null as (() => void) | null }));
+
+vi.mock('@renderer/features/library/ItemDetailsPage', async () => {
+  const React = await vi.importActual<typeof import('react')>('react');
+  const actual = await vi.importActual<typeof import('@renderer/features/library/ItemDetailsPage')>(
+    '@renderer/features/library/ItemDetailsPage'
+  );
+
+  return {
+    ...actual,
+    ItemDetailsPage: (props: React.ComponentProps<typeof actual.ItemDetailsPage>) => {
+      React.useLayoutEffect(() => () => itemDetailsLayoutCleanup.current?.(), []);
+      return React.createElement(actual.ItemDetailsPage, props);
+    },
+  };
+});
 
 vi.mock('@shared/api/emby/auth', () => ({
   login: vi.fn(),
@@ -519,6 +535,39 @@ describe('playback performance route behavior', () => {
       markersDeferred.resolve([{ startSeconds: 11, names: ['Late'], kinds: ['chapter'] }]);
       await flushPromises();
     });
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+  });
+
+  it('cancels accepted markers before promise microtasks after an account change commit', async () => {
+    const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    const first = createSavedAccount();
+    const second = createSavedAccount({
+      id: 'https://backup.emby.local::user-2',
+      serverUrl: 'https://backup.emby.local',
+      userId: 'user-2',
+      userName: 'Bob',
+    });
+    const bridge = mockStorageRead(createPersistedState({
+      accounts: [first, second], activeAccountId: first.id,
+    }));
+    fetchItemDetailsMock.mockResolvedValue(createMovieDetails({ id: 'movie-1' }));
+    window.location.hash = '#/item/movie-1';
+    render(<HashRouter><App /></HashRouter>);
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+
+    itemDetailsLayoutCleanup.current = () => {
+      markersDeferred.resolve([{ startSeconds: 11, names: ['Old account'], kinds: ['chapter'] }]);
+    };
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /backup\.emby\.local/i }));
+      await flushPromises();
+    });
+    itemDetailsLayoutCleanup.current = null;
+
     expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
   });
 

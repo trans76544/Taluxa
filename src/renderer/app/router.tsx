@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -609,7 +609,7 @@ function ItemDetailsRoute() {
     progressSyncQueueRef.current = Promise.resolve();
   }, [playbackItemId, resolvedActiveAccountId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const delivery = storyMarkerDeliveryRef.current;
     return () => {
       delivery?.cancel();
