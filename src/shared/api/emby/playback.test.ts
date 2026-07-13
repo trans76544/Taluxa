@@ -581,7 +581,7 @@ describe('playback api', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       ItemId: 'item-1', PositionTicks: 120_000_000, RunTimeTicks: 1_800_000_000,
       PlaySessionId: 'play-1', MediaSourceId: 'source-1', CanSeek: true,
-      IsPaused: false, IsMuted: false, PlayMethod: 'Transcode', QueueableMediaTypes: ['Video'],
+      IsPaused: false, IsMuted: false, PlayMethod: 'Transcode',
       ...(hasEventName ? { EventName: 'TimeUpdate' } : {}),
     });
   });

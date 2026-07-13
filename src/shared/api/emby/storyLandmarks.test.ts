@@ -14,7 +14,7 @@ describe('fetchStoryTimelineMarkers', () => {
     });
     const result = await fetchStoryTimelineMarkers({ serverUrl: 'https://emby.test', userId: 'u /', accessToken: 'token', itemId: 'i /', mediaSourceId: 'source-1', durationSeconds: null, fetcher });
 
-    expect(fetcher).toHaveBeenCalledWith('https://emby.test/Users/u%20%2F/Items/i%20%2F?Fields=Chapters%2CMediaSources', expect.objectContaining({ method: 'GET' }));
+    expect(fetcher).toHaveBeenCalledWith('https://emby.test/Users/u%20%2F/Items/i%20%2F', expect.objectContaining({ method: 'GET' }));
     expect((requestInit?.headers as Headers).get('X-Emby-Token')).toBe('token');
     expect(result).toEqual([{ startSeconds: 2, names: ['Source'], kinds: ['chapter'] }]);
   });

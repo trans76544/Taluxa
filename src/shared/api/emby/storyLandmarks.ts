@@ -76,7 +76,7 @@ function selectChapters(item: ItemInfo, mediaSourceId?: string | null): unknown[
 }
 
 export async function fetchStoryTimelineMarkers(input: FetchStoryTimelineMarkersInput): Promise<StoryTimelineMarker[]> {
-  const path = `/Users/${encodeURIComponent(input.userId)}/Items/${encodeURIComponent(input.itemId)}?Fields=Chapters%2CMediaSources`;
+  const path = `/Users/${encodeURIComponent(input.userId)}/Items/${encodeURIComponent(input.itemId)}`;
   const response = await createEmbyRequest(input.serverUrl, path, { accessToken: input.accessToken, fetcher: input.fetcher, method: 'GET', operation: 'library' });
   if (!response.ok) throw new Error(`Failed to load Emby story landmarks (${response.status})`);
   const payload = await response.json() as unknown;

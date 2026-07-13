@@ -508,7 +508,6 @@ async function reportPlaybackCheckIn(
     IsPaused: false,
     IsMuted: false,
     PlayMethod: input.playMethod ?? 'DirectPlay',
-    QueueableMediaTypes: ['Video'],
     ...(kind === 'progress' ? { EventName: 'TimeUpdate' } : {}),
   };
   const response = await createEmbyRequest(input.serverUrl, path, {
