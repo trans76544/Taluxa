@@ -507,6 +507,7 @@ function ItemDetailsRoute() {
   const detailsGenerationRef = useRef(createRequestGenerationGuard());
   const seasonEpisodesGenerationRef = useRef(createRequestGenerationGuard());
   const playbackAttemptGenerationRef = useRef(createRequestGenerationGuard());
+  const episodeSwitchGenerationRef = useRef(createRequestGenerationGuard());
   const playbackLaunchIdRef = useRef(0);
   const currentPlaybackLaunchRef = useRef<CurrentPlaybackLaunch | null>(null);
   const storyMarkerDeliveryRef = useRef<StoryMarkerDeliveryCoordinator | null>(null);
@@ -613,6 +614,7 @@ function ItemDetailsRoute() {
     return () => {
       delivery?.cancel();
       playbackAttemptGenerationRef.current.next();
+      episodeSwitchGenerationRef.current.next();
       currentPlaybackLaunchRef.current = null;
       preparedPlaybackCandidateRef.current = null;
     };
@@ -1071,29 +1073,61 @@ function ItemDetailsRoute() {
     }
 
     setPlaybackErrorMessage('');
+    const generation = episodeSwitchGenerationRef.current.next();
+    const currentSession = session;
+    const currentAccountId = resolvedActiveAccountId;
+    if (!currentSession || !currentAccountId) return;
+
+    const selectedMediaSource = pickPlaybackMediaSource(episode.mediaSources);
+    const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
+      ? buildDirectPlaybackStreamSource({
+          serverUrl,
+          userId: currentSession.userId,
+          itemId: episode.id,
+          accessToken: currentSession.accessToken,
+          mediaSourceId: selectedMediaSource.id,
+        })
+      : null;
+    const nextSourcePromise = Promise.resolve(
+      directSource ??
+        fetchPlaybackStreamSource({
+          serverUrl,
+          userId: currentSession.userId,
+          itemId: episode.id,
+          accessToken: currentSession.accessToken,
+        })
+    );
+    const storyMarkerRequestId = storyMarkerDeliveryRef.current!.begin({
+      accountId: currentAccountId,
+      serverUrl,
+      itemId: episode.id,
+      load: async () => {
+        const source = await nextSourcePromise;
+        return fetchStoryTimelineMarkers({
+          serverUrl,
+          userId: currentSession.userId,
+          accessToken: currentSession.accessToken,
+          itemId: episode.id,
+          mediaSourceId: source.mediaSourceId,
+          durationSeconds: getRuntimeSeconds(episode.runtimeTicks) || null,
+        });
+      },
+    });
 
     try {
-      const selectedMediaSource = pickPlaybackMediaSource(episode.mediaSources);
-      const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
-        ? buildDirectPlaybackStreamSource({
-            serverUrl,
-            userId: session!.userId,
-            itemId: episode.id,
-            accessToken: session!.accessToken,
-            mediaSourceId: selectedMediaSource.id,
-          })
-        : null;
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
-        directSource ??
-          fetchPlaybackStreamSource({
-            serverUrl,
-            userId: session!.userId,
-            itemId: episode.id,
-            accessToken: session!.accessToken,
-          }),
+        nextSourcePromise,
       ]);
+      if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
+        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
+        return;
+      }
       await waitForFastPlaybackPreflight(nextSource);
+      if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
+        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
+        return;
+      }
 
       const progressByItemId = getPersistedProgressByItemIdForAccount(
         persistedState.progressByItemId,
@@ -1107,9 +1141,9 @@ function ItemDetailsRoute() {
       const nextEpisodeSelector = createEpisodeSelector(episode.id, episodes);
 
       const resumeItem = createPlaybackResumeItemSnapshot({ details, episodes, itemId: episode.id });
-      if (resumeItem && resolvedActiveAccountId) registerPlaybackContext({
-        accountId: resolvedActiveAccountId, serverUrl, userId: session!.userId,
-        accessToken: session!.accessToken, itemId: episode.id,
+      if (resumeItem) registerPlaybackContext({
+        accountId: currentAccountId, serverUrl, userId: currentSession.userId,
+        accessToken: currentSession.accessToken, itemId: episode.id,
         playSessionId: nextSource.playSessionId, mediaSourceId: nextSource.mediaSourceId,
         playMethod: nextSource.playMethod, audioStreamIndex: null, resumeItem,
       });
@@ -1123,6 +1157,11 @@ function ItemDetailsRoute() {
         streamUrl: nextSource.streamUrl,
         startSeconds: nextInitialPositionSeconds,
       });
+      if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
+        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
+        return;
+      }
+      storyMarkerDeliveryRef.current?.accept(storyMarkerRequestId);
 
       setPlaybackItemId(episode.id);
       setPlaybackTitle(nextTitle);
@@ -1130,7 +1169,10 @@ function ItemDetailsRoute() {
       setInitialPositionSeconds(nextInitialPositionSeconds);
       setPlaybackSource(nextSource);
     } catch {
-      setPlaybackErrorMessage('Could not prepare desktop playback.');
+      storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
+      if (episodeSwitchGenerationRef.current.isCurrent(generation)) {
+        setPlaybackErrorMessage('Could not prepare desktop playback.');
+      }
     }
   }
 

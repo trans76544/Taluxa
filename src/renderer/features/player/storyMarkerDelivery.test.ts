@@ -101,4 +101,39 @@ describe('StoryMarkerDeliveryCoordinator', () => {
     asynchronous.accept(asynchronousId);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+
+  it('rejects accept after cancellation and ignores a late empty result', async () => {
+    const send = vi.fn();
+    const load = deferred<StoryTimelineMarker[]>();
+    const coordinator = new StoryMarkerDeliveryCoordinator(send);
+    const requestId = coordinator.begin(input('cancelled', () => load.promise));
+
+    coordinator.cancel(requestId);
+    coordinator.accept(requestId);
+    load.resolve([]);
+    await Promise.resolve();
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('isolates rapid item and account replacement from late failure results', async () => {
+    const send = vi.fn();
+    const old = deferred<StoryTimelineMarker[]>();
+    const next = deferred<StoryTimelineMarker[]>();
+    const coordinator = new StoryMarkerDeliveryCoordinator(send);
+    const oldId = coordinator.begin(input('episode-a', () => old.promise));
+    coordinator.accept(oldId);
+    const nextId = coordinator.begin({
+      ...input('episode-b', () => next.promise),
+      accountId: 'account-b',
+      serverUrl: 'https://other.emby.test',
+    });
+    coordinator.accept(nextId);
+
+    old.reject(new Error('late old-account failure'));
+    next.resolve([marker]);
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send).toHaveBeenCalledWith({ itemId: 'episode-b', markers: [marker] });
+  });
 });

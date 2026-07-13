@@ -199,13 +199,20 @@ export function createContinueWatchingPosterItem(
 }
 
 export function createControllablePlayerBridge() {
+  const episodeSelectListeners = new Set<(itemId: string) => void>();
   return {
     launch: vi.fn().mockResolvedValue(undefined),
-    onEpisodeSelect: vi.fn(() => () => undefined),
+    onEpisodeSelect: vi.fn((listener: (itemId: string) => void) => {
+      episodeSelectListeners.add(listener);
+      return () => episodeSelectListeners.delete(listener);
+    }),
     onProgress: vi.fn(() => () => undefined),
     preflight: vi.fn().mockResolvedValue(undefined),
     setStoryMarkers: vi.fn().mockResolvedValue(undefined),
     switchEpisode: vi.fn().mockResolvedValue(undefined),
+    emitEpisodeSelect(itemId: string) {
+      for (const listener of episodeSelectListeners) listener(itemId);
+    },
   };
 }
 

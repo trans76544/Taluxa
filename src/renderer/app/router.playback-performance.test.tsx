@@ -621,6 +621,34 @@ describe('playback performance route behavior', () => {
     }
   });
 
+  it('excludes episode marker retrieval from source, preflight, and switch timing', async () => {
+    const markersDeferred = createDeferred<never[]>();
+    fetchStoryTimelineMarkersMock.mockResolvedValueOnce([]).mockReturnValueOnce(markersDeferred.promise);
+    const bridge = renderSeriesRoute();
+
+    fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-2', markers: [],
+    }));
+
+    act(() => bridge.emitEpisodeSelect('episode-1'));
+
+    await waitFor(() => expect(bridge.switchEpisode).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'episode-1' })
+    ));
+    expect(bridge.preflight).toHaveBeenCalledTimes(2);
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'episode-1' })
+    );
+
+    markersDeferred.resolve([]);
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-1', markers: [],
+    }));
+  });
+
   it('uses continue-watching resume state without adding pre-launch delay', async () => {
     const bridge = renderHomeRoute();
     const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();

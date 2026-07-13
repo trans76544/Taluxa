@@ -281,6 +281,43 @@ function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPe
   return state;
 }
 
+async function renderPlayingSeries(accounts: SavedAccount[] = [createSavedAccount()]) {
+  const storage = mockStorageRead(createPersistedState({
+    accounts,
+    activeAccountId: accounts[0]?.id ?? null,
+  }));
+  fetchItemDetailsMock.mockResolvedValue({
+    ...createMovieDetails({ id: 'series-race', name: 'Race Series', type: 'Series' }),
+    mediaSources: [],
+  });
+  fetchSeasonsMock.mockResolvedValue([{ id: 'season-race', name: 'Season 1', indexNumber: 1, posterUrl: null }]);
+  fetchEpisodesMock.mockResolvedValue(['outgoing', 'episode-a', 'episode-b'].map((id, index) => ({
+    id,
+    name: id,
+    overview: '',
+    indexNumber: index + 1,
+    parentIndexNumber: 1,
+    posterUrl: null,
+    imageCandidates: [],
+    runtimeTicks: 600000000,
+    serverPositionTicks: null,
+    mediaSources: [],
+  })));
+  fetchPlaybackStreamSourceMock.mockImplementation(async ({ itemId }: { itemId: string }) => ({
+    streamUrl: `https://demo.emby.local/Videos/${itemId}/stream.mp4`,
+    httpHeaders: {},
+    mediaSourceId: `${itemId}-source`,
+  }));
+  window.location.hash = '#/item/series-race';
+  const { container } = render(<HashRouter><App /></HashRouter>);
+  fireEvent.click(await screen.findByRole('link', { name: /1\. outgoing/ }));
+  fireEvent.click(container.querySelector<HTMLButtonElement>('.btn-play')!);
+  await waitFor(() => expect(storage.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ itemId: 'outgoing' })
+  ));
+  return storage;
+}
+
 function createCachedHomeEntry(
   overrides: Partial<PersistedHomeCacheEntry> = {}
 ): PersistedHomeCacheEntry {
@@ -2499,14 +2536,16 @@ describe('App', () => {
         mediaSources: [],
       },
     ]);
-    fetchPlaybackStreamSourceMock.mockResolvedValue({
-      streamUrl: 'https://demo.emby.local/Videos/episode-2/stream.mp4',
+    fetchPlaybackStreamSourceMock.mockImplementation(async ({ itemId }: { itemId: string }) => ({
+      streamUrl: `https://demo.emby.local/Videos/${itemId}/stream.mp4`,
       httpHeaders: {},
-      mediaSourceId: 'episode-source-2',
-    });
-    fetchStoryTimelineMarkersMock.mockResolvedValue([
-      { startSeconds: 8, names: ['Episode opening'], kinds: ['intro'] },
-    ]);
+      mediaSourceId: `${itemId}-source`,
+    }));
+    fetchStoryTimelineMarkersMock.mockImplementation(async ({ itemId }: { itemId: string }) =>
+      itemId === 'episode-2'
+        ? [{ startSeconds: 8, names: ['Episode opening'], kinds: ['intro'] }]
+        : [{ startSeconds: 14, names: ['Previous opening'], kinds: ['intro'] }]
+    );
 
     window.location.hash = '#/item/series-1';
 
@@ -2555,7 +2594,7 @@ describe('App', () => {
     }));
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
       itemId: 'episode-2',
-      mediaSourceId: 'episode-source-2',
+      mediaSourceId: 'episode-2-source',
       durationSeconds: 60,
     }));
 
@@ -2572,7 +2611,129 @@ describe('App', () => {
       );
     });
     expect(storage.switchEpisode.mock.calls[0]?.[0]).not.toHaveProperty('episodeSelector');
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-1',
+      markers: [{ startSeconds: 14, names: ['Previous opening'], kinds: ['intro'] }],
+    }));
+    expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'episode-1',
+      mediaSourceId: 'episode-1-source',
+      durationSeconds: 60,
+    }));
     expect(storage.launch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps only the latest episode markers and route state during a rapid A to B switch', async () => {
+    const episodeAMarkers = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockImplementation(({ itemId }: { itemId: string }) => {
+      if (itemId === 'episode-a') return episodeAMarkers.promise;
+      if (itemId === 'episode-b') return Promise.resolve([{ startSeconds: 22, names: ['B'], kinds: ['chapter'] }]);
+      return Promise.resolve([]);
+    });
+    const storage = await renderPlayingSeries();
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({ itemId: 'outgoing', markers: [] }));
+    storage.setStoryMarkers.mockClear();
+
+    act(() => storage.emitEpisodeSelect('episode-a'));
+    await waitFor(() => expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'episode-a', mediaSourceId: 'episode-a-source' })
+    ));
+    act(() => storage.emitEpisodeSelect('episode-b'));
+
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-b', markers: [{ startSeconds: 22, names: ['B'], kinds: ['chapter'] }],
+    }));
+    episodeAMarkers.resolve([{ startSeconds: 11, names: ['A'], kinds: ['chapter'] }]);
+    await flushAsyncQueue();
+    expect(storage.setStoryMarkers).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
+
+    reportPlaybackProgressMock.mockClear();
+    act(() => storage.emitProgress({ itemId: 'episode-a', positionSeconds: 5, durationSeconds: 60 }));
+    act(() => storage.emitProgress({ itemId: 'episode-b', positionSeconds: 6, durationSeconds: 60 }));
+    await waitFor(() => expect(reportPlaybackProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'episode-b' })
+    ));
+    expect(reportPlaybackProgressMock).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
+  });
+
+  it('delivers an empty marker snapshot for an incoming episode with no chapters', async () => {
+    fetchStoryTimelineMarkersMock.mockResolvedValue([]);
+    const storage = await renderPlayingSeries();
+    storage.setStoryMarkers.mockClear();
+
+    act(() => storage.emitEpisodeSelect('episode-a'));
+
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-a', markers: [],
+    }));
+  });
+
+  it('normalizes an incoming episode marker failure to an empty snapshot after switching', async () => {
+    fetchStoryTimelineMarkersMock.mockImplementation(async ({ itemId }: { itemId: string }) => {
+      if (itemId === 'episode-a') throw new Error('chapters unavailable');
+      return [];
+    });
+    const storage = await renderPlayingSeries();
+    storage.setStoryMarkers.mockClear();
+
+    act(() => storage.emitEpisodeSelect('episode-a'));
+
+    await waitFor(() => expect(storage.switchEpisode).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'episode-a' })
+    ));
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-a', markers: [],
+    }));
+  });
+
+  it('cancels incoming markers and keeps outgoing route state when episode switching fails', async () => {
+    const markers = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockImplementation(({ itemId }: { itemId: string }) =>
+      itemId === 'episode-a' ? markers.promise : Promise.resolve([])
+    );
+    const storage = await renderPlayingSeries();
+    storage.setStoryMarkers.mockClear();
+    storage.switchEpisode.mockRejectedValueOnce(new Error('mpv switch failed'));
+
+    act(() => storage.emitEpisodeSelect('episode-a'));
+    await waitFor(() => expect(storage.switchEpisode).toHaveBeenCalled());
+    markers.resolve([{ startSeconds: 12, names: ['Late A'], kinds: ['chapter'] }]);
+    await flushAsyncQueue();
+    expect(storage.setStoryMarkers).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
+
+    reportPlaybackProgressMock.mockClear();
+    act(() => storage.emitProgress({ itemId: 'episode-a', positionSeconds: 5, durationSeconds: 60 }));
+    act(() => storage.emitProgress({ itemId: 'outgoing', positionSeconds: 6, durationSeconds: 60 }));
+    await waitFor(() => expect(reportPlaybackProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'outgoing' })
+    ));
+    expect(reportPlaybackProgressMock).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
+  });
+
+  it('discards a switched episode marker result after the active account and server change', async () => {
+    const markers = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockImplementation(({ itemId }: { itemId: string }) =>
+      itemId === 'episode-a' ? markers.promise : Promise.resolve([])
+    );
+    const first = createSavedAccount();
+    const second = createSavedAccount({
+      id: 'https://backup.emby.local::user-2', serverUrl: 'https://backup.emby.local', userId: 'user-2', userName: 'Bob',
+    });
+    const storage = await renderPlayingSeries([first, second]);
+    storage.setStoryMarkers.mockClear();
+
+    act(() => storage.emitEpisodeSelect('episode-a'));
+    await waitFor(() => expect(storage.switchEpisode).toHaveBeenCalled());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /backup\.emby\.local/i }));
+      await flushAsyncQueue();
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: /backup\.emby\.local/i }))
+      .toHaveAttribute('aria-pressed', 'true'));
+    markers.resolve([{ startSeconds: 15, names: ['Old server'], kinds: ['chapter'] }]);
+    await flushAsyncQueue();
+
+    expect(storage.setStoryMarkers).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
   });
 
   it('marks movie details as played from the detail action button', async () => {

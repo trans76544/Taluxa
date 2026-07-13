@@ -229,6 +229,13 @@ describe('MpvController', () => {
     const calls = ipcClient.write.mock.calls.length;
     controller.setStoryMarkers({ itemId: 'stale', markers });
     expect(ipcClient.write).toHaveBeenCalledTimes(calls);
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'stop' })}\n`));
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    const promotedCalls = ipcClient.write.mock.calls.length;
+    controller.setStoryMarkers({ itemId: 'active', markers });
+    expect(ipcClient.write).toHaveBeenCalledTimes(promotedCalls);
+    controller.setStoryMarkers({ itemId: 'pending', markers });
+    expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'pending', JSON.stringify(markers)] })}\n`);
   });
 
   it('forwards player settings patches from mpv client messages', async () => {
@@ -474,6 +481,14 @@ describe('MpvController', () => {
     expect(uiScript).not.toContain("mp.commandv('playlist-prev')");
     expect(uiScript).not.toContain("mp.commandv('playlist-next')");
     expect(uiScript).toContain("mp.register_script_message('taluxa-active-episode'");
+    const activeEpisodeHandler = uiScript.slice(
+      uiScript.indexOf("mp.register_script_message('taluxa-active-episode'"),
+      uiScript.indexOf('apply_scale_mode(scale_mode, false)')
+    );
+    expect(activeEpisodeHandler.indexOf("active_item_id = tostring(item_id or '')"))
+      .toBeLessThan(activeEpisodeHandler.indexOf('story_markers = {}'));
+    expect(activeEpisodeHandler.indexOf('story_markers = {}'))
+      .toBeLessThan(activeEpisodeHandler.indexOf('position = 0'));
     expect(uiScript).toContain('is_current = true');
     expect(uiScript).toContain(toLuaLongStringForTest('S1E2 - Second Case'));
     expect(uiScript).toContain(toLuaLongStringForTest('43min'));
