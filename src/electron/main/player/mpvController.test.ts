@@ -1180,6 +1180,69 @@ describe('MpvController', () => {
     expect(script).toContain("active_item_id = tostring(item_id or '')\n  story_markers = {}");
   });
 
+  it('gives story markers precise hover and click behavior ahead of ordinary seeking', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain('local function add_range_button(id, x1, y1, x2, y2, value)');
+    expect(script).toContain('value = value }');
+    expect(script).toContain("add_range_button('story-marker', marker_x - 7, bar_y - 14, marker_x + 7, bar_y + 14, start_seconds)");
+    expect(script.indexOf("add_range_button('story-marker'"))
+      .toBeLessThan(script.indexOf("add_range_button('seek'"));
+    expect(script).toContain("if id == 'story-marker' and duration > 0 and button.value then");
+    expect(script).toContain("mp.commandv('set', 'time-pos', tostring(clamp(tonumber(button.value) or 0, 0, duration)))");
+    expect(script).toContain("elseif id == 'seek' and duration > 0 then");
+    expect(script).toContain(
+      'local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)'
+    );
+    expect(script).toContain("mp.commandv('set', 'time-pos', duration * ratio)");
+    expect(script).toContain("local mouse = normalize_mouse_pos(mp.get_property_native('mouse-pos'))");
+    expect(script).toContain('math.abs((mouse.x or 0) - marker_x) < closest_distance');
+    const multiNameMarker = { names: ['Chapter', '片头'] };
+    expect(multiNameMarker.names.join(' · ')).toBe('Chapter · 片头');
+    expect(script).toContain("table.concat(closest_marker.names, ' · ')");
+    expect(script).toContain('local tooltip_x = clamp(closest_x, bar_left, bar_right)');
+    expect(script).toContain(
+      "append_text(out, tooltip_x, bar_y - 20, 8, 18, table.concat(closest_marker.names, ' · '), 'FFFFFF', 0, false)"
+    );
+    expect(script).toContain('local closest_marker_button = nil');
+    expect(script).toContain('local distance = math.abs(x - ((button.x1 + button.x2) / 2))');
+    expect(script).toContain('if distance < closest_marker_distance then');
+    expect(script).toContain('closest_marker_button = button');
+    expect(script).toContain('if closest_marker_button then return closest_marker_button.id, closest_marker_button end');
+    expect(script).toContain("mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()");
+    expect(script).toContain('local hover_redraw_pending = false');
+    expect(script).toContain('mark_controls_active()\n  if hover_redraw_pending then return end');
+    expect(script).toContain('hover_redraw_pending = true');
+    expect(script).toContain('mp.add_timeout(0.016, function()');
+    expect(script.indexOf('hover_redraw_pending = false\n    draw_controls()'))
+      .toBeGreaterThan(script.indexOf('mp.add_timeout(0.016, function()'));
+    const hoverDelayMatch = script.match(/mp\.add_timeout\((0\.\d+), function\(\)\n    hover_redraw_pending = false/);
+    expect(hoverDelayMatch).not.toBeNull();
+    expect(Number(hoverDelayMatch?.[1])).toBeLessThanOrEqual(0.033);
+    expect(script.match(/mp\.add_timeout\(0\.016, function\(\)/g)).toHaveLength(1);
+    expect(script).not.toMatch(/marker\.kinds.*(?:color|colour)|(?:color|colour).*marker\.kinds/);
+  });
+
   it('launches mpv with the custom Taluxa in-player control layer', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const inputConfigPath = path.join(repoRoot, 'mpv-input.conf');

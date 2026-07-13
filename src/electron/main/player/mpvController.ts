@@ -425,6 +425,7 @@ local danmaku_settings = {
 }
 local volume = 100
 local controls_visible_until = 0
+local hover_redraw_pending = false
 local last_mouse_x = nil
 local last_mouse_y = nil
 
@@ -637,8 +638,8 @@ local function add_icon_button(out, id, x, y, width, height, icon)
   draw_control_icon(out, icon, x + math.floor(width / 2), y + math.floor(height / 2))
 end
 
-local function add_range_button(id, x1, y1, x2, y2)
-  buttons[#buttons + 1] = { id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+local function add_range_button(id, x1, y1, x2, y2, value)
+  buttons[#buttons + 1] = { id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2, value = value }
 end
 
 local function get_bottom_button_size()
@@ -1251,6 +1252,10 @@ local function draw_controls()
   append_cache_ranges(out, bar_left, bar_right, bar_y)
   append_box(out, bar_left, bar_y - 2, progress_x, bar_y + 2, BLUE, 0)
   append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, BLUE, 0)
+  local mouse = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
+  local closest_marker = nil
+  local closest_x = nil
+  local closest_distance = math.huge
   if duration > 0 then
     for _, marker in ipairs(story_markers) do
       if type(marker) == 'table' then
@@ -1258,9 +1263,21 @@ local function draw_controls()
         if start_seconds and start_seconds == start_seconds and start_seconds >= 0 and start_seconds <= duration then
           local marker_x = bar_left + math.floor(bar_width * clamp(start_seconds / duration, 0, 1))
           append_box(out, marker_x - 1, bar_y - 7, marker_x + 1, bar_y + 7, 'FFFFFF', 0)
+          add_range_button('story-marker', marker_x - 7, bar_y - 14, marker_x + 7, bar_y + 14, start_seconds)
+          if mouse and (mouse.y or 0) >= bar_y - 14 and (mouse.y or 0) <= bar_y + 14
+              and math.abs((mouse.x or 0) - marker_x) <= 7
+              and math.abs((mouse.x or 0) - marker_x) < closest_distance then
+            closest_marker = marker
+            closest_x = marker_x
+            closest_distance = math.abs((mouse.x or 0) - marker_x)
+          end
         end
       end
     end
+  end
+  if closest_marker and closest_x and #closest_marker.names > 0 then
+    local tooltip_x = clamp(closest_x, bar_left, bar_right)
+    append_text(out, tooltip_x, bar_y - 20, 8, 18, table.concat(closest_marker.names, ' · '), 'FFFFFF', 0, false)
   end
   add_range_button('seek', bar_left, bar_y - 12, bar_right, bar_y + 12)
 
@@ -1310,11 +1327,22 @@ local function draw_controls()
 end
 
 local function button_at(x, y)
+  local closest_marker_button = nil
+  local closest_marker_distance = math.huge
   for _, button in ipairs(buttons) do
     if x >= button.x1 and x <= button.x2 and y >= button.y1 and y <= button.y2 then
-      return button.id, button
+      if button.id == 'story-marker' then
+        local distance = math.abs(x - ((button.x1 + button.x2) / 2))
+        if distance < closest_marker_distance then
+          closest_marker_button = button
+          closest_marker_distance = distance
+        end
+      elseif not closest_marker_button then
+        return button.id, button
+      end
     end
   end
+  if closest_marker_button then return closest_marker_button.id, closest_marker_button end
   return nil, nil
 end
 
@@ -1348,7 +1376,11 @@ local function handle_click()
     return
   end
 
-  if id == 'seek' and duration > 0 then
+  if id == 'story-marker' and duration > 0 and button.value then
+    menu_open = nil
+    episode_panel_open = false
+    mp.commandv('set', 'time-pos', tostring(clamp(tonumber(button.value) or 0, 0, duration)))
+  elseif id == 'seek' and duration > 0 then
     menu_open = nil
     episode_panel_open = false
     local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)
@@ -1498,6 +1530,15 @@ mp.observe_property('track-list', 'native', function(_, value) update_audio_trac
 mp.observe_property('osd-width', 'native', draw_controls)
 mp.observe_property('osd-height', 'native', draw_controls)
 mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_click)
+mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()
+  mark_controls_active()
+  if hover_redraw_pending then return end
+  hover_redraw_pending = true
+  mp.add_timeout(0.016, function()
+    hover_redraw_pending = false
+    draw_controls()
+  end)
+end)
 mp.add_forced_key_binding('WHEEL_UP', 'taluxa-wheel-up', function() handle_wheel(1) end)
 mp.add_forced_key_binding('WHEEL_DOWN', 'taluxa-wheel-down', function() handle_wheel(-1) end)
 mp.add_periodic_timer(1, draw_controls)
