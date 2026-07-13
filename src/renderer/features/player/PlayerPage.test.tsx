@@ -274,8 +274,11 @@ describe('PlayerPage', () => {
     });
   });
 
-  it('does not double launch when React StrictMode replays effects', async () => {
+  it('does not double launch and still reports readiness when React StrictMode replays effects', async () => {
+    const deferred = createDeferred<void>();
     const { launch } = mockPlayerBridge();
+    const onLaunchReady = vi.fn();
+    launch.mockReturnValueOnce(deferred.promise);
 
     render(
       <StrictMode>
@@ -285,6 +288,7 @@ describe('PlayerPage', () => {
           title="Movie 1"
           streamUrl="https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123"
           initialPositionSeconds={42}
+          onLaunchReady={onLaunchReady}
           onProgress={vi.fn()}
         />
       </StrictMode>
@@ -293,6 +297,9 @@ describe('PlayerPage', () => {
     await waitFor(() => {
       expect(launch).toHaveBeenCalledTimes(1);
     });
+    deferred.resolve();
+    await waitFor(() => expect(onLaunchReady).toHaveBeenCalledOnce());
+    expect(onLaunchReady).toHaveBeenCalledWith({ itemId: 'item-1', launchRequestId: undefined });
   });
 
   it('stays hidden after mpv launch resolves', async () => {

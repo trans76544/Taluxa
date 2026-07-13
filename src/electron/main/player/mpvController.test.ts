@@ -221,13 +221,13 @@ describe('MpvController', () => {
     child.emit('spawn'); ipcClient.emit('connect'); ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`)); await launch;
     ipcClient.write.mockClear();
     const markers = [{ startSeconds: 12, names: ['A | "B" {中文}'], kinds: ['chapter' as const] }];
-    controller.setStoryMarkers({ itemId: 'active', markers });
+    expect(controller.setStoryMarkers({ itemId: 'active', markers })).toBe(true);
     expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'active', JSON.stringify(markers)] })}\n`);
     await controller.switchEpisode(createLaunchInput({ itemId: 'pending' }), createProxySettings());
-    controller.setStoryMarkers({ itemId: 'pending', markers: [] });
+    expect(controller.setStoryMarkers({ itemId: 'pending', markers: [] })).toBe(true);
     expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'pending', '[]'] })}\n`);
     const calls = ipcClient.write.mock.calls.length;
-    controller.setStoryMarkers({ itemId: 'stale', markers });
+    expect(controller.setStoryMarkers({ itemId: 'stale', markers })).toBe(false);
     expect(ipcClient.write).toHaveBeenCalledTimes(calls);
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'stop' })}\n`));
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));

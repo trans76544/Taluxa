@@ -34,7 +34,7 @@ export interface PlayerPageProps {
 type PlayerLaunch = Window['embyDesktop']['player']['launch'];
 type PlayerEpisodeSelector = NonNullable<Parameters<PlayerLaunch>[0]['episodeSelector']>;
 
-const pendingLaunchKeysByBridge = new WeakMap<PlayerLaunch, Set<string>>();
+const pendingLaunchPromisesByBridge = new WeakMap<PlayerLaunch, Map<string, Promise<void>>>();
 
 function createLaunchKey({
   authMode,
@@ -67,17 +67,17 @@ function createLaunchKey({
   });
 }
 
-function getPendingLaunchKeys(launch: PlayerLaunch): Set<string> {
-  const existingKeys = pendingLaunchKeysByBridge.get(launch);
+function getPendingLaunchPromises(launch: PlayerLaunch): Map<string, Promise<void>> {
+  const existingPromises = pendingLaunchPromisesByBridge.get(launch);
 
-  if (existingKeys) {
-    return existingKeys;
+  if (existingPromises) {
+    return existingPromises;
   }
 
-  const nextKeys = new Set<string>();
-  pendingLaunchKeysByBridge.set(launch, nextKeys);
+  const nextPromises = new Map<string, Promise<void>>();
+  pendingLaunchPromisesByBridge.set(launch, nextPromises);
 
-  return nextKeys;
+  return nextPromises;
 }
 
 export function PlayerPage({
@@ -115,17 +115,11 @@ export function PlayerPage({
 
     setLaunchError('');
     const launch = window.embyDesktop.player.launch;
-    const pendingLaunchKeys = getPendingLaunchKeys(launch);
+    const pendingLaunchPromises = getPendingLaunchPromises(launch);
+    let launchPromise = pendingLaunchPromises.get(launchKey);
 
-    if (pendingLaunchKeys.has(launchKey)) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    pendingLaunchKeys.add(launchKey);
-
-    launch({
+    if (!launchPromise) {
+      launchPromise = launch({
         authMode,
         episodeSelector,
         httpHeaders,
@@ -134,7 +128,11 @@ export function PlayerPage({
         title,
         streamUrl,
         startSeconds: initialPositionSeconds,
-      })
+      });
+      pendingLaunchPromises.set(launchKey, launchPromise);
+    }
+
+    launchPromise
       .then(() => {
         if (!cancelled) {
           onLaunchReady?.({
@@ -159,7 +157,9 @@ export function PlayerPage({
         }
       })
       .finally(() => {
-        pendingLaunchKeys.delete(launchKey);
+        if (pendingLaunchPromises.get(launchKey) === launchPromise) {
+          pendingLaunchPromises.delete(launchKey);
+        }
       });
 
     return () => {

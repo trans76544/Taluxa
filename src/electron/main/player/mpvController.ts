@@ -2200,11 +2200,12 @@ export class MpvController {
     ]);
   }
 
-  setStoryMarkers(update: PlayerStoryMarkerUpdate): void {
+  setStoryMarkers(update: PlayerStoryMarkerUpdate): boolean {
     const session = this.activeSession;
     const pendingItemId = session?.pendingReplacement?.input.itemId;
-    if (!session || (session.itemId !== update.itemId && pendingItemId !== update.itemId)) return;
+    if (!session || (session.itemId !== update.itemId && pendingItemId !== update.itemId)) return false;
     this.queueSessionCommand(session.sessionId, ['script-message', 'taluxa-story-markers', update.itemId, JSON.stringify(update.markers)]);
+    return true;
   }
 
   private clearActiveSession(): void {

@@ -1,4 +1,4 @@
-import type { StoryLandmarkKind, StoryTimelineMarker } from '@shared/models/storyLandmark';
+import type { StoryLandmarkKind, StoryMarkerDiagnostic, StoryTimelineMarker } from '@shared/models/storyLandmark';
 import { createEmbyRequest, type EmbyFetch } from './client';
 
 interface ChapterInfo { MarkerType?: unknown; Name?: unknown; StartPositionTicks?: unknown }
@@ -11,6 +11,7 @@ export interface FetchStoryTimelineMarkersInput {
   fetcher?: EmbyFetch;
   itemId: string;
   mediaSourceId?: string | null;
+  onDiagnostic?: (diagnostic: StoryMarkerDiagnostic) => void;
   serverUrl: string;
   userId: string;
 }
@@ -60,26 +61,64 @@ export function normalizeEmbyStoryTimelineMarkers(
     .filter((marker): marker is StoryTimelineMarker => marker !== null));
 }
 
-function selectChapters(item: ItemInfo, mediaSourceId?: string | null): unknown[] {
+interface ChapterSelection {
+  chapters: unknown[];
+  itemChapterCount: number;
+  mediaSourceCount: number;
+  selectedMediaSourceChapterCount: number;
+}
+
+function selectChapters(item: ItemInfo, mediaSourceId?: string | null): ChapterSelection {
   const itemChapters = Array.isArray(item.Chapters) && item.Chapters.length > 0 ? item.Chapters : null;
   const mediaSources = Array.isArray(item.MediaSources) ? item.MediaSources as MediaSourceInfo[] : [];
+  let selectedMediaSourceChapterCount = 0;
+  let chapters: unknown[] = [];
   if (mediaSourceId) {
     const selected = mediaSources.find((source) => source?.Id === mediaSourceId);
-    if (selected && Array.isArray(selected.Chapters) && selected.Chapters.length > 0) return selected.Chapters;
-    return itemChapters ?? [];
+    selectedMediaSourceChapterCount = selected && Array.isArray(selected.Chapters) ? selected.Chapters.length : 0;
+    chapters = selectedMediaSourceChapterCount > 0 ? selected!.Chapters as unknown[] : itemChapters ?? [];
+  } else if (itemChapters) {
+    chapters = itemChapters;
+  } else {
+    const sourceChapterSets = mediaSources
+      .map((source) => source?.Chapters)
+      .filter((sourceChapters): sourceChapters is unknown[] => Array.isArray(sourceChapters) && sourceChapters.length > 0);
+    chapters = sourceChapterSets.length === 1 ? sourceChapterSets[0] : [];
   }
-  if (itemChapters) return itemChapters;
-  const sourceChapterSets = mediaSources
-    .map((source) => source?.Chapters)
-    .filter((chapters): chapters is unknown[] => Array.isArray(chapters) && chapters.length > 0);
-  return sourceChapterSets.length === 1 ? sourceChapterSets[0] : [];
+  return {
+    chapters,
+    itemChapterCount: itemChapters?.length ?? 0,
+    mediaSourceCount: mediaSources.length,
+    selectedMediaSourceChapterCount,
+  };
+}
+
+function emitDiagnostic(input: FetchStoryTimelineMarkersInput, diagnostic: StoryMarkerDiagnostic): void {
+  try { input.onDiagnostic?.(diagnostic); } catch { /* diagnostics must not affect playback */ }
 }
 
 export async function fetchStoryTimelineMarkers(input: FetchStoryTimelineMarkersInput): Promise<StoryTimelineMarker[]> {
   const path = `/Users/${encodeURIComponent(input.userId)}/Items/${encodeURIComponent(input.itemId)}`;
-  const response = await createEmbyRequest(input.serverUrl, path, { accessToken: input.accessToken, fetcher: input.fetcher, method: 'GET', operation: 'library' });
-  if (!response.ok) throw new Error(`Failed to load Emby story landmarks (${response.status})`);
+  let response: Response;
+  try {
+    response = await createEmbyRequest(input.serverUrl, path, { accessToken: input.accessToken, fetcher: input.fetcher, method: 'GET', operation: 'library' });
+  } catch (error) {
+    emitDiagnostic(input, { stage: 'request-error' });
+    throw error;
+  }
+  if (!response.ok) {
+    emitDiagnostic(input, { stage: 'response', status: response.status, itemChapterCount: 0, mediaSourceCount: 0, selectedMediaSourceChapterCount: 0 });
+    throw new Error(`Failed to load Emby story landmarks (${response.status})`);
+  }
   const payload = await response.json() as unknown;
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
-  return normalizeEmbyStoryTimelineMarkers(selectChapters(payload as ItemInfo, input.mediaSourceId), input.durationSeconds);
+  const item = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as ItemInfo : {};
+  const selection = selectChapters(item, input.mediaSourceId);
+  emitDiagnostic(input, {
+    stage: 'response', status: response.status, itemChapterCount: selection.itemChapterCount,
+    mediaSourceCount: selection.mediaSourceCount,
+    selectedMediaSourceChapterCount: selection.selectedMediaSourceChapterCount,
+  });
+  const markers = normalizeEmbyStoryTimelineMarkers(selection.chapters, input.durationSeconds);
+  emitDiagnostic(input, { stage: 'normalized', chapterCount: selection.chapters.length, markerCount: markers.length });
+  return markers;
 }

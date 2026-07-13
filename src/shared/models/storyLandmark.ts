@@ -11,6 +11,17 @@ export interface PlayerStoryMarkerUpdate {
   markers: StoryTimelineMarker[];
 }
 
+export type StoryMarkerDiagnostic =
+  | { stage: 'request-error' }
+  | {
+      stage: 'response';
+      status: number;
+      itemChapterCount: number;
+      mediaSourceCount: number;
+      selectedMediaSourceChapterCount: number;
+    }
+  | { stage: 'normalized'; chapterCount: number; markerCount: number };
+
 const LANDMARK_KINDS = new Set<StoryLandmarkKind>(['chapter', 'intro', 'credits']);
 
 function isStringArray(value: unknown, allowEmpty: boolean): value is string[] {
@@ -38,4 +49,25 @@ export function isPlayerStoryMarkerUpdate(value: unknown): value is PlayerStoryM
   const update = value as Record<string, unknown>;
   return typeof update.itemId === 'string' && Boolean(update.itemId.trim()) &&
     Array.isArray(update.markers) && update.markers.every(isStoryTimelineMarker);
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function isStoryMarkerDiagnostic(value: unknown): value is StoryMarkerDiagnostic {
+  if (!value || typeof value !== 'object') return false;
+  const diagnostic = value as Record<string, unknown>;
+  if (diagnostic.stage === 'request-error') return Object.keys(diagnostic).length === 1;
+  if (diagnostic.stage === 'normalized') {
+    return Object.keys(diagnostic).length === 3 &&
+      isCount(diagnostic.chapterCount) && isCount(diagnostic.markerCount);
+  }
+  if (diagnostic.stage === 'response') {
+    return Object.keys(diagnostic).length === 5 &&
+      isCount(diagnostic.status) && diagnostic.status >= 100 && diagnostic.status <= 599 &&
+      isCount(diagnostic.itemChapterCount) && isCount(diagnostic.mediaSourceCount) &&
+      isCount(diagnostic.selectedMediaSourceChapterCount);
+  }
+  return false;
 }

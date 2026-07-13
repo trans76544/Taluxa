@@ -966,6 +966,9 @@ function ItemDetailsRoute() {
             itemId: playItemId,
             mediaSourceId: source.mediaSourceId,
             durationSeconds: getRuntimeSeconds(runtimeTicks) || null,
+            onDiagnostic: (diagnostic) => {
+              void window.embyDesktop.player.reportStoryMarkerDiagnostic?.(diagnostic).catch(() => undefined);
+            },
           });
         },
       });
@@ -1110,6 +1113,9 @@ function ItemDetailsRoute() {
           itemId: episode.id,
           mediaSourceId: source.mediaSourceId,
           durationSeconds: getRuntimeSeconds(episode.runtimeTicks) || null,
+          onDiagnostic: (diagnostic) => {
+            void window.embyDesktop.player.reportStoryMarkerDiagnostic?.(diagnostic).catch(() => undefined);
+          },
         });
       },
     });

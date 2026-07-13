@@ -12,7 +12,7 @@ import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
 import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/imageCache';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
 import type { ReportPlaybackProgressInput } from '@shared/api/emby/playback';
-import type { PlayerStoryMarkerUpdate } from '@shared/models/storyLandmark';
+import type { PlayerStoryMarkerUpdate, StoryMarkerDiagnostic } from '@shared/models/storyLandmark';
 
 export {};
 
@@ -33,6 +33,7 @@ declare global {
         reportStopped: (input: ReportPlaybackProgressInput) => Promise<void>;
       };
       player: {
+        reportStoryMarkerDiagnostic?: (input: StoryMarkerDiagnostic) => Promise<void>;
         setStoryMarkers: (input: PlayerStoryMarkerUpdate) => Promise<void>;
         launch: (input: PlayerLaunchInput) => Promise<void>;
         switchEpisode: (input: PlayerLaunchInput) => Promise<void>;

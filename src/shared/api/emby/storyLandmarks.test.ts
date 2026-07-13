@@ -4,6 +4,7 @@ import type { EmbyFetch } from './client';
 
 describe('fetchStoryTimelineMarkers', () => {
   it('uses authenticated item fields and prefers selected media-source chapters', async () => {
+    const onDiagnostic = vi.fn();
     let requestInit: RequestInit | undefined;
     const fetcher: EmbyFetch = vi.fn(async (_url, init) => {
       requestInit = init;
@@ -12,11 +13,18 @@ describe('fetchStoryTimelineMarkers', () => {
       MediaSources: [{ Id: 'source-1', Chapters: [{ Name: 'Source', StartPositionTicks: 20_000_000 }] }],
       }));
     });
-    const result = await fetchStoryTimelineMarkers({ serverUrl: 'https://emby.test', userId: 'u /', accessToken: 'token', itemId: 'i /', mediaSourceId: 'source-1', durationSeconds: null, fetcher });
+    const result = await fetchStoryTimelineMarkers({ serverUrl: 'https://emby.test', userId: 'u /', accessToken: 'token', itemId: 'i /', mediaSourceId: 'source-1', durationSeconds: null, fetcher, onDiagnostic });
 
     expect(fetcher).toHaveBeenCalledWith('https://emby.test/Users/u%20%2F/Items/i%20%2F', expect.objectContaining({ method: 'GET' }));
     expect((requestInit?.headers as Headers).get('X-Emby-Token')).toBe('token');
     expect(result).toEqual([{ startSeconds: 2, names: ['Source'], kinds: ['chapter'] }]);
+    expect(onDiagnostic).toHaveBeenNthCalledWith(1, {
+      stage: 'response', status: 200, itemChapterCount: 1, mediaSourceCount: 1,
+      selectedMediaSourceChapterCount: 1,
+    });
+    expect(onDiagnostic).toHaveBeenNthCalledWith(2, {
+      stage: 'normalized', chapterCount: 1, markerCount: 1,
+    });
   });
 
   it('maps, filters, sorts, deduplicates and merges relative to the earliest anchor', async () => {
@@ -72,7 +80,19 @@ describe('fetchStoryTimelineMarkers', () => {
   });
 
   it('rejects an unsuccessful item response', async () => {
+    const onDiagnostic = vi.fn();
     const fetcher = vi.fn(async () => new Response('', { status: 503 }));
-    await expect(fetchStoryTimelineMarkers({ serverUrl: 'https://emby.test', userId: 'u', accessToken: 't', itemId: 'i', durationSeconds: null, fetcher })).rejects.toThrow('503');
+    await expect(fetchStoryTimelineMarkers({ serverUrl: 'https://emby.test', userId: 'u', accessToken: 't', itemId: 'i', durationSeconds: null, fetcher, onDiagnostic })).rejects.toThrow('503');
+    expect(onDiagnostic).toHaveBeenCalledWith({
+      stage: 'response', status: 503, itemChapterCount: 0, mediaSourceCount: 0,
+      selectedMediaSourceChapterCount: 0,
+    });
+  });
+
+  it('reports a request failure without including error or request details', async () => {
+    const onDiagnostic = vi.fn();
+    const fetcher = vi.fn(async () => { throw new Error('secret request detail'); });
+    await expect(fetchStoryTimelineMarkers({ serverUrl: 'https://emby.test', userId: 'u', accessToken: 't', itemId: 'i', durationSeconds: null, fetcher, onDiagnostic })).rejects.toThrow();
+    expect(onDiagnostic).toHaveBeenCalledWith({ stage: 'request-error' });
   });
 });
