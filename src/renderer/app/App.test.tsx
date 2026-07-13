@@ -38,6 +38,7 @@ const markItemPlayedMock = vi.hoisted(() => vi.fn());
 const hideItemFromContinueWatchingMock = vi.hoisted(() => vi.fn());
 const addFavoriteItemMock = vi.hoisted(() => vi.fn());
 const fetchServerInfoMock = vi.hoisted(() => vi.fn());
+const fetchStoryTimelineMarkersMock = vi.hoisted(() => vi.fn());
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
   activeAccountId?: string | null | undefined;
@@ -78,6 +79,9 @@ vi.mock('@shared/api/emby/playback', async () => {
 vi.mock('@shared/api/emby/system', () => ({
   fetchServerInfo: fetchServerInfoMock,
 }));
+vi.mock('@shared/api/emby/storyLandmarks', () => ({
+  fetchStoryTimelineMarkers: fetchStoryTimelineMarkersMock,
+}));
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -110,6 +114,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   const launch = vi.fn().mockResolvedValue(undefined);
   const switchEpisode = vi.fn().mockResolvedValue(undefined);
   const preflight = vi.fn().mockResolvedValue(undefined);
+  const setStoryMarkers = vi.fn().mockResolvedValue(undefined);
   const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
     progressListeners.add(listener);
 
@@ -158,6 +163,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       switchEpisode,
       onEpisodeSelect,
       preflight,
+      setStoryMarkers,
       onProgress,
     },
     storage: {
@@ -176,6 +182,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
 
   return {
     launch,
+    setStoryMarkers,
     switchEpisode,
     onEpisodeSelect,
     onSettingsSync,
@@ -393,6 +400,7 @@ describe('App', () => {
     fetchSimilarItemsMock.mockResolvedValue([]);
     fetchSeasonsMock.mockResolvedValue([]);
     fetchEpisodesMock.mockResolvedValue([]);
+    fetchStoryTimelineMarkersMock.mockResolvedValue([]);
     fetchPlaybackStreamSourceMock.mockImplementation(
       async ({
         serverUrl,
@@ -2491,6 +2499,14 @@ describe('App', () => {
         mediaSources: [],
       },
     ]);
+    fetchPlaybackStreamSourceMock.mockResolvedValue({
+      streamUrl: 'https://demo.emby.local/Videos/episode-2/stream.mp4',
+      httpHeaders: {},
+      mediaSourceId: 'episode-source-2',
+    });
+    fetchStoryTimelineMarkersMock.mockResolvedValue([
+      { startSeconds: 8, names: ['Episode opening'], kinds: ['intro'] },
+    ]);
 
     window.location.hash = '#/item/series-1';
 
@@ -2533,6 +2549,15 @@ describe('App', () => {
         })
       );
     });
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-2',
+      markers: [{ startSeconds: 8, names: ['Episode opening'], kinds: ['intro'] }],
+    }));
+    expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'episode-2',
+      mediaSourceId: 'episode-source-2',
+      durationSeconds: 60,
+    }));
 
     act(() => {
       storage.emitEpisodeSelect('episode-1');
@@ -3218,8 +3243,18 @@ describe('App', () => {
       },
     ]);
     fetchItemDetailsMock.mockResolvedValueOnce(
-      createMovieDetails({ id: 'item-1', serverPositionTicks: 42000000 })
+      createMovieDetails({
+        id: 'item-1',
+        serverPositionTicks: 42000000,
+        mediaSources: [{
+          id: 'direct-source', path: 'movie.mp4', container: 'mp4', size: null,
+          bitrate: null, videoCodec: 'h264', videoStream: null, audioStreams: [],
+        }],
+      })
     );
+    fetchStoryTimelineMarkersMock.mockResolvedValue([
+      { startSeconds: 12, names: ['Opening'], kinds: ['chapter'] },
+    ]);
 
     window.location.hash = '#/libraries';
 
@@ -3246,9 +3281,72 @@ describe('App', () => {
         itemId: 'item-1',
         title: 'Movie 1',
         streamUrl:
-          'https://demo.emby.local/Videos/item-1/stream.mp4?static=true&api_key=token-123',
+          'https://demo.emby.local/Videos/item-1/stream?static=true&DeviceId=emby-player-desktop&MediaSourceId=direct-source',
       })
     );
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'item-1',
+      markers: [{ startSeconds: 12, names: ['Opening'], kinds: ['chapter'] }],
+    }));
+    expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'item-1',
+      mediaSourceId: 'direct-source',
+      durationSeconds: 60,
+    }));
+  });
+
+  it('discards an accepted unresolved marker result when navigating to another item route', async () => {
+    const storage = mockStorageRead(
+      createPersistedState({
+        accounts: [createSavedAccount()],
+        activeAccountId: 'https://demo.emby.local::user-1',
+      })
+    );
+    const firstMarkers = createDeferred<
+      Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>
+    >();
+    fetchItemDetailsMock.mockImplementation(async (_serverUrl, _userId, itemId) =>
+      createMovieDetails({
+        id: itemId,
+        name: itemId === 'item-a' ? 'Movie A' : 'Movie B',
+        mediaSources: [{
+          id: `${itemId}-source`, path: `${itemId}.mp4`, container: 'mp4', size: null,
+          bitrate: null, videoCodec: 'h264', videoStream: null, audioStreams: [],
+        }],
+      })
+    );
+    fetchStoryTimelineMarkersMock.mockImplementation(({ itemId }) =>
+      itemId === 'item-a' ? firstMarkers.promise : Promise.resolve([])
+    );
+
+    window.location.hash = '#/item/item-a';
+    render(
+      <HashRouter>
+        <App />
+      </HashRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(storage.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'item-a' })
+    ));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    window.location.hash = '#/item/item-b';
+    await screen.findByRole('heading', { name: 'Movie B' });
+    await act(async () => {
+      firstMarkers.resolve([{ startSeconds: 7, names: ['Stale A'], kinds: ['chapter'] }]);
+      await Promise.resolve();
+    });
+
+    expect(storage.setStoryMarkers).not.toHaveBeenCalledWith({
+      itemId: 'item-a',
+      markers: [{ startSeconds: 7, names: ['Stale A'], kinds: ['chapter'] }],
+    });
+    expect(storage.launch).toHaveBeenCalledTimes(1);
   });
 
   it('clears the persisted session when signing out from settings', async () => {

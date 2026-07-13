@@ -18,6 +18,7 @@ import {
   reportPlaybackProgress,
   type PlaybackStreamSource,
 } from '@shared/api/emby/playback';
+import { fetchStoryTimelineMarkers } from '@shared/api/emby/storyLandmarks';
 import type {
   LibraryItem,
   LibraryItemDetails,
@@ -101,6 +102,7 @@ import {
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
 import { PlaybackSyncProvider, usePlaybackSync } from '@renderer/features/player/PlaybackSyncProvider';
+import { StoryMarkerDeliveryCoordinator } from '@renderer/features/player/storyMarkerDelivery';
 import {
   getPlaybackMediaSourcesForItem,
   resolvePlaybackTitle,
@@ -158,6 +160,7 @@ interface PreparedPlaybackCandidate {
 interface CurrentPlaybackLaunch {
   attemptId: number;
   launchRequestId: number;
+  storyMarkerRequestId: number | null;
   timingRecorder: ReturnType<typeof createLoadTimingRecorder>;
 }
 
@@ -506,6 +509,10 @@ function ItemDetailsRoute() {
   const playbackAttemptGenerationRef = useRef(createRequestGenerationGuard());
   const playbackLaunchIdRef = useRef(0);
   const currentPlaybackLaunchRef = useRef<CurrentPlaybackLaunch | null>(null);
+  const storyMarkerDeliveryRef = useRef<StoryMarkerDeliveryCoordinator | null>(null);
+  storyMarkerDeliveryRef.current ??= new StoryMarkerDeliveryCoordinator((update) =>
+    window.embyDesktop.player.setStoryMarkers(update)
+  );
   const preparedPlaybackCandidateRef = useRef<PreparedPlaybackCandidate | null>(null);
 
   function createDefaultPlaybackSelection(playItemId: string): PlaybackSelection | undefined {
@@ -600,6 +607,16 @@ function ItemDetailsRoute() {
     progressStateRef.current = { lastReportedAtMs: null, lastReportedPositionSeconds: null };
     progressSyncQueueRef.current = Promise.resolve();
   }, [playbackItemId, resolvedActiveAccountId]);
+
+  useEffect(() => {
+    const delivery = storyMarkerDeliveryRef.current;
+    return () => {
+      delivery?.cancel();
+      playbackAttemptGenerationRef.current.next();
+      currentPlaybackLaunchRef.current = null;
+      preparedPlaybackCandidateRef.current = null;
+    };
+  }, [itemId, resolvedActiveAccountId, serverUrl]);
 
   useEffect(() => {
     const currentSession = session;
@@ -897,6 +914,7 @@ function ItemDetailsRoute() {
     currentPlaybackLaunchRef.current = {
       attemptId: playbackAttempt,
       launchRequestId: nextLaunchId,
+      storyMarkerRequestId: null,
       timingRecorder,
     };
     setPlaybackErrorMessage('');
@@ -930,17 +948,41 @@ function ItemDetailsRoute() {
                 preparedSource ?? resolvePlaybackSourceFromDescriptor(descriptor)
             )
           : resolvePlaybackSourceFromDescriptor(descriptor);
+      const storyMarkerRequestId = storyMarkerDeliveryRef.current!.begin({
+        accountId: resolvedActiveAccountId ?? '',
+        serverUrl,
+        itemId: playItemId,
+        load: async () => {
+          const source = await sourcePromise;
+          const runtimeTicks = details?.id === playItemId
+            ? details.runtimeTicks
+            : episodes.find((episode) => episode.id === playItemId)?.runtimeTicks;
+          return fetchStoryTimelineMarkers({
+            serverUrl,
+            userId: session.userId,
+            accessToken: session.accessToken,
+            itemId: playItemId,
+            mediaSourceId: source.mediaSourceId,
+            durationSeconds: getRuntimeSeconds(runtimeTicks) || null,
+          });
+        },
+      });
+      if (currentPlaybackLaunchRef.current?.launchRequestId === nextLaunchId) {
+        currentPlaybackLaunchRef.current.storyMarkerRequestId = storyMarkerRequestId;
+      }
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
         sourcePromise,
       ]);
       if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
+        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
         return;
       }
       emitLoadTimingMilestone(timingRecorder.mark('playback-source-ready'));
       await waitForFastPlaybackPreflight(nextSource);
 
       if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
+        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
         return;
       }
       
@@ -960,6 +1002,8 @@ function ItemDetailsRoute() {
       emitLoadTimingMilestone(timingRecorder.mark('player-launch-requested'));
     } catch (err) {
       if (playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
+        const requestId = currentPlaybackLaunchRef.current?.storyMarkerRequestId;
+        if (requestId !== null && requestId !== undefined) storyMarkerDeliveryRef.current?.cancel(requestId);
         setPlaybackSource(null);
         setPlaybackErrorMessage('Could not prepare desktop playback.');
         currentPlaybackLaunchRef.current = null;
@@ -980,6 +1024,9 @@ function ItemDetailsRoute() {
     }
 
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-ready'));
+    if (currentLaunch.storyMarkerRequestId !== null) {
+      storyMarkerDeliveryRef.current?.accept(currentLaunch.storyMarkerRequestId);
+    }
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
     currentPlaybackLaunchRef.current = null;
   }
@@ -999,6 +1046,9 @@ function ItemDetailsRoute() {
     }
 
     setPlaybackErrorMessage(message);
+    if (currentLaunch.storyMarkerRequestId !== null) {
+      storyMarkerDeliveryRef.current?.cancel(currentLaunch.storyMarkerRequestId);
+    }
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-recoverable-failure', 'failure'));
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
     currentPlaybackLaunchRef.current = null;

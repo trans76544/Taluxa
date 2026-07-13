@@ -307,6 +307,7 @@ function splitPlaybackTitle(title: string): { displayTitle: string; displaySubti
 }
 
 function createMpvUiScript(
+  itemId: string,
   title: string,
   playerSettings: LaunchPlayerSettings,
   episodeSelector?: LaunchMpvEpisodeSelector
@@ -315,6 +316,7 @@ function createMpvUiScript(
 
   return String.raw`
 local mp = require 'mp'
+local utils = require 'mp.utils'
 local overlay = mp.create_osd_overlay('ass-events')
 
 local UI_WIDTH = 1920
@@ -391,6 +393,8 @@ local buttons = {}
 local cache_speed = 0
 local cache_state = nil
 local duration = 0
+local active_item_id = ${toLuaSingleQuotedString(itemId)}
+local story_markers = {}
 local menu_open = nil
 local muted = false
 local paused = false
@@ -1247,6 +1251,17 @@ local function draw_controls()
   append_cache_ranges(out, bar_left, bar_right, bar_y)
   append_box(out, bar_left, bar_y - 2, progress_x, bar_y + 2, BLUE, 0)
   append_box(out, progress_x - 7, bar_y - 7, progress_x + 7, bar_y + 7, BLUE, 0)
+  if duration > 0 then
+    for _, marker in ipairs(story_markers) do
+      if type(marker) == 'table' then
+        local start_seconds = tonumber(marker.startSeconds)
+        if start_seconds and start_seconds == start_seconds and start_seconds >= 0 and start_seconds <= duration then
+          local marker_x = bar_left + math.floor(bar_width * clamp(start_seconds / duration, 0, 1))
+          append_box(out, marker_x - 1, bar_y - 7, marker_x + 1, bar_y + 7, 'FFFFFF', 0)
+        end
+      end
+    end
+  end
   add_range_button('seek', bar_left, bar_y - 12, bar_right, bar_y + 12)
 
   local layout = get_bottom_layout(width)
@@ -1486,7 +1501,40 @@ mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_click)
 mp.add_forced_key_binding('WHEEL_UP', 'taluxa-wheel-up', function() handle_wheel(1) end)
 mp.add_forced_key_binding('WHEEL_DOWN', 'taluxa-wheel-down', function() handle_wheel(-1) end)
 mp.add_periodic_timer(1, draw_controls)
+local function is_string_array(value)
+  if type(value) ~= 'table' then return false end
+  for _, entry in ipairs(value) do
+    if type(entry) ~= 'string' then return false end
+  end
+  return true
+end
+mp.register_script_message('taluxa-story-markers', function(item_id, markers_json)
+  if tostring(item_id or '') ~= active_item_id then return end
+  local payload = tostring(markers_json or '')
+  local parsed = utils.parse_json(payload)
+  story_markers = type(parsed) == 'table' and parsed or {}
+  if string.match(payload, '^%s*%[') == nil then
+    story_markers = {}
+  else
+    local valid_markers = {}
+    local invalid_markers = false
+    for _, marker in ipairs(story_markers) do
+      if type(marker) == 'table' and type(marker.startSeconds) == 'number'
+          and is_string_array(marker.names) and is_string_array(marker.kinds) then
+        table.insert(valid_markers, marker)
+      else
+        invalid_markers = true
+        break
+      end
+    end
+    story_markers = valid_markers
+    if invalid_markers then story_markers = {} end
+  end
+  draw_controls()
+end)
 mp.register_script_message('taluxa-active-episode', function(item_id, next_title, next_display_title, next_display_subtitle)
+  active_item_id = tostring(item_id or '')
+  story_markers = {}
   set_active_episode(tostring(item_id or ''), tostring(next_title or ''), tostring(next_display_title or ''), tostring(next_display_subtitle or ''))
   position = 0
   duration = 0
@@ -1933,7 +1981,7 @@ export class MpvController {
     this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
     this.writeTextFile(
       uiScriptFilePath,
-      createMpvUiScript(input.title, normalizedPlayerSettings, input.episodeSelector)
+      createMpvUiScript(input.itemId, input.title, normalizedPlayerSettings, input.episodeSelector)
     );
     const args = [
       '--force-window=yes',

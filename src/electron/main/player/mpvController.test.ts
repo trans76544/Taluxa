@@ -1134,6 +1134,52 @@ describe('MpvController', () => {
     expect(script).not.toContain('append_box(out, volume_value_x - 8, controls_y - 9');
   });
 
+  it('clears malformed story-marker objects and entries before drawing', async () => {
+    const writeTextFile = vi.fn();
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+    });
+
+    const launchPromise = controller.launch(createLaunchInput(), createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    await expect(launchPromise).resolves.toBeUndefined();
+
+    const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
+    expect(script).toContain("local utils = require 'mp.utils'");
+    expect(script).toContain("local active_item_id = 'item-1'");
+    expect(script).toContain('local story_markers = {}');
+    expect(script).toContain("mp.register_script_message('taluxa-story-markers'");
+    expect(script).toContain("if tostring(item_id or '') ~= active_item_id then return end");
+    expect(script).toContain("story_markers = type(parsed) == 'table' and parsed or {}");
+    expect(script).toContain("local payload = tostring(markers_json or '')");
+    expect(script).toContain('local parsed = utils.parse_json(payload)');
+    expect(script).toContain("if string.match(payload, '^%s*%[') == nil then");
+    expect(script).toContain("if type(marker) == 'table' and type(marker.startSeconds) == 'number'");
+    expect(script).toContain("and is_string_array(marker.names) and is_string_array(marker.kinds) then");
+    expect(script).toContain("story_markers = valid_markers");
+    expect(script).toContain('if invalid_markers then story_markers = {} end');
+    expect(script).toContain('for _, marker in ipairs(story_markers) do\n      if type(marker) == \'table\' then');
+    expect(script).toContain('start_seconds == start_seconds and start_seconds >= 0 and start_seconds <= duration');
+    expect(script).toContain('bar_width * clamp(start_seconds / duration, 0, 1)');
+    expect(script).toContain("append_box(out, marker_x - 1, bar_y - 7, marker_x + 1, bar_y + 7, 'FFFFFF', 0)");
+    expect(script.indexOf("append_box(out, marker_x - 1"))
+      .toBeLessThan(script.indexOf("add_range_button('seek'"));
+    expect(script).toContain("mp.observe_property('osd-width', 'native', draw_controls)");
+    expect(script).toContain("active_item_id = tostring(item_id or '')\n  story_markers = {}");
+  });
+
   it('launches mpv with the custom Taluxa in-player control layer', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const inputConfigPath = path.join(repoRoot, 'mpv-input.conf');

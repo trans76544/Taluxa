@@ -204,6 +204,7 @@ export function createControllablePlayerBridge() {
     onEpisodeSelect: vi.fn(() => () => undefined),
     onProgress: vi.fn(() => () => undefined),
     preflight: vi.fn().mockResolvedValue(undefined),
+    setStoryMarkers: vi.fn().mockResolvedValue(undefined),
     switchEpisode: vi.fn().mockResolvedValue(undefined),
   };
 }

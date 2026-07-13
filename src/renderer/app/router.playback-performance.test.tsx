@@ -34,6 +34,7 @@ const markItemPlayedMock = vi.hoisted(() => vi.fn());
 const hideItemFromContinueWatchingMock = vi.hoisted(() => vi.fn());
 const addFavoriteItemMock = vi.hoisted(() => vi.fn());
 const fetchServerInfoMock = vi.hoisted(() => vi.fn());
+const fetchStoryTimelineMarkersMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@shared/api/emby/auth', () => ({
   login: vi.fn(),
@@ -69,6 +70,9 @@ vi.mock('@shared/api/emby/playback', async () => {
 
 vi.mock('@shared/api/emby/system', () => ({
   fetchServerInfo: fetchServerInfoMock,
+}));
+vi.mock('@shared/api/emby/storyLandmarks', () => ({
+  fetchStoryTimelineMarkers: fetchStoryTimelineMarkersMock,
 }));
 
 type StoredPersistedState = Omit<PersistedState, 'activeAccountId'> & {
@@ -260,6 +264,7 @@ describe('playback performance route behavior', () => {
     fetchSimilarItemsMock.mockResolvedValue([]);
     fetchSeasonsMock.mockResolvedValue([]);
     fetchEpisodesMock.mockResolvedValue([]);
+    fetchStoryTimelineMarkersMock.mockResolvedValue([]);
     fetchPlaybackStreamSourceMock.mockResolvedValue({
       httpHeaders: {},
       streamUrl: 'https://demo.emby.local/Videos/item-1/master.m3u8',
@@ -347,7 +352,28 @@ describe('playback performance route behavior', () => {
     expect(bridge.launch).toHaveBeenCalledTimes(1);
   });
 
+  it('does not delay direct playback while story markers are still loading', async () => {
+    const markersDeferred = createDeferred<never[]>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'movie-1' })
+    );
+
+    await act(async () => {
+      markersDeferred.resolve([]);
+      await flushPromises();
+    });
+  });
+
   it('does not block player launch on a slow preflight beyond the fast budget', async () => {
+    const markersDeferred = createDeferred<never[]>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const bridge = renderMovieRoute(createLibraryItemDetails({ id: 'movie-1' }));
     bridge.preflight.mockReturnValueOnce(new Promise(() => undefined));
 
@@ -369,6 +395,163 @@ describe('playback performance route behavior', () => {
     });
 
     expect(bridge.launch).toHaveBeenCalledTimes(1);
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+
+    markersDeferred.resolve([]);
+  });
+
+  it('does not delay PlaybackInfo fallback launch while story markers are unsettled', async () => {
+    const markersDeferred = createDeferred<never[]>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    fetchPlaybackStreamSourceMock.mockResolvedValueOnce({
+      httpHeaders: {},
+      mediaSourceId: 'fallback-source',
+      streamUrl: 'https://demo.emby.local/Videos/movie-1/master.m3u8',
+    });
+    const bridge = renderMovieRoute(createMovieDetails({
+      id: 'movie-1',
+      mediaSources: [createPlaybackInfoFallbackMediaSource({ id: 'fallback-source' })],
+    }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+    expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
+      mediaSourceId: 'fallback-source',
+    }));
+
+    markersDeferred.resolve([]);
+  });
+
+  it('delivers an empty marker snapshot when retrieval rejects after launch ready', async () => {
+    fetchStoryTimelineMarkersMock.mockRejectedValueOnce(new Error('chapters unavailable'));
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1', markers: [],
+    }));
+  });
+
+  it('delivers an empty marker snapshot for a successful empty response', async () => {
+    fetchStoryTimelineMarkersMock.mockResolvedValueOnce([]);
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1', markers: [],
+    }));
+  });
+
+  it('cancels a pending marker result when the detail route unmounts', async () => {
+    const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+
+    cleanup();
+    markersDeferred.resolve([{ startSeconds: 7, names: ['Late'], kinds: ['chapter'] }]);
+    await flushPromises();
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+  });
+
+  it('cancels an accepted pending marker result when the detail route item changes', async () => {
+    const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      window.location.hash = '#/item/movie-2';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      await flushPromises();
+    });
+    await waitFor(() => expect(fetchItemDetailsMock).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'movie-2', expect.anything()
+    ));
+
+    markersDeferred.resolve([{ startSeconds: 13, names: ['Old item'], kinds: ['chapter'] }]);
+    await flushPromises();
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pending marker result when the active server account changes', async () => {
+    const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    const first = createSavedAccount();
+    const second = createSavedAccount({
+      id: 'https://backup.emby.local::user-2',
+      serverUrl: 'https://backup.emby.local',
+      userId: 'user-2',
+      userName: 'Bob',
+    });
+    const bridge = mockStorageRead(createPersistedState({
+      accounts: [first, second], activeAccountId: first.id,
+    }));
+    fetchItemDetailsMock.mockResolvedValue(createMovieDetails({ id: 'movie-1' }));
+    window.location.hash = '#/item/movie-1';
+    render(<HashRouter><App /></HashRouter>);
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    const backupButton = screen.getByRole('button', { name: /backup\.emby\.local/i });
+    await act(async () => {
+      fireEvent.click(backupButton);
+      await flushPromises();
+    });
+    await waitFor(() => expect(
+      screen.getByRole('button', { name: /backup\.emby\.local/i })
+    ).toHaveAttribute('aria-pressed', 'true'));
+    await act(async () => {
+      markersDeferred.resolve([{ startSeconds: 11, names: ['Late'], kinds: ['chapter'] }]);
+      await flushPromises();
+    });
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending markers when playback preflight fails', async () => {
+    const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+    bridge.preflight.mockRejectedValueOnce(new Error('preflight failed'));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.preflight).toHaveBeenCalledTimes(1));
+    expect(bridge.launch).not.toHaveBeenCalled();
+
+    markersDeferred.resolve([{ startSeconds: 9, names: ['Late'], kinds: ['chapter'] }]);
+    await flushPromises();
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver markers when PlaybackInfo source resolution fails', async () => {
+    fetchPlaybackStreamSourceMock.mockRejectedValue(new Error('source failed'));
+    const bridge = renderMovieRoute(createMovieDetails({
+      id: 'movie-1',
+      mediaSources: [createPlaybackInfoFallbackMediaSource({ id: 'broken-source' })],
+    }));
+
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(fetchPlaybackStreamSourceMock).toHaveBeenCalled());
+    await flushPromises();
+
+    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
   });
 
   it('launches direct-play media without waiting for PlaybackInfo source resolution', async () => {
@@ -544,6 +727,8 @@ describe('playback performance route behavior', () => {
   });
 
   it('reports redacted recoverable failure timing for the current launch failure', async () => {
+    const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
+    fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const bridge = renderMovieRoute(
       createMovieDetails({
         id: 'movie-1',
@@ -578,6 +763,9 @@ describe('playback performance route behavior', () => {
           surface: 'playback',
         })
       );
+      markersDeferred.resolve([{ startSeconds: 5, names: ['Late'], kinds: ['chapter'] }]);
+      await flushPromises();
+      expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
     } finally {
       cleanupMilestones();
     }
