@@ -9,7 +9,7 @@ It focuses on a quiet desktop media experience: saved Emby accounts, a poster-fi
 - Windows desktop app powered by Electron and Vite
 - Bundled mpv runtime for external playback without a separate player install
 - Custom frameless title bar with back navigation, global search, and window controls
-- Automatic development port selection to avoid Vite port conflicts
+- Automatic development dependency setup and port selection
 - Multiple saved Emby accounts with sidebar switching
 - Server display names and account-aware settings
 - Home screen with continue watching, media libraries, and featured rows
@@ -31,19 +31,22 @@ It focuses on a quiet desktop media experience: saved Emby accounts, a poster-fi
 
 ## Getting Started
 
-Install dependencies:
-
-```bash
-npm install
-```
-
-Start the development server:
+After cloning the repository, start development directly:
 
 ```bash
 npm run dev
 ```
 
-The dev script automatically chooses an available local port and starts Vite on `127.0.0.1`.
+On the first run, the development script detects a missing local Vite installation and automatically runs `npm ci` using the committed lockfile. After installation it starts Vite on an available `127.0.0.1` port. Later runs skip dependency installation when Vite is already available.
+
+To install dependencies explicitly before startup instead, run:
+
+```bash
+npm ci
+npm run dev
+```
+
+If an existing dependency installation is incomplete or damaged, remove `node_modules`, run `npm ci`, and then retry the development command.
 
 ## Scripts
 
@@ -51,7 +54,13 @@ The dev script automatically chooses an available local port and starts Vite on 
 npm run dev
 ```
 
-Starts Vite through the automatic port picker.
+Installs locked dependencies when required, then starts Vite through the automatic port picker.
+
+```bash
+npm run test:dev-bootstrap
+```
+
+Checks automatic development dependency setup, skip behavior, and failure handling without changing the real installation.
 
 ```bash
 npm test

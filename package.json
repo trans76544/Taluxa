@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:dev-port": "node scripts/devServerPort.check.mjs",
+    "test:dev-bootstrap": "node scripts/devDependencyBootstrap.check.mjs",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {

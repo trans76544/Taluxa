@@ -21,7 +21,7 @@ corruption.
 - When the Vite CLI exists, startup follows the current path immediately.
 - When the Vite CLI is absent and `package-lock.json` exists, the script runs
   `npm ci` in the repository root and inherits the terminal's standard streams.
-- On Windows the child command is `npm.cmd`; on other platforms it is `npm`.
+- The child command is the current Node executable with the npm CLI path supplied by `npm run` through `npm_execpath`; this avoids invoking Windows `.cmd` shims without a shell.
 - When installation exits successfully, the script verifies that the Vite CLI
   now exists and then continues with port selection and Vite startup.
 - When installation cannot be started, exits unsuccessfully, or completes

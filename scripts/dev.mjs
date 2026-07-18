@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ensureDevDependencies } from './devDependencyBootstrap.mjs';
 import {
   DEFAULT_DEV_HOST,
   DEFAULT_DEV_PORT,
@@ -7,13 +8,20 @@ import {
   parsePort,
 } from './devServerPort.mjs';
 
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
+const viteCliPath = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
+
+try {
+  await ensureDevDependencies({ repositoryRoot, requiredToolPath: viteCliPath });
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[dev] Dependency setup failed: ${message}`);
+  process.exit(1);
+}
+
 const host = process.env.VITE_HOST || DEFAULT_DEV_HOST;
 const preferredPort = parsePort(process.env.VITE_PORT, DEFAULT_DEV_PORT);
-const port = await findAvailablePort({
-  host,
-  startPort: preferredPort,
-});
-const viteCliPath = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
+const port = await findAvailablePort({ host, startPort: preferredPort });
 const passthroughArgs = process.argv.slice(2);
 const viteArgs = [...passthroughArgs, '--host', host, '--port', String(port)];
 
@@ -29,7 +37,6 @@ child.on('exit', (code, signal) => {
     process.kill(process.pid, signal);
     return;
   }
-
   process.exit(code ?? 0);
 });
 
