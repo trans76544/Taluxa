@@ -328,6 +328,7 @@ local WINDOW_ICON_SCALE = 0.8
 local BOTTOM_BUTTON_SCALE = 0.8
 local BOTTOM_GAP_SCALE = 0.5
 local CONTROL_HIDE_SECONDS = 3
+local WINDOW_DRAG_HEIGHT = 54
 local BLUE = 'FF7716'
 local CACHE_BLUE = 'FFCF8F'
 local TRACK_GRAY = 'CFCFCF'
@@ -1525,7 +1526,9 @@ local function handle_mouse_button(event)
   if event.event == 'down' then
     if not pos then return end
     local id = button_at(pos.x or 0, pos.y or 0)
-    if id == 'volume' then
+    if not id and (pos.y or 0) <= WINDOW_DRAG_HEIGHT then
+      mp.commandv('begin-vo-dragging')
+    elseif id == 'volume' then
       menu_open = nil
       episode_panel_open = false
       volume_dragging = true
@@ -2091,6 +2094,7 @@ export class MpvController {
       '--osd-font=Microsoft YaHei UI',
       '--osd-duration=1500',
       '--volume-max=100',
+      '--input-builtin-dragging=no',
       '--hwdec=auto-safe',
       '--cache=yes',
       `--cache-secs=${DEFAULT_CACHE_SECONDS}`,
