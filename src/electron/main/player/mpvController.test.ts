@@ -1416,15 +1416,20 @@ describe('MpvController', () => {
     expect(uiScript).toContain('local volume_dragging = false');
     expect(uiScript).toContain('local volume_track_left = 0');
     expect(uiScript).toContain('local volume_track_right = 1');
+    expect(uiScript).toContain(
+      'volume_track_left = layout.volume_x\n  volume_track_right = volume_end_x'
+    );
     expect(uiScript).toContain('local function set_volume_from_pointer(pos)');
+    expect(uiScript).toContain('if not pos then return false end');
     expect(uiScript).toContain(
       'local ratio = clamp(((pos.x or volume_track_left) - volume_track_left) / math.max(1, volume_track_right - volume_track_left), 0, 1)'
     );
     expect(uiScript).toContain("mp.commandv('set', 'volume', math.floor(ratio * 100 + 0.5))");
     expect(uiScript).toContain("if event.event == 'down' then");
-    expect(uiScript).toContain("elseif event.event == 'up' then");
     expect(uiScript).toContain('volume_dragging = true');
-    expect(uiScript).toContain('volume_dragging = false');
+    expect(uiScript).toContain(
+      "elseif event.event == 'up' then\n    if volume_dragging then\n      set_volume_from_pointer(pos)\n      volume_dragging = false"
+    );
     expect(uiScript).toContain(
       "mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {complex = true})"
     );
