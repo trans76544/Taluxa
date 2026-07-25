@@ -426,6 +426,9 @@ local danmaku_settings = {
   speed = ${playerSettings.danmaku.speed},
 }
 local volume = 100
+local volume_dragging = false
+local volume_track_left = 0
+local volume_track_right = 1
 local controls_visible_until = 0
 local hover_redraw_pending = false
 local last_mouse_x = nil
@@ -1289,6 +1292,8 @@ local function draw_controls()
   local button_y = controls_y - math.floor(bottom_button_height / 2)
   local volume_end_x = layout.volume_x + layout.volume_width
   local volume_value_x = layout.volume_x + math.floor(layout.volume_width * clamp(volume / 100, 0, 1))
+  volume_track_left = layout.volume_x
+  volume_track_right = volume_end_x
   add_button(out, 'prev', layout.prev_x, button_y, bottom_icon_button, bottom_button_height, '|<', 34)
   add_button(out, 'play', layout.play_x, button_y, bottom_icon_button, bottom_button_height, paused and '\226\150\182' or 'II', 34)
   add_button(out, 'next', layout.next_x, button_y, bottom_icon_button, bottom_button_height, '>|', 34)
@@ -1356,6 +1361,13 @@ local function is_center_play_pause_area(x, y)
   return x >= left and x <= right and y >= top and y <= bottom
 end
 
+local function set_volume_from_pointer(pos)
+  if not pos then return false end
+  local ratio = clamp(((pos.x or volume_track_left) - volume_track_left) / math.max(1, volume_track_right - volume_track_left), 0, 1)
+  mp.commandv('set', 'volume', math.floor(ratio * 100 + 0.5))
+  return true
+end
+
 local function handle_click()
   mark_controls_active()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
@@ -1390,8 +1402,7 @@ local function handle_click()
   elseif id == 'volume' then
     menu_open = nil
     episode_panel_open = false
-    local ratio = clamp(((pos.x or button.x1) - button.x1) / math.max(1, button.x2 - button.x1), 0, 1)
-    mp.commandv('set', 'volume', math.floor(ratio * 100))
+    set_volume_from_pointer(pos)
   elseif id == 'speed-option' then
     mp.commandv('set', 'speed', tostring(button.value))
     menu_open = nil
@@ -1502,6 +1513,34 @@ local function handle_click()
   draw_controls()
 end
 
+local function handle_mouse_button(event)
+  mark_controls_active()
+  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
+  if event.event == 'down' then
+    if not pos then return end
+    local id = button_at(pos.x or 0, pos.y or 0)
+    if id == 'volume' then
+      menu_open = nil
+      episode_panel_open = false
+      volume_dragging = true
+      set_volume_from_pointer(pos)
+      draw_controls()
+    end
+    return
+  elseif event.event == 'up' then
+    if volume_dragging then
+      set_volume_from_pointer(pos)
+      volume_dragging = false
+      draw_controls()
+      return
+    end
+    handle_click()
+    return
+  elseif event.event == 'press' then
+    handle_click()
+  end
+end
+
 local function handle_wheel(delta)
   mark_controls_active()
   if episode_panel_open then
@@ -1531,9 +1570,11 @@ mp.observe_property('mute', 'bool', function(_, value) muted = value or false; d
 mp.observe_property('track-list', 'native', function(_, value) update_audio_tracks(value); update_subtitle_tracks(value); draw_controls() end)
 mp.observe_property('osd-width', 'native', draw_controls)
 mp.observe_property('osd-height', 'native', draw_controls)
-mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_click)
+mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {complex = true})
 mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()
   mark_controls_active()
+  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
+  if volume_dragging then set_volume_from_pointer(pos) end
   if hover_redraw_pending then return end
   hover_redraw_pending = true
   mp.add_timeout(0.016, function()

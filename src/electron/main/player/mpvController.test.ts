@@ -1247,7 +1247,9 @@ describe('MpvController', () => {
     expect(script).toContain('if closest_marker_button then return closest_marker_button.id, closest_marker_button end');
     expect(script).toContain("mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()");
     expect(script).toContain('local hover_redraw_pending = false');
-    expect(script).toContain('mark_controls_active()\n  if hover_redraw_pending then return end');
+    expect(script).toContain(
+      "mark_controls_active()\n  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))\n  if volume_dragging then set_volume_from_pointer(pos) end\n  if hover_redraw_pending then return end"
+    );
     expect(script).toContain('hover_redraw_pending = true');
     expect(script).toContain('mp.add_timeout(0.016, function()');
     expect(script.indexOf('hover_redraw_pending = false\n    draw_controls()'))
@@ -1411,6 +1413,22 @@ describe('MpvController', () => {
       expect.stringContaining("menu_open = 'audio'")
     );
     const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
+    expect(uiScript).toContain('local volume_dragging = false');
+    expect(uiScript).toContain('local volume_track_left = 0');
+    expect(uiScript).toContain('local volume_track_right = 1');
+    expect(uiScript).toContain('local function set_volume_from_pointer(pos)');
+    expect(uiScript).toContain(
+      'local ratio = clamp(((pos.x or volume_track_left) - volume_track_left) / math.max(1, volume_track_right - volume_track_left), 0, 1)'
+    );
+    expect(uiScript).toContain("mp.commandv('set', 'volume', math.floor(ratio * 100 + 0.5))");
+    expect(uiScript).toContain("if event.event == 'down' then");
+    expect(uiScript).toContain("elseif event.event == 'up' then");
+    expect(uiScript).toContain('volume_dragging = true');
+    expect(uiScript).toContain('volume_dragging = false');
+    expect(uiScript).toContain(
+      "mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {complex = true})"
+    );
+    expect(uiScript).toContain('if volume_dragging then set_volume_from_pointer(pos) end');
     expect(uiScript).toContain("elseif id == 'maximize' then");
     expect(uiScript).toContain("mp.get_property_bool('window-maximized')");
     expect(uiScript).toContain(
