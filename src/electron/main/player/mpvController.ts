@@ -478,6 +478,7 @@ local function mark_controls_active()
 end
 
 local function should_show_controls()
+  if volume_dragging then return true end
   return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until
 end
 

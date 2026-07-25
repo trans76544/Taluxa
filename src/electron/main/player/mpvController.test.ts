@@ -1155,6 +1155,9 @@ describe('MpvController', () => {
     expect(script).toContain(
       "append_text(out, volume_value_x, controls_y - 28, 8, 16, string.format('%d%%', math.floor(clamp(volume, 0, 100) + 0.5)), 'FFFFFF', 0, false)"
     );
+    expect(script).toContain(
+      'local function should_show_controls()\n  if volume_dragging then return true end\n  return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until\nend'
+    );
     expect(script).not.toContain('append_box(out, volume_value_x - 8, controls_y - 9');
   });
 
