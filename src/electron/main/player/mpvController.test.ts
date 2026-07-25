@@ -195,6 +195,7 @@ describe('MpvController', () => {
         '--start=0',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1297,6 +1298,22 @@ describe('MpvController', () => {
       inputConfigPath,
       expect.stringContaining('F10 add cache-secs 30')
     );
+    const inputConfig = String(
+      writeTextFile.mock.calls.find(([targetPath]) => targetPath === inputConfigPath)?.[1]
+    );
+    expect(inputConfig).toBe(
+      [
+        '# Taluxa mpv controls',
+        'UP add volume 10',
+        'DOWN add volume -10',
+        'F6 cycle-values speed 0.5 0.75 1 1.25 1.5 2 3 4 5 ; show-text "Speed: ${speed}x"',
+        'F7 cycle-values speed 5 4 3 2 1.5 1.25 1 0.75 0.5 ; show-text "Speed: ${speed}x"',
+        'F8 set speed 1 ; show-text "Speed: 1x"',
+        'F9 add cache-secs -30 ; show-text "Cache target: ${cache-secs}s"',
+        'F10 add cache-secs 30 ; show-text "Cache target: ${cache-secs}s"',
+        '',
+      ].join('\n')
+    );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
       expect.stringContaining('[=[Bocchi the Rock!]=]')
@@ -1616,6 +1633,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1669,6 +1687,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1723,6 +1742,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1781,6 +1801,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1841,6 +1862,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1899,6 +1921,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
@@ -1956,6 +1979,7 @@ describe('MpvController', () => {
         '--start=12',
         '--osd-font=Microsoft YaHei UI',
         '--osd-duration=1500',
+        '--volume-max=100',
         '--hwdec=auto-safe',
         '--cache=yes',
         '--cache-secs=120',
