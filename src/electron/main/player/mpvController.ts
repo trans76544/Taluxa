@@ -1525,19 +1525,24 @@ local function handle_mouse_button(event)
       volume_dragging = true
       set_volume_from_pointer(pos)
       draw_controls()
+    else
+      if not event.canceled then handle_click() end
     end
     return
   elseif event.event == 'up' then
     if volume_dragging then
-      set_volume_from_pointer(pos)
+      if not event.canceled then
+        set_volume_from_pointer(pos)
+      end
       volume_dragging = false
       draw_controls()
       return
     end
-    handle_click()
     return
   elseif event.event == 'press' then
-    handle_click()
+    if not event.canceled then
+      handle_click()
+    end
   end
 end
 

@@ -1425,10 +1425,11 @@ describe('MpvController', () => {
       'local ratio = clamp(((pos.x or volume_track_left) - volume_track_left) / math.max(1, volume_track_right - volume_track_left), 0, 1)'
     );
     expect(uiScript).toContain("mp.commandv('set', 'volume', math.floor(ratio * 100 + 0.5))");
-    expect(uiScript).toContain("if event.event == 'down' then");
-    expect(uiScript).toContain('volume_dragging = true');
     expect(uiScript).toContain(
-      "elseif event.event == 'up' then\n    if volume_dragging then\n      set_volume_from_pointer(pos)\n      volume_dragging = false"
+      "if event.event == 'down' then\n    if not pos then return end\n    local id = button_at(pos.x or 0, pos.y or 0)\n    if id == 'volume' then\n      menu_open = nil\n      episode_panel_open = false\n      volume_dragging = true\n      set_volume_from_pointer(pos)\n      draw_controls()\n    else\n      if not event.canceled then handle_click() end\n    end"
+    );
+    expect(uiScript).toContain(
+      "elseif event.event == 'up' then\n    if volume_dragging then\n      if not event.canceled then\n        set_volume_from_pointer(pos)\n      end\n      volume_dragging = false\n      draw_controls()\n      return\n    end\n    return\n  elseif event.event == 'press' then\n    if not event.canceled then\n      handle_click()\n    end"
     );
     expect(uiScript).toContain(
       "mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {complex = true})"
