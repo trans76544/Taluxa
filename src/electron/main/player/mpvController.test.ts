@@ -1147,6 +1147,14 @@ describe('MpvController', () => {
     expect(script).toContain(
       'append_box(out, volume_value_x - 7, controls_y - 7, volume_value_x + 7, controls_y + 7, BLUE, 0)'
     );
+    expect(script).toContain(
+      'local volume_knob_hovered = mouse and math.abs((mouse.x or 0) - volume_value_x) <= 10'
+    );
+    expect(script).toContain('and math.abs((mouse.y or 0) - controls_y) <= 10');
+    expect(script).toContain('if volume_dragging or volume_knob_hovered then');
+    expect(script).toContain(
+      "append_text(out, volume_value_x, controls_y - 28, 8, 16, string.format('%d%%', math.floor(clamp(volume, 0, 100) + 0.5)), 'FFFFFF', 0, false)"
+    );
     expect(script).not.toContain('append_box(out, volume_value_x - 8, controls_y - 9');
   });
 

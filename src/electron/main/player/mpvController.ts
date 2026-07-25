@@ -1301,6 +1301,11 @@ local function draw_controls()
   append_box(out, layout.volume_x, controls_y - 3, volume_end_x, controls_y + 3, TRACK_GRAY, 115)
   append_box(out, layout.volume_x, controls_y - 4, volume_value_x, controls_y + 4, BLUE, 0)
   append_box(out, volume_value_x - 7, controls_y - 7, volume_value_x + 7, controls_y + 7, BLUE, 0)
+  local volume_knob_hovered = mouse and math.abs((mouse.x or 0) - volume_value_x) <= 10
+    and math.abs((mouse.y or 0) - controls_y) <= 10
+  if volume_dragging or volume_knob_hovered then
+    append_text(out, volume_value_x, controls_y - 28, 8, 16, string.format('%d%%', math.floor(clamp(volume, 0, 100) + 0.5)), 'FFFFFF', 0, false)
+  end
   add_range_button('volume', layout.volume_x - 14, controls_y - 18, volume_end_x + 14, controls_y + 18)
 
   add_button(out, 'speed', layout.speed_x, button_y, layout.speed_width, bottom_button_height, string.format('%.1fx', playback_speed), 22)
