@@ -784,7 +784,7 @@ describe('ItemDetailsPage', () => {
     expectCssRule('.item-details-page').toContainDeclaration('min-height: 100%');
     expectCssRule('.item-details-page').toContainDeclaration('background: var(--app-bg)');
     expectCssRule('.item-hero').toContainDeclaration(
-      'min-height: min(700px, calc(100vh - 44px))'
+      'min-height: min(560px, calc(100vh - 44px))'
     );
     expectCssRule('.item-details-body').toContainDeclaration(
       'padding: 0 var(--detail-page-pad) 86px'
@@ -853,15 +853,65 @@ describe('ItemDetailsPage', () => {
   });
 
   it('keeps media selectors contained within the full-page hero', () => {
-    expectCssRule('.item-hero__media-badge').toContainDeclaration(
-      'right: var(--detail-page-pad)'
-    );
-    expectCssRule('.item-hero__media-badge').toContainDeclaration('bottom: 54px');
-    expectCssRule('.item-hero__media-badge').toContainDeclaration(
-      'width: min(460px, calc(100% - (var(--detail-page-pad) * 2)))'
-    );
+    expectCssRule('.item-hero__media-badge').toContainDeclaration('display: flex');
+    expectCssRule('.item-hero__media-badge').toContainDeclaration('flex-direction: column');
     expectCssRule('.media-select select').toContainDeclaration('min-width: 0');
     expectCssRule('.media-select__summary').toContainDeclaration('overflow-wrap: anywhere');
+  });
+
+  it('groups playback actions and media selectors in one aligned playback row', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createMovieDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    const playbackRow = container.querySelector('.item-hero__playback-row');
+    const actions = container.querySelector('.item-hero__actions');
+    const mediaChoices = container.querySelector('.item-hero__media-badge');
+
+    expect(playbackRow).not.toBeNull();
+    expect(actions?.parentElement).toBe(playbackRow);
+    expect(mediaChoices?.parentElement).toBe(playbackRow);
+  });
+
+  it('defines a normal-flow two-column playback row with shared top alignment', () => {
+    expectCssRule('.item-hero__playback-row').toContainDeclaration('display: grid');
+    expectCssRule('.item-hero__playback-row').toContainDeclaration(
+      'grid-template-columns: minmax(0, 1fr) minmax(360px, 460px)'
+    );
+    expectCssRule('.item-hero__playback-row').toContainDeclaration('align-items: start');
+    expectCssRule('.item-hero__playback-row').toContainDeclaration('min-width: 0');
+    expectCssRule('.item-hero__media-badge').notToContainDeclaration('position: absolute');
+    expectCssRule('.item-hero__media-badge').notToContainDeclaration('bottom:');
+    expectCssRule('.item-hero__media-badge').notToContainDeclaration('right:');
+  });
+
+  it('does not reserve media or continue-watching placeholders when content is absent', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ItemDetailsPage
+          details={createSeriesDetails()}
+          similarItems={[]}
+          seasons={[]}
+          episodes={[]}
+          selectedSeasonId=""
+          onSelectSeason={() => undefined}
+          onPlay={() => undefined}
+        />
+      </MemoryRouter>
+    );
+
+    expect(container.querySelector('.item-hero__media-badge')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '\u7ee7\u7eed\u89c2\u770b' })).not.toBeInTheDocument();
   });
 
   it('preserves long media source selection behavior in the full hero layout', () => {
@@ -881,6 +931,10 @@ describe('ItemDetailsPage', () => {
 
     expect(screen.getByLabelText('\u7248\u672c')).toHaveValue('source-long-1080');
     expect(screen.getByLabelText('\u97f3\u9891')).toHaveValue('11');
+    expectCssRule('.item-hero__playback-row').toContainDeclaration('min-width: 0');
+    expectCssRule('.item-hero__media-badge').toContainDeclaration('min-width: 0');
+    expectCssRule('.item-hero__media-badge').toContainDeclaration('max-width: 460px');
+    expectCssRule('.media-select__summary').toContainDeclaration('overflow-wrap: anywhere');
   });
 
   it('aligns detail rows and carousel fades with the full-page body', () => {
@@ -935,8 +989,11 @@ describe('ItemDetailsPage', () => {
     const styles = getStylesheet();
 
     expect(styles).toMatch(/@media \(max-width: 1100px\)/);
-    expect(styles).toMatch(/\.item-hero__content\s*\{[^}]*padding-bottom: 252px;/);
-    expect(styles).toMatch(/\.item-hero__media-badge\s*\{[^}]*left: var\(--detail-page-pad\);/);
+    expect(styles).toMatch(
+      /\.item-hero__playback-row\s*\{[^}]*grid-template-columns: 1fr;/
+    );
+    expect(styles).not.toMatch(/\.item-hero__content\s*\{[^}]*padding-bottom: 252px;/);
+
     expect(styles).toMatch(/@media \(max-width: 760px\)/);
     expect(styles).toMatch(/\.media-select\s*\{[^}]*grid-template-columns: 1fr;/);
     expect(styles).toMatch(/\.metadata-footer\s*\{[^}]*grid-template-columns: 1fr;/);

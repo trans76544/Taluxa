@@ -372,116 +372,120 @@ export function ItemDetailsPage({
   return (
     <div className="item-details-page">
       {/* HERO SECTION */}
-      <div 
-        className="item-hero" 
+      <div
+        className="item-hero"
         style={{ backgroundImage: details.backdropUrl ? `url(${details.backdropUrl})` : 'none' }}
       >
         <div className="item-hero__gradient"></div>
         <div className="item-hero__content">
-          <h1 className="item-hero__title">{details.name}</h1>
-          <div className="item-hero__meta">
-            {details.communityRating !== null && <span className="meta-rating">★ {details.communityRating.toFixed(1)}</span>}
-            {details.productionYear && <span>{details.productionYear}</span>}
-            {runtimeLabel && <span>{runtimeLabel}</span>}
-            {details.genres.length > 0 && <span>{details.genres.join(' / ')}</span>}
-            {details.officialRating && <span className="meta-badge">{details.officialRating}</span>}
+          <div className="item-hero__copy">
+            <h1 className="item-hero__title">{details.name}</h1>
+            <div className="item-hero__meta">
+              {details.communityRating !== null && <span className="meta-rating">★ {details.communityRating.toFixed(1)}</span>}
+              {details.productionYear && <span>{details.productionYear}</span>}
+              {runtimeLabel && <span>{runtimeLabel}</span>}
+              {details.genres.length > 0 && <span>{details.genres.join(' / ')}</span>}
+              {details.officialRating && <span className="meta-badge">{details.officialRating}</span>}
+            </div>
+
+            <div className="item-hero__overview">
+              <p>{details.overview}</p>
+            </div>
           </div>
 
-          <div className="item-hero__overview">
-            <p>{details.overview}</p>
-          </div>
-
-          <div className="item-hero__actions">
-            {!isSeries ? (
-              <button 
-                className="btn-play" 
-                onClick={() => onPlay(details.id, details.serverPositionTicks, playbackSelection)}
-              >
-                <span className="btn-icon">▶</span> 播放
-              </button>
-            ) : (
-              <div className="series-play-block">
-                <button 
-                  className="btn-play" 
-                  onClick={() =>
-                    selectedEpisode &&
-                    onPlay(
-                      selectedEpisode.id,
-                      selectedEpisode.serverPositionTicks,
-                      selectedEpisodePlaybackSelection
-                    )
-                  }
-                  disabled={!selectedEpisode}
+          <div className="item-hero__playback-row">
+            <div className="item-hero__actions">
+              {!isSeries ? (
+                <button
+                  className="btn-play"
+                  onClick={() => onPlay(details.id, details.serverPositionTicks, playbackSelection)}
                 >
                   <span className="btn-icon">▶</span> 播放
                 </button>
-                {selectedEpisode && (
-                  <span className="series-play-subtitle">
-                    S{selectedEpisode.parentIndexNumber}:E{selectedEpisode.indexNumber} - {selectedEpisode.name}
-                  </span>
-                )}
+              ) : (
+                <div className="series-play-block">
+                  <button
+                    className="btn-play"
+                    onClick={() =>
+                      selectedEpisode &&
+                      onPlay(
+                        selectedEpisode.id,
+                        selectedEpisode.serverPositionTicks,
+                        selectedEpisodePlaybackSelection
+                      )
+                    }
+                    disabled={!selectedEpisode}
+                  >
+                    <span className="btn-icon">▶</span> 播放
+                  </button>
+                  {selectedEpisode && (
+                    <span className="series-play-subtitle">
+                      S{selectedEpisode.parentIndexNumber}:E{selectedEpisode.indexNumber} - {selectedEpisode.name}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="action-icons">
+                <button type="button" className="icon-btn" aria-label="Search" title="Search">🔍</button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Add to favorites"
+                  title="Add to favorites"
+                  disabled={!actionItemId}
+                  onClick={() => runItemAction(onAddToFavorites)}
+                >
+                  ♡
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Mark as played"
+                  title="Mark as played"
+                  disabled={!actionItemId}
+                  onClick={() => runItemAction(onMarkPlayed)}
+                >
+                  ✓
+                </button>
+              </div>
+            </div>
+
+            {playbackMediaSources.length > 0 && (
+              <div className="item-hero__media-badge">
+                <label className="media-select">
+                  <span className="media-select__label">版本</span>
+                  <select
+                    value={selectedMediaSource?.id ?? ''}
+                    onChange={(event) => setSelectedMediaSourceId(event.target.value)}
+                  >
+                    {playbackMediaSources.map((source) => (
+                      <option key={source.id} value={source.id}>
+                        {formatVersionOption(source)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="media-select">
+                  <span className="media-select__label">音频</span>
+                  <select
+                    value={selectedAudioValue}
+                    onChange={(event) => setSelectedAudioValue(event.target.value)}
+                    disabled={!selectedMediaSource?.audioStreams.length}
+                  >
+                    {(selectedMediaSource?.audioStreams ?? []).map((audio, index) => (
+                      <option key={getAudioValue(audio, index)} value={getAudioValue(audio, index)}>
+                        {formatAudioOption(audio)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedMediaSource ? (
+                  <p className="media-select__summary">{formatVersionOption(selectedMediaSource)}</p>
+                ) : null}
               </div>
             )}
-            <div className="action-icons">
-              <button type="button" className="icon-btn" aria-label="Search" title="Search">🔍</button>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="Add to favorites"
-                title="Add to favorites"
-                disabled={!actionItemId}
-                onClick={() => runItemAction(onAddToFavorites)}
-              >
-                ♡
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="Mark as played"
-                title="Mark as played"
-                disabled={!actionItemId}
-                onClick={() => runItemAction(onMarkPlayed)}
-              >
-                ✓
-              </button>
-            </div>
           </div>
         </div>
-
-        {playbackMediaSources.length > 0 && (
-          <div className="item-hero__media-badge">
-            <label className="media-select">
-              <span className="media-select__label">版本</span>
-              <select
-                value={selectedMediaSource?.id ?? ''}
-                onChange={(event) => setSelectedMediaSourceId(event.target.value)}
-              >
-                {playbackMediaSources.map((source) => (
-                  <option key={source.id} value={source.id}>
-                    {formatVersionOption(source)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="media-select">
-              <span className="media-select__label">音频</span>
-              <select
-                value={selectedAudioValue}
-                onChange={(event) => setSelectedAudioValue(event.target.value)}
-                disabled={!selectedMediaSource?.audioStreams.length}
-              >
-                {(selectedMediaSource?.audioStreams ?? []).map((audio, index) => (
-                  <option key={getAudioValue(audio, index)} value={getAudioValue(audio, index)}>
-                    {formatAudioOption(audio)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {selectedMediaSource ? (
-              <p className="media-select__summary">{formatVersionOption(selectedMediaSource)}</p>
-            ) : null}
-          </div>
-        )}
       </div>
 
       <div className="item-details-body">
@@ -627,7 +631,7 @@ export function ItemDetailsPage({
               </div>
             </div>
           )}
-          
+
           {/* Detailed Media Streams */}
           {details.mediaSources.length > 0 && (
             <div className="metadata-row">
