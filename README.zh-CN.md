@@ -1,6 +1,6 @@
 # Taluxa
 
-中文 | [English](README.md)
+简体中文 | [English](README.md)
 
 Taluxa 是一款适用于 Windows 的桌面 Emby 客户端，基于 Electron、React、TypeScript 和 Vite 构建，并内置 mpv 播放能力。
 

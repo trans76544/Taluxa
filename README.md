@@ -1,5 +1,7 @@
 # Taluxa
 
+English | [简体中文](README.zh-CN.md)
+
 Taluxa is a Windows desktop Emby client built with Electron, React, TypeScript, Vite, and bundled mpv playback.
 
 It focuses on a quiet desktop media experience: saved Emby accounts, a poster-first home screen, fast library browsing, global search, detailed item pages, and external mpv playback with resume/progress sync.
