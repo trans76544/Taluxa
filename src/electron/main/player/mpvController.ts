@@ -200,6 +200,8 @@ function isDanmakuSourceError(error: unknown): boolean {
 function createMpvInputConfig(): string {
   return [
     '# Taluxa mpv controls',
+    'LEFT no-osd seek -5',
+    'RIGHT no-osd seek 5',
     'UP no-osd add volume 10',
     'DOWN no-osd add volume -10',
     'F6 cycle-values speed 0.5 0.75 1 1.25 1.5 2 3 4 5 ; show-text "Speed: ${speed}x"',
