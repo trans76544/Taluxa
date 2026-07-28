@@ -428,6 +428,9 @@ local danmaku_settings = {
   opacity = ${playerSettings.danmaku.opacity},
   speed = ${playerSettings.danmaku.speed},
 }
+local seek_dragging = false
+local seek_track_left = 0
+local seek_track_right = 1
 local volume = 100
 local volume_dragging = false
 local volume_track_left = 0
@@ -481,7 +484,7 @@ local function mark_controls_active()
 end
 
 local function should_show_controls()
-  if volume_dragging then return true end
+  if seek_dragging or volume_dragging then return true end
   return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until
 end
 
@@ -1249,6 +1252,8 @@ local function draw_controls()
   local bar_right = width - 90
   local bar_width = math.max(1, bar_right - bar_left)
   local progress_x = bar_left + math.floor(bar_width * progress)
+  seek_track_left = bar_left
+  seek_track_right = bar_right
 
   append_text(out, 24, title_y, 1, 30, display_title, 'FFFFFF', 0, true)
   if display_subtitle ~= '' then
@@ -1368,6 +1373,13 @@ local function is_center_play_pause_area(x, y)
   local top = UI_HEIGHT * 0.18
   local bottom = UI_HEIGHT * 0.78
   return x >= left and x <= right and y >= top and y <= bottom
+end
+
+local function set_seek_from_pointer(pos)
+  if not pos or pos.x == nil or duration <= 0 then return false end
+  local ratio = clamp((pos.x - seek_track_left) / math.max(1, seek_track_right - seek_track_left), 0, 1)
+  mp.commandv('set', 'time-pos', duration * ratio)
+  return true
 end
 
 local function set_volume_from_pointer(pos)

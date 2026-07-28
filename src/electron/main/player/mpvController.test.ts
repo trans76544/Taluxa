@@ -1157,7 +1157,7 @@ describe('MpvController', () => {
       "append_text(out, volume_value_x, controls_y - 28, 8, 16, string.format('%d%%', math.floor(clamp(volume, 0, 100) + 0.5)), 'FFFFFF', 0, false)"
     );
     expect(script).toContain(
-      'local function should_show_controls()\n  if volume_dragging then return true end\n  return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until\nend'
+      'local function should_show_controls()\n  if seek_dragging or volume_dragging then return true end\n  return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until\nend'
     );
     expect(script).not.toContain('append_box(out, volume_value_x - 8, controls_y - 9');
   });
@@ -1427,6 +1427,21 @@ describe('MpvController', () => {
       expect.stringContaining("menu_open = 'audio'")
     );
     const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
+    expect(uiScript).toContain('local seek_dragging = false');
+    expect(uiScript).toContain('local seek_track_left = 0');
+    expect(uiScript).toContain('local seek_track_right = 1');
+    expect(uiScript).toContain(
+      'seek_track_left = bar_left\n  seek_track_right = bar_right'
+    );
+    expect(uiScript).toContain('local function set_seek_from_pointer(pos)');
+    expect(uiScript).toContain(
+      'if not pos or pos.x == nil or duration <= 0 then return false end'
+    );
+    expect(uiScript).toContain(
+      'local ratio = clamp((pos.x - seek_track_left) / math.max(1, seek_track_right - seek_track_left), 0, 1)'
+    );
+    expect(uiScript).toContain("mp.commandv('set', 'time-pos', duration * ratio)");
+    expect(uiScript).toContain('if seek_dragging or volume_dragging then return true end');
     expect(uiScript).toContain('local volume_dragging = false');
     expect(uiScript).toContain('local volume_track_left = 0');
     expect(uiScript).toContain('local volume_track_right = 1');
