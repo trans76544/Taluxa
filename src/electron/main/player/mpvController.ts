@@ -1542,6 +1542,12 @@ local function handle_mouse_button(event)
     local id = button_at(pos.x or 0, pos.y or 0)
     if not id and (pos.y or 0) <= WINDOW_DRAG_HEIGHT then
       mp.commandv('begin-vo-dragging')
+    elseif id == 'seek' and duration > 0 then
+      menu_open = nil
+      episode_panel_open = false
+      seek_dragging = true
+      set_seek_from_pointer(pos)
+      draw_controls()
     elseif id == 'volume' then
       menu_open = nil
       episode_panel_open = false
@@ -1553,6 +1559,14 @@ local function handle_mouse_button(event)
     end
     return
   elseif event.event == 'up' then
+    if seek_dragging then
+      if not event.canceled then
+        set_seek_from_pointer(pos)
+      end
+      seek_dragging = false
+      draw_controls()
+      return
+    end
     if volume_dragging then
       if not event.canceled then
         set_volume_from_pointer(pos)
@@ -1602,6 +1616,7 @@ mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {com
 mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()
   mark_controls_active()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
+  if seek_dragging then set_seek_from_pointer(pos) end
   if volume_dragging then set_volume_from_pointer(pos) end
   if hover_redraw_pending then return end
   hover_redraw_pending = true

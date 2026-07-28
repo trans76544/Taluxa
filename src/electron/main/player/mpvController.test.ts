@@ -1260,7 +1260,7 @@ describe('MpvController', () => {
     expect(script).toContain("mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()");
     expect(script).toContain('local hover_redraw_pending = false');
     expect(script).toContain(
-      "mark_controls_active()\n  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))\n  if volume_dragging then set_volume_from_pointer(pos) end\n  if hover_redraw_pending then return end"
+      "mark_controls_active()\n  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))\n  if seek_dragging then set_seek_from_pointer(pos) end\n  if volume_dragging then set_volume_from_pointer(pos) end\n  if hover_redraw_pending then return end"
     );
     expect(script).toContain('hover_redraw_pending = true');
     expect(script).toContain('mp.add_timeout(0.016, function()');
@@ -1455,16 +1455,18 @@ describe('MpvController', () => {
     );
     expect(uiScript).toContain("mp.commandv('set', 'volume', math.floor(ratio * 100 + 0.5))");
     expect(uiScript).toContain(
-      "if event.event == 'down' then\n    if not pos then return end\n    local id = button_at(pos.x or 0, pos.y or 0)\n    if not id and (pos.y or 0) <= WINDOW_DRAG_HEIGHT then\n      mp.commandv('begin-vo-dragging')\n    elseif id == 'volume' then\n      menu_open = nil\n      episode_panel_open = false\n      volume_dragging = true\n      set_volume_from_pointer(pos)\n      draw_controls()\n    else\n      if not event.canceled then handle_click() end\n    end"
+      "if event.event == 'down' then\n    if not pos then return end\n    local id = button_at(pos.x or 0, pos.y or 0)\n    if not id and (pos.y or 0) <= WINDOW_DRAG_HEIGHT then\n      mp.commandv('begin-vo-dragging')\n    elseif id == 'seek' and duration > 0 then\n      menu_open = nil\n      episode_panel_open = false\n      seek_dragging = true\n      set_seek_from_pointer(pos)\n      draw_controls()\n    elseif id == 'volume' then\n      menu_open = nil\n      episode_panel_open = false\n      volume_dragging = true\n      set_volume_from_pointer(pos)\n      draw_controls()\n    else\n      if not event.canceled then handle_click() end\n    end"
     );
     expect(uiScript).toContain('local WINDOW_DRAG_HEIGHT = 54');
     expect(uiScript).toContain(
-      "elseif event.event == 'up' then\n    if volume_dragging then\n      if not event.canceled then\n        set_volume_from_pointer(pos)\n      end\n      volume_dragging = false\n      draw_controls()\n      return\n    end\n    return\n  elseif event.event == 'press' then\n    if not event.canceled then\n      handle_click()\n    end"
+      "elseif event.event == 'up' then\n    if seek_dragging then\n      if not event.canceled then\n        set_seek_from_pointer(pos)\n      end\n      seek_dragging = false\n      draw_controls()\n      return\n    end\n    if volume_dragging then\n      if not event.canceled then\n        set_volume_from_pointer(pos)\n      end\n      volume_dragging = false\n      draw_controls()\n      return\n    end\n    return"
     );
     expect(uiScript).toContain(
       "mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {complex = true})"
     );
-    expect(uiScript).toContain('if volume_dragging then set_volume_from_pointer(pos) end');
+    expect(uiScript).toContain(
+      'if seek_dragging then set_seek_from_pointer(pos) end\n  if volume_dragging then set_volume_from_pointer(pos) end'
+    );
     expect(uiScript).toContain("elseif id == 'maximize' then");
     expect(uiScript).toContain("mp.get_property_bool('window-maximized')");
     expect(uiScript).toContain(
