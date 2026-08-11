@@ -199,10 +199,10 @@ export function createContinueWatchingPosterItem(
 }
 
 export function createControllablePlayerBridge() {
-  const episodeSelectListeners = new Set<(itemId: string) => void>();
+  const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
   return {
-    launch: vi.fn().mockResolvedValue(undefined),
-    onEpisodeSelect: vi.fn((listener: (itemId: string) => void) => {
+    launch: vi.fn().mockResolvedValue({ playerSessionId: 1 }),
+    onEpisodeSelect: vi.fn((listener: (event: { playerSessionId: number; itemId: string }) => void) => {
       episodeSelectListeners.add(listener);
       return () => episodeSelectListeners.delete(listener);
     }),
@@ -211,7 +211,7 @@ export function createControllablePlayerBridge() {
     setStoryMarkers: vi.fn().mockResolvedValue(undefined),
     switchEpisode: vi.fn().mockResolvedValue(undefined),
     emitEpisodeSelect(itemId: string) {
-      for (const listener of episodeSelectListeners) listener(itemId);
+      for (const listener of episodeSelectListeners) listener({ playerSessionId: 1, itemId });
     },
   };
 }

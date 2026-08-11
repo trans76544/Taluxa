@@ -7,6 +7,7 @@ export interface StoryTimelineMarker {
 }
 
 export interface PlayerStoryMarkerUpdate {
+  playerSessionId: number;
   itemId: string;
   markers: StoryTimelineMarker[];
 }
@@ -47,7 +48,8 @@ function isStoryTimelineMarker(value: unknown): value is StoryTimelineMarker {
 export function isPlayerStoryMarkerUpdate(value: unknown): value is PlayerStoryMarkerUpdate {
   if (!value || typeof value !== 'object') return false;
   const update = value as Record<string, unknown>;
-  return typeof update.itemId === 'string' && Boolean(update.itemId.trim()) &&
+  return Number.isSafeInteger(update.playerSessionId) && Number(update.playerSessionId) > 0 &&
+    typeof update.itemId === 'string' && Boolean(update.itemId.trim()) &&
     Array.isArray(update.markers) && update.markers.every(isStoryTimelineMarker);
 }
 

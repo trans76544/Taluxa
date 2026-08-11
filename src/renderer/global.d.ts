@@ -4,8 +4,11 @@ import type {
   SettingsSyncEvent,
 } from '@shared/store/persistence';
 import type {
+  PlayerEpisodeSelectEvent,
   PlayerLaunchInput,
+  PlayerLaunchResult,
   PlayerProgressEvent,
+  PlayerSwitchEpisodeInput,
 } from '../electron/preload/index';
 import type { EmbyLoginInput, EmbyLoginSession } from '@shared/api/emby/auth';
 import type { ImageCacheResolveResult } from '../electron/main/ipc/imageCache';
@@ -35,10 +38,10 @@ declare global {
       player: {
         reportStoryMarkerDiagnostic?: (input: StoryMarkerDiagnostic) => Promise<void>;
         setStoryMarkers: (input: PlayerStoryMarkerUpdate) => Promise<void>;
-        launch: (input: PlayerLaunchInput) => Promise<void>;
-        switchEpisode: (input: PlayerLaunchInput) => Promise<void>;
+        launch: (input: PlayerLaunchInput) => Promise<PlayerLaunchResult>;
+        switchEpisode: (input: PlayerSwitchEpisodeInput) => Promise<void>;
         preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;
-        onEpisodeSelect: (listener: (itemId: string) => void) => () => void;
+        onEpisodeSelect: (listener: (event: PlayerEpisodeSelectEvent) => void) => () => void;
         onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
         onPlaybackEvent?: (listener: (event: PlayerPlaybackEvent) => void) => () => void;
       };

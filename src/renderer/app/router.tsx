@@ -101,7 +101,9 @@ import {
 } from '@renderer/features/home/AggregateViewPage';
 import { LibraryItemsPage } from '@renderer/features/library/LibraryItemsPage';
 import { PlayerPage } from '@renderer/features/player/PlayerPage';
+import { PlayerSessionHost, usePlayerSessionHost } from '@renderer/features/player/playerSessionManager';
 import { PlaybackSyncProvider, usePlaybackSync } from '@renderer/features/player/PlaybackSyncProvider';
+import type { PlaybackReportContext } from '@renderer/features/player/playbackSync';
 import { StoryMarkerDeliveryCoordinator } from '@renderer/features/player/storyMarkerDelivery';
 import {
   getPlaybackMediaSourcesForItem,
@@ -162,6 +164,7 @@ interface CurrentPlaybackLaunch {
   launchRequestId: number;
   storyMarkerRequestId: number | null;
   timingRecorder: ReturnType<typeof createLoadTimingRecorder>;
+  playbackContext?: Omit<PlaybackReportContext, 'playerSessionId'>;
 }
 
 interface DetailRouteSnapshot {
@@ -475,6 +478,7 @@ function ItemDetailsRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const { registerPlaybackContext } = usePlaybackSync();
+  const { allocateLaunchId, registerSession } = usePlayerSessionHost();
   const location = useLocation();
   const itemRouteState = (location.state as ItemRouteState | null | undefined) ?? {};
   const resumeEpisodeId = itemRouteState.resumeEpisodeId;
@@ -502,14 +506,15 @@ function ItemDetailsRoute() {
   const [playbackErrorMessage, setPlaybackErrorMessage] = useState('');
 
   const resolvedActiveAccountId = activeAccountId ?? (session ? createAccountId(serverUrl, session.userId) : null);
-  const progressStateRef = useRef<{ lastReportedAtMs: number | null; lastReportedPositionSeconds: number | null }>({ lastReportedAtMs: null, lastReportedPositionSeconds: null });
+  const progressStateBySessionRef = useRef(new Map<string, { lastReportedAtMs: number | null; lastReportedPositionSeconds: number | null }>());
   const progressSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const detailsGenerationRef = useRef(createRequestGenerationGuard());
   const seasonEpisodesGenerationRef = useRef(createRequestGenerationGuard());
   const playbackAttemptGenerationRef = useRef(createRequestGenerationGuard());
   const episodeSwitchGenerationRef = useRef(createRequestGenerationGuard());
-  const playbackLaunchIdRef = useRef(0);
-  const currentPlaybackLaunchRef = useRef<CurrentPlaybackLaunch | null>(null);
+  const playbackSessionIdRef = useRef<number | null>(null);
+  const playbackLaunchesRef = useRef(new Map<number, CurrentPlaybackLaunch>());
+  const routeMarkerRequestIdsRef = useRef(new Set<number>());
   const storyMarkerDeliveryRef = useRef<StoryMarkerDeliveryCoordinator | null>(null);
   storyMarkerDeliveryRef.current ??= new StoryMarkerDeliveryCoordinator((update) =>
     window.embyDesktop.player.setStoryMarkers(update)
@@ -605,17 +610,15 @@ function ItemDetailsRoute() {
   }
 
   useEffect(() => {
-    progressStateRef.current = { lastReportedAtMs: null, lastReportedPositionSeconds: null };
     progressSyncQueueRef.current = Promise.resolve();
   }, [playbackItemId, resolvedActiveAccountId]);
 
   useLayoutEffect(() => {
-    const delivery = storyMarkerDeliveryRef.current;
     return () => {
-      delivery?.cancel();
-      playbackAttemptGenerationRef.current.next();
-      episodeSwitchGenerationRef.current.next();
-      currentPlaybackLaunchRef.current = null;
+      for (const requestId of routeMarkerRequestIdsRef.current) {
+        storyMarkerDeliveryRef.current?.cancel(requestId);
+      }
+      routeMarkerRequestIdsRef.current.clear();
       preparedPlaybackCandidateRef.current = null;
     };
   }, [itemId, resolvedActiveAccountId, serverUrl]);
@@ -669,7 +672,7 @@ function ItemDetailsRoute() {
     setPlaybackTitle('');
     setPlaybackEpisodeSelector(undefined);
     setPlaybackErrorMessage('');
-    currentPlaybackLaunchRef.current = null;
+    playbackSessionIdRef.current = null;
 
     async function loadData() {
       try {
@@ -911,14 +914,13 @@ function ItemDetailsRoute() {
       attemptId: playbackAttempt,
       surface: 'playback',
     });
-    const nextLaunchId = playbackLaunchIdRef.current + 1;
-    playbackLaunchIdRef.current = nextLaunchId;
-    currentPlaybackLaunchRef.current = {
+    const nextLaunchId = allocateLaunchId();
+    playbackLaunchesRef.current.set(nextLaunchId, {
       attemptId: playbackAttempt,
       launchRequestId: nextLaunchId,
       storyMarkerRequestId: null,
       timingRecorder,
-    };
+    });
     setPlaybackErrorMessage('');
     emitLoadTimingMilestone(timingRecorder.mark('play-acknowledged'));
     setPlaybackSource(null);
@@ -972,68 +974,87 @@ function ItemDetailsRoute() {
           });
         },
       });
-      if (currentPlaybackLaunchRef.current?.launchRequestId === nextLaunchId) {
-        currentPlaybackLaunchRef.current.storyMarkerRequestId = storyMarkerRequestId;
-      }
+      const launchRecord = playbackLaunchesRef.current.get(nextLaunchId);
+      if (launchRecord) launchRecord.storyMarkerRequestId = storyMarkerRequestId;
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
         sourcePromise,
       ]);
-      if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
-        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
-        return;
-      }
       emitLoadTimingMilestone(timingRecorder.mark('playback-source-ready'));
       await waitForFastPlaybackPreflight(nextSource);
 
-      if (!playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
-        storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
-        return;
-      }
-      
       const progressByItemId = getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId);
       const savedPositionSeconds = progressByItemId[playItemId]?.positionSeconds ?? null;
       
       const resumeItem = details ? createPlaybackResumeItemSnapshot({ details, episodes, itemId: playItemId }) : null;
-      if (resumeItem && resolvedActiveAccountId) registerPlaybackContext({
-        accountId: resolvedActiveAccountId, serverUrl, userId: session.userId,
-        accessToken: session.accessToken, itemId: playItemId,
-        playSessionId: nextSource.playSessionId, mediaSourceId: nextSource.mediaSourceId,
-        playMethod: nextSource.playMethod, audioStreamIndex: descriptor.audioStreamIndex,
-        resumeItem,
-      });
+      if (resumeItem && resolvedActiveAccountId) {
+        const launchRecord = playbackLaunchesRef.current.get(nextLaunchId);
+        if (launchRecord) launchRecord.playbackContext = {
+          accountId: resolvedActiveAccountId, serverUrl, userId: session.userId,
+          accessToken: session.accessToken, itemId: playItemId,
+          playSessionId: nextSource.playSessionId, mediaSourceId: nextSource.mediaSourceId,
+          playMethod: nextSource.playMethod, audioStreamIndex: descriptor.audioStreamIndex,
+          resumeItem,
+        };
+      }
       setInitialPositionSeconds(getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }));
       setPlaybackSource(nextSource);
+      registerSession({
+        key: String(nextLaunchId),
+        props: {
+          authMode: nextSource.authMode,
+          httpHeaders: nextSource.httpHeaders,
+          itemId: playItemId,
+          launchRequestId: nextLaunchId,
+          redactedDisplayUrl: nextSource.redactedDisplayUrl,
+          title: resolvePlaybackTitle({ fallbackTitle: details?.name || '', selectionTitle: selection?.title }),
+          streamUrl: nextSource.streamUrl,
+          initialPositionSeconds: getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }),
+          episodeSelector: details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined,
+          onEpisodeSelect: handleEpisodeSelect,
+          onLaunchFailure: handlePlaybackLaunchFailure,
+          onLaunchReady: handlePlaybackLaunchReady,
+          onProgress: handleProgress,
+        },
+      });
+      routeMarkerRequestIdsRef.current.add(storyMarkerRequestId);
       emitLoadTimingMilestone(timingRecorder.mark('player-launch-requested'));
     } catch (err) {
-      if (playbackAttemptGenerationRef.current.isCurrent(playbackAttempt)) {
-        const requestId = currentPlaybackLaunchRef.current?.storyMarkerRequestId;
-        if (requestId !== null && requestId !== undefined) storyMarkerDeliveryRef.current?.cancel(requestId);
-        setPlaybackSource(null);
-        setPlaybackErrorMessage('Could not prepare desktop playback.');
-        currentPlaybackLaunchRef.current = null;
-      }
+      const requestId = playbackLaunchesRef.current.get(nextLaunchId)?.storyMarkerRequestId;
+      if (requestId !== null && requestId !== undefined) storyMarkerDeliveryRef.current?.cancel(requestId);
+      playbackLaunchesRef.current.delete(nextLaunchId);
+      setPlaybackErrorMessage('Could not prepare desktop playback.');
     }
   }
 
   function handlePlaybackLaunchReady({
     launchRequestId,
+    playerSessionId,
   }: {
     itemId: string;
     launchRequestId?: number;
+    playerSessionId?: number;
   }) {
-    const currentLaunch = currentPlaybackLaunchRef.current;
+    if (launchRequestId === undefined) return;
+    const currentLaunch = playbackLaunchesRef.current.get(launchRequestId);
 
     if (!currentLaunch || launchRequestId !== currentLaunch.launchRequestId) {
       return;
     }
 
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-ready'));
+    if (playerSessionId !== undefined) {
+      playbackSessionIdRef.current = playerSessionId;
+      if (currentLaunch.playbackContext) {
+        registerPlaybackContext({ ...currentLaunch.playbackContext, playerSessionId });
+      }
+      storyMarkerDeliveryRef.current?.bindSession(currentLaunch.storyMarkerRequestId ?? -1, playerSessionId);
+    }
     if (currentLaunch.storyMarkerRequestId !== null) {
       storyMarkerDeliveryRef.current?.accept(currentLaunch.storyMarkerRequestId);
     }
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
-    currentPlaybackLaunchRef.current = null;
+    playbackLaunchesRef.current.delete(launchRequestId);
   }
 
   function handlePlaybackLaunchFailure({
@@ -1044,7 +1065,8 @@ function ItemDetailsRoute() {
     launchRequestId?: number;
     message: string;
   }) {
-    const currentLaunch = currentPlaybackLaunchRef.current;
+    if (launchRequestId === undefined) return;
+    const currentLaunch = playbackLaunchesRef.current.get(launchRequestId);
 
     if (!currentLaunch || launchRequestId !== currentLaunch.launchRequestId) {
       return;
@@ -1056,14 +1078,14 @@ function ItemDetailsRoute() {
     }
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-recoverable-failure', 'failure'));
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
-    currentPlaybackLaunchRef.current = null;
+    playbackLaunchesRef.current.delete(launchRequestId);
   }
 
-  async function handleEpisodeSelect(nextItemId: string) {
+  async function handleEpisodeSelect(nextItemId: string, sourcePlayerSessionId?: number): Promise<boolean> {
     const episode = episodes.find((candidate) => candidate.id === nextItemId);
 
     if (!episode || !details || details.type !== 'Series') {
-      return;
+      return false;
     }
 
     const nextTitle = `${details.name} - ${formatEpisodeSelectorTitle(episode)}`;
@@ -1072,14 +1094,19 @@ function ItemDetailsRoute() {
       await handlePlay(episode.id, episode.serverPositionTicks, {
         title: nextTitle,
       });
-      return;
+      return true;
     }
 
     setPlaybackErrorMessage('');
     const generation = episodeSwitchGenerationRef.current.next();
     const currentSession = session;
     const currentAccountId = resolvedActiveAccountId;
-    if (!currentSession || !currentAccountId) return;
+    if (!currentSession || !currentAccountId) return false;
+    const playerSessionId = sourcePlayerSessionId ?? playbackSessionIdRef.current;
+    if (playerSessionId === null) {
+      await handlePlay(episode.id, episode.serverPositionTicks, { title: nextTitle });
+      return true;
+    }
 
     const selectedMediaSource = pickPlaybackMediaSource(episode.mediaSources);
     const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
@@ -1104,6 +1131,7 @@ function ItemDetailsRoute() {
       accountId: currentAccountId,
       serverUrl,
       itemId: episode.id,
+      playerSessionId,
       load: async () => {
         const source = await nextSourcePromise;
         return fetchStoryTimelineMarkers({
@@ -1119,6 +1147,7 @@ function ItemDetailsRoute() {
         });
       },
     });
+    routeMarkerRequestIdsRef.current.add(storyMarkerRequestId);
 
     try {
       const [persistedState, nextSource] = await Promise.all([
@@ -1127,12 +1156,12 @@ function ItemDetailsRoute() {
       ]);
       if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
         storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
-        return;
+        return false;
       }
       await waitForFastPlaybackPreflight(nextSource);
       if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
         storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
-        return;
+        return false;
       }
 
       const progressByItemId = getPersistedProgressByItemIdForAccount(
@@ -1150,11 +1179,13 @@ function ItemDetailsRoute() {
       if (resumeItem) registerPlaybackContext({
         accountId: currentAccountId, serverUrl, userId: currentSession.userId,
         accessToken: currentSession.accessToken, itemId: episode.id,
+        playerSessionId,
         playSessionId: nextSource.playSessionId, mediaSourceId: nextSource.mediaSourceId,
         playMethod: nextSource.playMethod, audioStreamIndex: null, resumeItem,
       });
 
       await window.embyDesktop.player.switchEpisode({
+        playerSessionId,
         authMode: nextSource.authMode,
         httpHeaders: nextSource.httpHeaders,
         itemId: episode.id,
@@ -1165,7 +1196,7 @@ function ItemDetailsRoute() {
       });
       if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
         storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
-        return;
+        return false;
       }
       storyMarkerDeliveryRef.current?.accept(storyMarkerRequestId);
 
@@ -1174,21 +1205,28 @@ function ItemDetailsRoute() {
       setPlaybackEpisodeSelector(nextEpisodeSelector);
       setInitialPositionSeconds(nextInitialPositionSeconds);
       setPlaybackSource(nextSource);
+      return true;
     } catch {
       storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
       if (episodeSwitchGenerationRef.current.isCurrent(generation)) {
         setPlaybackErrorMessage('Could not prepare desktop playback.');
       }
+      return false;
     }
   }
 
-  async function handleProgress({ itemId: progressItemId, positionSeconds, durationSeconds, final = false }: { itemId: string; positionSeconds: number; durationSeconds: number; final?: boolean; }) {
-    if (!session || progressItemId !== playbackItemId) return;
+  async function handleProgress({ itemId: progressItemId, positionSeconds, durationSeconds, final = false }: { itemId: string; positionSeconds: number; durationSeconds: number; final?: boolean; }, playerSessionId?: number) {
+    if (!session || playerSessionId === undefined) return;
 
     const normalizedPositionSeconds = Math.max(0, Math.floor(positionSeconds));
     const normalizedDurationSeconds = Math.max(0, Math.floor(durationSeconds));
     const nowMs = Date.now();
-    const { lastReportedAtMs, lastReportedPositionSeconds } = progressStateRef.current;
+    const reportStateKey = `${playerSessionId}:${progressItemId}`;
+    const progressState = progressStateBySessionRef.current.get(reportStateKey) ?? {
+      lastReportedAtMs: null,
+      lastReportedPositionSeconds: null,
+    };
+    const { lastReportedAtMs, lastReportedPositionSeconds } = progressState;
 
     if (!shouldSyncPlaybackProgress({
       final,
@@ -1201,11 +1239,10 @@ function ItemDetailsRoute() {
       return;
     }
 
-    progressStateRef.current = {
+    progressStateBySessionRef.current.set(reportStateKey, {
       lastReportedAtMs: nowMs,
       lastReportedPositionSeconds: normalizedPositionSeconds,
-    };
-
+    });
     const progressKey = resolvedActiveAccountId
       ? createAccountScopedProgressKey(resolvedActiveAccountId, progressItemId)
       : progressItemId;
@@ -1331,24 +1368,6 @@ function ItemDetailsRoute() {
   return (
     <AuthenticatedLayout title={details.name}>
       {playbackErrorMessage ? <p role="alert">{playbackErrorMessage}</p> : null}
-      {session && initialPositionSeconds !== null && playbackSource ? (
-        <PlayerPage
-          authMode={playbackSource.authMode}
-          httpHeaders={playbackSource.httpHeaders}
-          itemId={playbackItemId}
-          launchRequestId={playbackLaunchId}
-          redactedDisplayUrl={playbackSource.redactedDisplayUrl}
-          title={playbackTitle || details.name}
-          streamUrl={playbackSource.streamUrl}
-          initialPositionSeconds={initialPositionSeconds}
-          episodeSelector={playbackEpisodeSelector}
-          onEpisodeSelect={handleEpisodeSelect}
-          onLaunchFailure={handlePlaybackLaunchFailure}
-          onLaunchReady={handlePlaybackLaunchReady}
-          onProgress={handleProgress}
-        />
-      ) : null}
-
       <ItemDetailsPage
         details={details}
         similarItems={similarItems}
@@ -2376,6 +2395,7 @@ export function AppRouter() {
 
   return (
     <PlaybackSyncProvider>
+    <PlayerSessionHost>
     <Routes>
       <Route path="/" element={<HomeGate />} />
       <Route path="/login" element={<LoginRoute />} />
@@ -2387,6 +2407,7 @@ export function AppRouter() {
       <Route path="/settings" element={<SettingsGate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </PlayerSessionHost>
     </PlaybackSyncProvider>
   );
 }

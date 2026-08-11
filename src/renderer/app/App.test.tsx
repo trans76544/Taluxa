@@ -105,13 +105,14 @@ interface PlayerProgressEvent {
   positionSeconds: number;
   durationSeconds: number;
   final?: boolean;
+  playerSessionId?: number;
 }
 
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
   const progressListeners = new Set<(event: PlayerProgressEvent) => void>();
-  const episodeSelectListeners = new Set<(itemId: string) => void>();
+  const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
   const settingsSyncListeners = new Set<(event: SettingsSyncEvent) => void>();
-  const launch = vi.fn().mockResolvedValue(undefined);
+  const launch = vi.fn().mockResolvedValue({ playerSessionId: 1 });
   const switchEpisode = vi.fn().mockResolvedValue(undefined);
   const preflight = vi.fn().mockResolvedValue(undefined);
   const setStoryMarkers = vi.fn().mockResolvedValue(undefined);
@@ -122,7 +123,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       progressListeners.delete(listener);
     };
   });
-  const onEpisodeSelect = vi.fn((listener: (itemId: string) => void) => {
+  const onEpisodeSelect = vi.fn((listener: (event: { playerSessionId: number; itemId: string }) => void) => {
     episodeSelectListeners.add(listener);
 
     return () => {
@@ -198,12 +199,12 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     configureImageCache,
     emitProgress(event: PlayerProgressEvent) {
       for (const listener of progressListeners) {
-        listener(event);
+        listener({ ...event, playerSessionId: event.playerSessionId ?? 1 });
       }
     },
     emitEpisodeSelect(itemId: string) {
       for (const listener of episodeSelectListeners) {
-        listener(itemId);
+        listener({ playerSessionId: 1, itemId });
       }
     },
     emitSettingsSync(event: SettingsSyncEvent) {
@@ -2590,6 +2591,7 @@ describe('App', () => {
     });
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'episode-2',
+      playerSessionId: 1,
       markers: [{ startSeconds: 8, names: ['Episode opening'], kinds: ['intro'] }],
     }));
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -2613,6 +2615,7 @@ describe('App', () => {
     expect(storage.switchEpisode.mock.calls[0]?.[0]).not.toHaveProperty('episodeSelector');
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'episode-1',
+      playerSessionId: 1,
       markers: [{ startSeconds: 14, names: ['Previous opening'], kinds: ['intro'] }],
     }));
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -2631,7 +2634,7 @@ describe('App', () => {
       return Promise.resolve([]);
     });
     const storage = await renderPlayingSeries();
-    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({ itemId: 'outgoing', markers: [] }));
+    await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({ itemId: 'outgoing', playerSessionId: 1, markers: [] }));
     storage.setStoryMarkers.mockClear();
 
     act(() => storage.emitEpisodeSelect('episode-a'));
@@ -2641,7 +2644,7 @@ describe('App', () => {
     act(() => storage.emitEpisodeSelect('episode-b'));
 
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'episode-b', markers: [{ startSeconds: 22, names: ['B'], kinds: ['chapter'] }],
+      itemId: 'episode-b', playerSessionId: 1, markers: [{ startSeconds: 22, names: ['B'], kinds: ['chapter'] }],
     }));
     episodeAMarkers.resolve([{ startSeconds: 11, names: ['A'], kinds: ['chapter'] }]);
     await flushAsyncQueue();
@@ -2664,7 +2667,7 @@ describe('App', () => {
     act(() => storage.emitEpisodeSelect('episode-a'));
 
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'episode-a', markers: [],
+      itemId: 'episode-a', playerSessionId: 1, markers: [],
     }));
   });
 
@@ -2682,7 +2685,7 @@ describe('App', () => {
       expect.objectContaining({ itemId: 'episode-a' })
     ));
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'episode-a', markers: [],
+      itemId: 'episode-a', playerSessionId: 1, markers: [],
     }));
   });
 
@@ -3448,6 +3451,7 @@ describe('App', () => {
     );
     await waitFor(() => expect(storage.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'item-1',
+      playerSessionId: 1,
       markers: [{ startSeconds: 12, names: ['Opening'], kinds: ['chapter'] }],
     }));
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({

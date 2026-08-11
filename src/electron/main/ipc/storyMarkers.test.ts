@@ -14,7 +14,7 @@ describe('registerStoryMarkerIpc', () => {
     const logger = vi.fn();
     registerStoryMarkerIpc({ setStoryMarkers }, logger);
     const handler = handleMock.mock.calls.find(([channel]) => channel === 'player:set-story-markers')?.[1];
-    const update = { itemId: 'episode-1', markers: [] };
+    const update = { playerSessionId: 1, itemId: 'episode-1', markers: [] };
     expect(handler(undefined, update)).toBeUndefined();
     expect(setStoryMarkers).toHaveBeenCalledWith(update);
     expect(logger).toHaveBeenCalledWith('[story-markers] stage=mpv accepted=true markers=0');

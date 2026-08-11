@@ -6,10 +6,12 @@ import { createAccountScopedProgressKey, getPersistedProgressByItemIdForAccount,
 import { createConfirmedProgressUpdate, createFailedProgressUpdate, isSameProgressRevision } from '@shared/utils/playbackProgress';
 
 export interface PlaybackReportContext {
-  accountId: string; serverUrl: string; userId: string; accessToken: string; itemId: string;
+  accountId: string; serverUrl: string; userId: string; accessToken: string; itemId: string; playerSessionId: number;
   playSessionId: string | null; mediaSourceId: string | null; playMethod: PlaybackMethod;
   audioStreamIndex: number | null; resumeItem: PlaybackResumeItemSnapshot;
 }
+
+type PlaybackEventInput = PlayerPlaybackEvent | Omit<PlayerPlaybackEvent, 'playerSessionId'>;
 
 interface Dependencies {
   readState: () => Promise<PersistedState>;
@@ -32,18 +34,34 @@ interface LiveState {
 export class PlaybackSyncCoordinator {
   private readonly contexts = new Map<string, PlaybackReportContext>();
   private readonly live = new Map<string, LiveState>();
+  private readonly pendingEvents = new Map<number, PlayerPlaybackEvent[]>();
   private queue: Promise<void> = Promise.resolve();
   private localQueue: Promise<void> = Promise.resolve();
   private readonly now: () => Date;
   constructor(private readonly dependencies: Dependencies) { this.now = dependencies.now ?? (() => new Date()); }
 
-  registerContext(context: PlaybackReportContext): void { this.contexts.set(context.itemId, context); }
-  unregisterContext(itemId: string): void { this.contexts.delete(itemId); }
+  registerContext(context: PlaybackReportContext): void {
+    this.contexts.set(String(context.playerSessionId), context);
+    const pending = this.pendingEvents.get(context.playerSessionId);
+    if (!pending) return;
+    this.pendingEvents.delete(context.playerSessionId);
+    for (const event of pending) void this.handleEvent(event);
+  }
+  unregisterContext(playerSessionId: number): void { this.contexts.delete(String(playerSessionId)); }
 
-  async handleEvent(event: PlayerPlaybackEvent): Promise<void> {
-    const context = this.contexts.get(event.itemId);
-    if (!context) return;
-    const state = this.live.get(event.playbackId) ?? {
+  async handleEvent(input: PlaybackEventInput): Promise<void> {
+    const event = ('playerSessionId' in input && typeof input.playerSessionId === 'number')
+      ? input
+      : { playerSessionId: 1, ...input } as PlayerPlaybackEvent;
+    const context = this.contexts.get(String(event.playerSessionId));
+    if (!context) {
+      const pending = this.pendingEvents.get(event.playerSessionId) ?? [];
+      pending.push(event);
+      this.pendingEvents.set(event.playerSessionId, pending.slice(-32));
+      return;
+    }
+    const liveKey = `${event.playerSessionId}:${event.playbackId}`;
+    const state = this.live.get(liveKey) ?? {
       hasStarted: false, stopped: false, remoteStarted: false,
       lastSequence: -1, lastReportedAt: null, lastReportedPosition: null,
     };
@@ -56,7 +74,7 @@ export class PlaybackSyncCoordinator {
     }
     state.lastSequence = event.sequence;
     if (event.phase === 'stopped') state.stopped = true;
-    this.live.set(event.playbackId, state);
+    this.live.set(liveKey, state);
 
     if (event.phase === 'started') {
       this.queue = this.queue.then(() => this.processRemote(context, event, state, null)).catch(() => undefined);

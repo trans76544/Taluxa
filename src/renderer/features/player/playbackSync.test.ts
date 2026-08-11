@@ -5,13 +5,29 @@ import { PlaybackSyncCoordinator, type PlaybackReportContext } from './playbackS
 function context(): PlaybackReportContext {
   return {
     accountId: 'https://demo.local::user-1', serverUrl: 'https://demo.local',
-    userId: 'user-1', accessToken: 'token', itemId: 'item-1', playMethod: 'DirectPlay',
+    userId: 'user-1', accessToken: 'token', itemId: 'item-1', playerSessionId: 1, playMethod: 'DirectPlay',
     playSessionId: null, mediaSourceId: 'source-1', audioStreamIndex: null,
     resumeItem: { itemId: 'item-1', itemType: 'Movie', title: 'Movie', posterUrl: '', imageCandidates: [] },
   };
 }
 
 describe('PlaybackSyncCoordinator', () => {
+  it('buffers early events by session and replays them only to the matching context', async () => {
+    const reportStarted = vi.fn().mockResolvedValue(undefined);
+    const coordinator = new PlaybackSyncCoordinator({
+      readState: async () => createEmptyPersistedState(),
+      writeState: async (patch) => mergePersistedState(patch, createEmptyPersistedState()),
+      reportStarted,
+      reportProgress: vi.fn(),
+      reportStopped: vi.fn(),
+    });
+    await coordinator.handleEvent({ playerSessionId: 2, playbackId: '2:1', sequence: 1, phase: 'started', itemId: 'item-1', positionSeconds: 0, durationSeconds: 180 });
+    coordinator.registerContext({ ...context(), playerSessionId: 1 });
+    expect(reportStarted).not.toHaveBeenCalled();
+    coordinator.registerContext({ ...context(), playerSessionId: 2 });
+    await vi.waitFor(() => expect(reportStarted).toHaveBeenCalledTimes(1));
+  });
+
   it('ignores progress before a started lifecycle event', async () => {
     let state = createEmptyPersistedState();
     const reportProgress = vi.fn();

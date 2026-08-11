@@ -22,6 +22,14 @@ export interface PlayerLaunchInput {
   startSeconds?: number;
 }
 
+export interface PlayerLaunchResult {
+  playerSessionId: number;
+}
+
+export interface PlayerSwitchEpisodeInput extends PlayerLaunchInput {
+  playerSessionId: number;
+}
+
 export interface PlayerEpisodeSelector {
   currentItemId: string;
   episodes: PlayerEpisodeSelectorItem[];
@@ -39,10 +47,16 @@ export interface PlayerEpisodeSelectorItem {
 }
 
 export interface PlayerProgressEvent {
+  playerSessionId: number;
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
   final?: boolean;
+}
+
+export interface PlayerEpisodeSelectEvent {
+  playerSessionId: number;
+  itemId: string;
 }
 
 contextBridge.exposeInMainWorld('embyDesktop', {
@@ -69,8 +83,8 @@ contextBridge.exposeInMainWorld('embyDesktop', {
     setStoryMarkers: (input: PlayerStoryMarkerUpdate) =>
       ipcRenderer.invoke('player:set-story-markers', input) as Promise<void>,
     launch: (input: PlayerLaunchInput) =>
-      ipcRenderer.invoke('player:launch', input) as Promise<void>,
-    switchEpisode: (input: PlayerLaunchInput) =>
+      ipcRenderer.invoke('player:launch', input) as Promise<PlayerLaunchResult>,
+    switchEpisode: (input: PlayerSwitchEpisodeInput) =>
       ipcRenderer.invoke('player:switch-episode', input) as Promise<void>,
     preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) =>
       ipcRenderer.invoke('player:preflight', input) as Promise<void>,
@@ -92,9 +106,9 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       ipcRenderer.on('player:playback-event', handler);
       return () => ipcRenderer.removeListener('player:playback-event', handler);
     },
-    onEpisodeSelect: (listener: (itemId: string) => void) => {
-      const handleEpisodeSelect = (_event: Electron.IpcRendererEvent, itemId: string) => {
-        listener(itemId);
+    onEpisodeSelect: (listener: (event: PlayerEpisodeSelectEvent) => void) => {
+      const handleEpisodeSelect = (_event: Electron.IpcRendererEvent, payload: PlayerEpisodeSelectEvent) => {
+        listener(payload);
       };
 
       ipcRenderer.on('player:episode-select', handleEpisodeSelect);

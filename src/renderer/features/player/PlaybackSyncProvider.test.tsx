@@ -22,7 +22,7 @@ function RegisterContext() {
   useEffect(() => {
     registerPlaybackContext({
       accountId: account.id, serverUrl: account.serverUrl, userId: account.userId,
-      accessToken: account.accessToken, itemId: 'item-1', playSessionId: null,
+      accessToken: account.accessToken, itemId: 'item-1', playerSessionId: 1, playSessionId: null,
       mediaSourceId: 'source-1', playMethod: 'DirectPlay', audioStreamIndex: null,
       resumeItem: { itemId: 'item-1', itemType: 'Movie', title: 'Movie', posterUrl: '', imageCandidates: [] },
     });
@@ -54,7 +54,7 @@ describe('PlaybackSyncProvider', () => {
     );
     await waitFor(() => expect(window.embyDesktop.player.onPlaybackEvent).toHaveBeenCalledTimes(1));
 
-    await act(async () => listener?.({ playbackId: '1:1', sequence: 1, phase: 'started', itemId: 'item-1', positionSeconds: 0, durationSeconds: 180 }));
+    await act(async () => listener?.({ playerSessionId: 1, playbackId: '1:1', sequence: 1, phase: 'started', itemId: 'item-1', positionSeconds: 0, durationSeconds: 180 }));
 
     await waitFor(() => expect(reportStartedBridge).toHaveBeenCalledTimes(1));
     view.unmount();

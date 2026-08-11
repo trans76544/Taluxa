@@ -4,6 +4,7 @@ export interface BeginStoryMarkerDeliveryInput {
   accountId: string;
   itemId: string;
   load: () => Promise<StoryTimelineMarker[]>;
+  playerSessionId?: number;
   serverUrl: string;
 }
 
@@ -15,15 +16,20 @@ interface DeliveryRecord extends BeginStoryMarkerDeliveryInput {
 }
 
 export class StoryMarkerDeliveryCoordinator {
-  private current: DeliveryRecord | null = null;
+  private readonly records = new Map<number, DeliveryRecord>();
   private nextRequestId = 1;
 
   constructor(private readonly send: (update: PlayerStoryMarkerUpdate) => Promise<void> | void) {}
 
   begin(input: BeginStoryMarkerDeliveryInput): number {
+    if (input.playerSessionId !== undefined) {
+      for (const [requestId, record] of this.records) {
+        if (record.playerSessionId === input.playerSessionId) this.records.delete(requestId);
+      }
+    }
     const requestId = this.nextRequestId++;
     const record: DeliveryRecord = { ...input, requestId, accepted: false, delivered: false };
-    this.current = record;
+    this.records.set(requestId, record);
     Promise.resolve().then(input.load).then(
       (markers) => this.resolve(requestId, markers),
       () => this.resolve(requestId, [])
@@ -32,25 +38,35 @@ export class StoryMarkerDeliveryCoordinator {
   }
 
   accept(requestId: number): void {
-    if (this.current?.requestId !== requestId) return;
-    this.current.accepted = true;
-    this.flush();
+    const record = this.records.get(requestId);
+    if (!record) return;
+    record.accepted = true;
+    this.flush(record);
+  }
+
+  bindSession(requestId: number, playerSessionId: number): void {
+    const record = this.records.get(requestId);
+    if (!record) return;
+    record.playerSessionId = playerSessionId;
+    this.flush(record);
   }
 
   cancel(requestId?: number): void {
-    if (this.current && (requestId === undefined || this.current.requestId === requestId)) this.current = null;
+    if (requestId === undefined) this.records.clear();
+    else this.records.delete(requestId);
   }
 
   private resolve(requestId: number, markers: StoryTimelineMarker[]): void {
-    if (this.current?.requestId !== requestId) return;
-    this.current.markers = markers;
-    this.flush();
+    const record = this.records.get(requestId);
+    if (!record) return;
+    record.markers = markers;
+    this.flush(record);
   }
 
-  private flush(): void {
-    const record = this.current;
-    if (!record || !record.accepted || record.markers === undefined || record.delivered) return;
+  private flush(record: DeliveryRecord): void {
+    if (!record || !record.accepted || record.markers === undefined || record.playerSessionId === undefined || record.delivered) return;
     record.delivered = true;
-    try { Promise.resolve(this.send({ itemId: record.itemId, markers: record.markers })).catch(() => undefined); } catch { /* contained at the delivery boundary */ }
+    this.records.delete(record.requestId);
+    try { Promise.resolve(this.send({ itemId: record.itemId, markers: record.markers, playerSessionId: record.playerSessionId })).catch(() => undefined); } catch { /* contained at the delivery boundary */ }
   }
 }

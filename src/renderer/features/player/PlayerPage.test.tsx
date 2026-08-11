@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayerPage } from './PlayerPage';
 
 interface PlayerProgressEvent {
+  playerSessionId: number;
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
@@ -11,8 +12,10 @@ interface PlayerProgressEvent {
 
 function mockPlayerBridge() {
   const listeners = new Set<(event: PlayerProgressEvent) => void>();
-  const episodeSelectListeners = new Set<(itemId: string) => void>();
-  const launch = vi.fn(() => new Promise<void>(() => undefined));
+  const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
+  const launch = vi.fn<() => Promise<{ playerSessionId: number } | void>>(
+    () => new Promise<{ playerSessionId: number } | void>(() => undefined)
+  );
   const onProgress = vi.fn((listener: (event: PlayerProgressEvent) => void) => {
     listeners.add(listener);
 
@@ -20,7 +23,7 @@ function mockPlayerBridge() {
       listeners.delete(listener);
     };
   });
-  const onEpisodeSelect = vi.fn((listener: (itemId: string) => void) => {
+  const onEpisodeSelect = vi.fn((listener: (event: { playerSessionId: number; itemId: string }) => void) => {
     episodeSelectListeners.add(listener);
 
     return () => {
@@ -40,14 +43,14 @@ function mockPlayerBridge() {
     launch,
     onEpisodeSelect,
     onProgress,
-    emitEpisodeSelect(itemId: string) {
+    emitEpisodeSelect(itemId: string, playerSessionId = 1) {
       for (const listener of episodeSelectListeners) {
-        listener(itemId);
+        listener({ playerSessionId, itemId });
       }
     },
-    emitProgress(event: PlayerProgressEvent) {
+    emitProgress(event: Omit<PlayerProgressEvent, 'playerSessionId'> & Partial<Pick<PlayerProgressEvent, 'playerSessionId'>>) {
       for (const listener of listeners) {
-        listener(event);
+        listener({ playerSessionId: 1, ...event });
       }
     },
   };
@@ -86,6 +89,49 @@ describe('PlayerPage', () => {
     expect(screen.getByTestId('player-page')).toHaveStyle({ display: 'none' });
     expect(screen.queryByText('Movie 1')).not.toBeInTheDocument();
     expect(screen.queryByText('Desktop playback')).not.toBeInTheDocument();
+  });
+
+  it('filters progress and episode-select events by player session identity', () => {
+    const bridge = mockPlayerBridge();
+    const firstProgress = vi.fn();
+    const secondProgress = vi.fn();
+    const firstEpisode = vi.fn();
+    const secondEpisode = vi.fn();
+
+    render(
+      <>
+        <PlayerPage
+          httpHeaders={{}}
+          itemId="episode-1"
+          initialPlayerSessionId={1}
+          title="Player 1"
+          streamUrl="https://demo.emby.local/one"
+          initialPositionSeconds={0}
+          onEpisodeSelect={firstEpisode}
+          onProgress={firstProgress}
+        />
+        <PlayerPage
+          httpHeaders={{}}
+          itemId="episode-1"
+          initialPlayerSessionId={2}
+          title="Player 2"
+          streamUrl="https://demo.emby.local/two"
+          initialPositionSeconds={0}
+          onEpisodeSelect={secondEpisode}
+          onProgress={secondProgress}
+        />
+      </>
+    );
+
+    act(() => {
+      bridge.emitProgress({ playerSessionId: 2, itemId: 'episode-1', positionSeconds: 12, durationSeconds: 100 });
+      bridge.emitEpisodeSelect('episode-2', 2);
+    });
+
+    expect(firstProgress).not.toHaveBeenCalled();
+    expect(secondProgress).toHaveBeenCalledWith(expect.objectContaining({ playerSessionId: 2 }), 2);
+    expect(firstEpisode).not.toHaveBeenCalled();
+    expect(secondEpisode).toHaveBeenCalledWith('episode-2', 2);
   });
 
   it('launches mpv with the resolved resume position and playback headers', async () => {
@@ -173,7 +219,7 @@ describe('PlayerPage', () => {
       emitEpisodeSelect('episode-1');
     });
 
-    expect(handleEpisodeSelect).toHaveBeenCalledWith('episode-1');
+    expect(handleEpisodeSelect).toHaveBeenCalledWith('episode-1', 1);
   });
 
   it('still launches mpv when the episode select bridge is not available', async () => {
@@ -268,10 +314,11 @@ describe('PlayerPage', () => {
 
     expect(launch).toHaveBeenCalledTimes(1);
     expect(onProgress).toHaveBeenCalledWith({
+      playerSessionId: 1,
       itemId: 'episode-2',
       positionSeconds: 20,
       durationSeconds: 1200,
-    });
+    }, 1);
   });
 
   it('does not double launch and still reports readiness when React StrictMode replays effects', async () => {
@@ -577,10 +624,11 @@ describe('PlayerPage', () => {
       expect(onProgress).toHaveBeenCalledTimes(1);
     });
     expect(onProgress).toHaveBeenCalledWith({
+      playerSessionId: 1,
       itemId: 'item-1',
       positionSeconds: 24,
       durationSeconds: 180,
-    });
+    }, 1);
 
     unmount();
 

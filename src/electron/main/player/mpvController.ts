@@ -1,5 +1,5 @@
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,6 +49,7 @@ export interface LaunchMpvEpisodeSelectorItem {
 }
 
 export interface MpvProgressSnapshot {
+  playerSessionId: number;
   itemId: string;
   positionSeconds: number;
   durationSeconds: number;
@@ -1691,7 +1692,7 @@ export interface MpvControllerOptions {
   isPackaged?: boolean;
   maxConnectAttempts?: number;
   moduleDir?: string;
-  onEpisodeSelect?: (itemId: string) => void;
+  onEpisodeSelect?: (playerSessionId: number, itemId: string) => void;
   onPlayerSettingsPatch?: (patch: PlayerSettingsPatch) => void | Promise<void>;
   onProgress?: (snapshot: MpvProgressSnapshot) => void;
   onPlaybackEvent?: (event: PlayerPlaybackEvent) => void;
@@ -1699,6 +1700,7 @@ export interface MpvControllerOptions {
   resourcesPath?: string;
   spawnProcess?: SpawnProcess;
   writeTextFile?: (targetPath: string, content: string) => void;
+  removeFile?: (targetPath: string) => void;
 }
 
 function findWorkspaceRoot(startDir: string, fileExists: (targetPath: string) => boolean): string | null {
@@ -1990,7 +1992,7 @@ function redactSensitivePlaybackText(value: string): string {
 }
 
 export class MpvController {
-  private activeSession: ActiveSession | null = null;
+  private readonly sessions = new Map<number, ActiveSession>();
 
   private readonly connectIpc: ConnectIpc;
 
@@ -2014,7 +2016,7 @@ export class MpvController {
 
   private readonly getWindowMaximizeBounds: () => MpvWindowBounds | null;
 
-  private readonly onEpisodeSelect: (itemId: string) => void;
+  private readonly onEpisodeSelect: (playerSessionId: number, itemId: string) => void;
 
   private ipcEndpointCounter = 0;
 
@@ -2038,6 +2040,8 @@ export class MpvController {
   private readonly spawnProcess: SpawnProcess;
 
   private readonly writeTextFile: (targetPath: string, content: string) => void;
+
+  private readonly removeFile: (targetPath: string) => void;
 
   constructor(options: MpvControllerOptions = {}) {
     this.connectIpc = options.connectIpc ?? ((ipcServerPath) => createConnection(ipcServerPath));
@@ -2078,6 +2082,9 @@ export class MpvController {
       spawn(command, args, spawnOptions));
     this.writeTextFile =
       options.writeTextFile ?? ((targetPath, content) => writeFileSync(targetPath, content, 'utf8'));
+    this.removeFile = options.removeFile ?? ((targetPath) => {
+      try { unlinkSync(targetPath); } catch { /* temporary files may already be gone */ }
+    });
   }
 
   getExecutablePath(): string {
@@ -2096,7 +2103,7 @@ export class MpvController {
     input: LaunchMpvInput,
     proxy: ProxySettings,
     playerSettings?: Partial<LaunchPlayerSettings>
-  ): Promise<void> {
+  ): Promise<{ playerSessionId: number }> {
     const normalizedPlayerSettings = normalizeLaunchPlayerSettings(playerSettings);
     const executablePath = this.getExecutablePath();
     const ipcServerPath = this.createIpcEndpoint();
@@ -2134,8 +2141,6 @@ export class MpvController {
       ...getPlaybackProxyArgs(input.streamUrl, proxy),
       input.streamUrl,
     ];
-
-    this.replaceActiveSession();
 
     await new Promise<void>((resolve, reject) => {
       let child: SpawnedMpvProcess;
@@ -2210,7 +2215,7 @@ export class MpvController {
         settleLaunch(() => reject(error));
       };
       const handleExit = () => {
-        const activeSession = this.activeSession;
+        const activeSession = this.getSession(sessionId);
 
         if (!this.isActiveSession(sessionId) || !activeSession) {
           return;
@@ -2218,7 +2223,7 @@ export class MpvController {
 
         if (activeSession.isReady) {
           this.emitProgress(activeSession, true, 'quit');
-          this.clearActiveSession();
+          this.clearSession(sessionId);
           return;
         }
 
@@ -2231,20 +2236,22 @@ export class MpvController {
             )
           )
         );
-        this.clearActiveSession();
+        this.clearSession(sessionId);
       };
 
       child.once('spawn', handleSpawn);
       child.once('error', handleError);
     });
+
+    return { playerSessionId: sessionId };
   }
 
   async switchEpisode(
-    input: LaunchMpvInput,
+    input: LaunchMpvInput & { playerSessionId: number },
     proxy: ProxySettings,
     playerSettings?: Partial<LaunchPlayerSettings>
   ): Promise<void> {
-    const session = this.activeSession;
+    const session = this.getSession(input.playerSessionId);
 
     if (!session) {
       throw new Error('mpv is not running.');
@@ -2289,19 +2296,19 @@ export class MpvController {
   }
 
   setStoryMarkers(update: PlayerStoryMarkerUpdate): boolean {
-    const session = this.activeSession;
+    const session = this.getSession(update.playerSessionId);
     const pendingItemId = session?.pendingReplacement?.input.itemId;
     if (!session || (session.itemId !== update.itemId && pendingItemId !== update.itemId)) return false;
     this.queueSessionCommand(session.sessionId, ['script-message', 'taluxa-story-markers', update.itemId, JSON.stringify(update.markers)]);
     return true;
   }
 
-  private clearActiveSession(): void {
-    if (!this.activeSession) {
+  private clearSession(sessionId: number): void {
+    const session = this.getSession(sessionId);
+
+    if (!session) {
       return;
     }
-
-    const session = this.activeSession;
 
     if (session.retryTimeout) {
       clearTimeout(session.retryTimeout);
@@ -2317,7 +2324,18 @@ export class MpvController {
 
     session.client?.destroy();
     session.child.kill?.();
-    this.activeSession = null;
+    this.removeFile(session.danmakuFilePath);
+    this.removeFile(this.createInputConfigFilePath(session.sessionId));
+    this.removeFile(this.createUiScriptFilePath(session.sessionId));
+    this.removeFile(session.logFilePath);
+    this.sessions.delete(sessionId);
+  }
+
+  stopAll(): void {
+    for (const session of [...this.sessions.values()]) {
+      if (session.isReady) this.emitProgress(session, true, 'quit');
+      this.clearSession(session.sessionId);
+    }
   }
 
   private startDanmakuLookup(
@@ -2359,8 +2377,8 @@ export class MpvController {
           return;
         }
 
-        const session = this.activeSession;
-        if (session && session.sessionId === sessionId) {
+        const session = this.getSession(sessionId);
+        if (session) {
           session.danmakuComments = comments;
           session.danmakuSettings = danmakuSettings ?? createDefaultSettings().danmaku;
           session.hasDanmakuSubtitle = true;
@@ -2394,7 +2412,7 @@ export class MpvController {
   }
 
   private queueSessionCommand(sessionId: number, command: unknown[]): void {
-    const session = this.activeSession;
+    const session = this.getSession(sessionId);
 
     if (!session || session.sessionId !== sessionId) {
       return;
@@ -2418,18 +2436,6 @@ export class MpvController {
     for (const command of session.pendingCommands.splice(0)) {
       this.writeCommand(client, command);
     }
-  }
-
-  private replaceActiveSession(): void {
-    const session = this.activeSession;
-
-    if (session && !session.isReady) {
-      session.onReady();
-    }
-
-    if (session?.isReady) this.emitProgress(session, true, 'replace');
-
-    this.clearActiveSession();
   }
 
   private connectSession(session: ActiveSession): void {
@@ -2472,7 +2478,8 @@ export class MpvController {
             )
           );
         }
-        this.clearActiveSession();
+        if (session.isReady) this.emitProgress(session, true, 'quit');
+        this.clearSession(session.sessionId);
       }
     });
     client.on('error', (error) => {
@@ -2505,7 +2512,7 @@ export class MpvController {
           )
         );
       }
-      this.clearActiveSession();
+      this.clearSession(session.sessionId);
     });
   }
 
@@ -2526,6 +2533,7 @@ export class MpvController {
     const positionSeconds = Math.floor(session.positionSeconds ?? 0);
     if (session.positionSeconds !== null) {
       this.onProgress({
+        playerSessionId: session.sessionId,
         itemId: session.itemId,
         positionSeconds,
         durationSeconds: Math.floor(session.durationSeconds),
@@ -2534,6 +2542,7 @@ export class MpvController {
     }
     if (!session.currentItemStarted) return;
     this.onPlaybackEvent({
+      playerSessionId: session.sessionId,
       playbackId: `${session.sessionId}:${session.itemSequence}`,
       sequence: ++session.eventSequence,
       phase: final ? 'stopped' : 'progress',
@@ -2556,7 +2565,7 @@ export class MpvController {
   }
 
   private handleIpcData(sessionId: number, chunk: Buffer | string): void {
-    const session = this.activeSession;
+    const session = this.getSession(sessionId);
 
     if (!session || session.sessionId !== sessionId) {
       return;
@@ -2608,7 +2617,7 @@ export class MpvController {
               )
             )
           );
-          this.clearActiveSession();
+          this.clearSession(sessionId);
           continue;
         }
 
@@ -2620,7 +2629,7 @@ export class MpvController {
           }
           const completed = payload.reason === 'eof';
           this.emitProgress(session, true, completed ? 'eof' : payload.reason === 'error' ? 'error' : 'stop', completed);
-          this.clearActiveSession();
+          this.clearSession(sessionId);
           continue;
         }
 
@@ -2641,7 +2650,7 @@ export class MpvController {
           }
 
           if (name === 'taluxa-select-episode' && typeof rawPatch === 'string' && rawPatch.trim()) {
-            this.onEpisodeSelect(rawPatch.trim());
+            this.onEpisodeSelect(session.sessionId, rawPatch.trim());
           }
 
           continue;
@@ -2694,7 +2703,11 @@ export class MpvController {
   }
 
   private isActiveSession(sessionId: number): boolean {
-    return this.activeSession?.sessionId === sessionId;
+    return this.sessions.has(sessionId);
+  }
+
+  private getSession(sessionId: number): ActiveSession | null {
+    return this.sessions.get(sessionId) ?? null;
   }
 
   private markSessionReady(session: ActiveSession): void {
@@ -2721,6 +2734,7 @@ export class MpvController {
     session.currentItemStarted = true;
     session.currentItemStopped = false;
     this.onPlaybackEvent({
+      playerSessionId: session.sessionId,
       playbackId: `${session.sessionId}:${session.itemSequence}`,
       sequence: ++session.eventSequence,
       phase: 'started',
@@ -2842,7 +2856,7 @@ export class MpvController {
       pendingReplacement: null,
     };
 
-    this.activeSession = session;
+    this.sessions.set(session.sessionId, session);
     session.connectTimeout = setTimeout(() => {
       if (!this.isActiveSession(session.sessionId) || session.isReady) {
         return;
@@ -2857,7 +2871,7 @@ export class MpvController {
           )
         )
       );
-      this.clearActiveSession();
+      this.clearSession(session.sessionId);
     }, this.connectTimeoutMs);
     this.connectSession(session);
   }

@@ -25,7 +25,7 @@ function input(
   itemId: string,
   load: () => Promise<StoryTimelineMarker[]>
 ): BeginStoryMarkerDeliveryInput {
-  return { accountId: 'a', serverUrl: 'https://emby.test', itemId, load };
+  return { accountId: 'a', serverUrl: 'https://emby.test', itemId, playerSessionId: 1, load };
 }
 
 describe('StoryMarkerDeliveryCoordinator', () => {
@@ -42,7 +42,7 @@ describe('StoryMarkerDeliveryCoordinator', () => {
     coordinator.accept(requestId);
     coordinator.accept(requestId);
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
-    expect(send).toHaveBeenCalledWith({ itemId: 'one', markers: [marker] });
+    expect(send).toHaveBeenCalledWith({ itemId: 'one', playerSessionId: 1, markers: [marker] });
   });
 
   it('delivers when acceptance precedes the result', async () => {
@@ -67,7 +67,7 @@ describe('StoryMarkerDeliveryCoordinator', () => {
     coordinator.accept(requestId);
 
     await vi.waitFor(() =>
-      expect(send).toHaveBeenCalledWith({ itemId: 'one', markers: [] })
+      expect(send).toHaveBeenCalledWith({ itemId: 'one', playerSessionId: 1, markers: [] })
     );
   });
 
@@ -133,7 +133,7 @@ describe('StoryMarkerDeliveryCoordinator', () => {
     old.reject(new Error('late old-account failure'));
     next.resolve([marker]);
 
-    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    expect(send).toHaveBeenCalledWith({ itemId: 'episode-b', markers: [marker] });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledWith({ itemId: 'episode-b', playerSessionId: 1, markers: [marker] });
   });
 });

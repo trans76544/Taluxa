@@ -292,6 +292,46 @@ describe('playback performance route behavior', () => {
     fetchServerInfoMock.mockResolvedValue({ serverName: null });
   });
 
+  it('keeps two accepted play actions as independent session bridges', async () => {
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('player-session-host').querySelectorAll('[data-testid="player-page"]')).toHaveLength(2);
+  });
+
+  it('keeps player session identities unique after navigating to another item', async () => {
+    const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      window.location.hash = '#/libraries';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      await flushPromises();
+    });
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Movie 1' })).not.toBeInTheDocument());
+
+    fetchItemDetailsMock.mockResolvedValue(createMovieDetails({ id: 'movie-2', name: 'Movie 2' }));
+    await act(async () => {
+      window.location.hash = '#/item/movie-2';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      await flushPromises();
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Movie 2' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+
+    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('player-session-host').querySelectorAll('[data-testid="player-page"]')).toHaveLength(2);
+  });
+
   it('keeps playback startup logs off the detail page while source resolution is delayed', async () => {
     const sourceDeferred = createDeferred<{
       httpHeaders: Record<string, string>;
@@ -357,7 +397,7 @@ describe('playback performance route behavior', () => {
 
     await waitFor(() => {
       expect(bridge.preflight).toHaveBeenCalledTimes(2);
-      expect(bridge.launch).toHaveBeenCalledTimes(1);
+      expect(bridge.launch).toHaveBeenCalledTimes(2);
     });
 
     await act(async () => {
@@ -365,7 +405,7 @@ describe('playback performance route behavior', () => {
       await flushPromises();
     });
 
-    expect(bridge.launch).toHaveBeenCalledTimes(1);
+    expect(bridge.launch).toHaveBeenCalledTimes(2);
   });
 
   it('does not delay direct playback while story markers are still loading', async () => {
@@ -449,7 +489,7 @@ describe('playback performance route behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'movie-1', markers: [],
+      itemId: 'movie-1', playerSessionId: 1, markers: [],
     }));
   });
 
@@ -461,7 +501,7 @@ describe('playback performance route behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'movie-1', markers: [],
+      itemId: 'movie-1', playerSessionId: 1, markers: [],
     }));
   });
 
@@ -680,9 +720,8 @@ describe('playback performance route behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
     await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'episode-2', markers: [],
+      itemId: 'episode-2', playerSessionId: 1, markers: [],
     }));
-
     act(() => bridge.emitEpisodeSelect('episode-1'));
 
     await waitFor(() => expect(bridge.switchEpisode).toHaveBeenCalledWith(
@@ -695,7 +734,7 @@ describe('playback performance route behavior', () => {
 
     markersDeferred.resolve([]);
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
-      itemId: 'episode-1', markers: [],
+      itemId: 'episode-1', playerSessionId: 1, markers: [],
     }));
   });
 
@@ -826,14 +865,12 @@ describe('playback performance route behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
       await waitFor(() => {
-        expect(screen.getAllByRole('alert')).toHaveLength(2);
+        expect(screen.getAllByRole('alert')).toHaveLength(1);
       });
-      for (const alert of screen.getAllByRole('alert')) {
-        expect(alert).toHaveTextContent(
-          'mpv failed for https://demo.emby.local/Videos/movie-1/stream.mp4?api_key=[redacted]'
-        );
-        expect(alert).not.toHaveTextContent('token-123');
-      }
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'mpv failed for https://demo.emby.local/Videos/movie-1/stream.mp4?api_key=[redacted]'
+      );
+      expect(screen.getByRole('alert')).not.toHaveTextContent('token-123');
       expect(milestones).toContainEqual(
         expect.objectContaining({
           name: 'playback-recoverable-failure',

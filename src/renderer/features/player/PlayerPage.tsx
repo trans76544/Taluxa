@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { redactErrorMessage } from '@shared/network/redaction';
 
 export interface PlayerLaunchReadyEvent {
   itemId: string;
   launchRequestId?: number;
+  playerSessionId?: number;
 }
 
 export interface PlayerLaunchFailureEvent extends PlayerLaunchReadyEvent {
@@ -15,12 +16,13 @@ export interface PlayerPageProps {
   episodeSelector?: PlayerEpisodeSelector;
   httpHeaders?: Record<string, string>;
   itemId: string;
+  initialPlayerSessionId?: number;
   launchRequestId?: number;
   redactedDisplayUrl?: string;
   title: string;
   streamUrl: string;
   initialPositionSeconds: number;
-  onEpisodeSelect?: (itemId: string) => void;
+  onEpisodeSelect?: (itemId: string, playerSessionId?: number) => void | Promise<boolean | void>;
   onLaunchFailure?: (event: PlayerLaunchFailureEvent) => void;
   onLaunchReady?: (event: PlayerLaunchReadyEvent) => void;
   onProgress: (input: {
@@ -28,13 +30,13 @@ export interface PlayerPageProps {
     positionSeconds: number;
     durationSeconds: number;
     final?: boolean;
-  }) => void | Promise<void>;
+  }, playerSessionId?: number) => void | Promise<void>;
 }
 
 type PlayerLaunch = Window['embyDesktop']['player']['launch'];
 type PlayerEpisodeSelector = NonNullable<Parameters<PlayerLaunch>[0]['episodeSelector']>;
 
-const pendingLaunchPromisesByBridge = new WeakMap<PlayerLaunch, Map<string, Promise<void>>>();
+const pendingLaunchPromisesByBridge = new WeakMap<PlayerLaunch, Map<string, ReturnType<PlayerLaunch>>>();
 
 function createLaunchKey({
   authMode,
@@ -67,14 +69,14 @@ function createLaunchKey({
   });
 }
 
-function getPendingLaunchPromises(launch: PlayerLaunch): Map<string, Promise<void>> {
+function getPendingLaunchPromises(launch: PlayerLaunch): Map<string, ReturnType<PlayerLaunch>> {
   const existingPromises = pendingLaunchPromisesByBridge.get(launch);
 
   if (existingPromises) {
     return existingPromises;
   }
 
-  const nextPromises = new Map<string, Promise<void>>();
+  const nextPromises = new Map<string, ReturnType<PlayerLaunch>>();
   pendingLaunchPromisesByBridge.set(launch, nextPromises);
 
   return nextPromises;
@@ -90,12 +92,15 @@ export function PlayerPage({
   title,
   streamUrl,
   initialPositionSeconds,
+  initialPlayerSessionId,
   onEpisodeSelect,
   onLaunchFailure,
   onLaunchReady,
   onProgress,
 }: PlayerPageProps) {
   const [launchError, setLaunchError] = useState('');
+  const [playerSessionId, setPlayerSessionId] = useState<number | null>(initialPlayerSessionId ?? null);
+  const currentItemIdRef = useRef(itemId);
   const launchKey =
     launchRequestId === undefined
         ? createLaunchKey({
@@ -133,11 +138,15 @@ export function PlayerPage({
     }
 
     launchPromise
-      .then(() => {
+      .then((result) => {
+        if (result?.playerSessionId) {
+          setPlayerSessionId(result.playerSessionId);
+        }
         if (!cancelled) {
           onLaunchReady?.({
             itemId,
             launchRequestId,
+            ...(result?.playerSessionId ? { playerSessionId: result.playerSessionId } : {}),
           });
         }
         return undefined;
@@ -170,25 +179,34 @@ export function PlayerPage({
   useEffect(() => {
     if (typeof window.embyDesktop.player.onPlaybackEvent === 'function') return undefined;
     return window.embyDesktop.player.onProgress((event) => {
-      if (event.itemId !== itemId) {
+      if (playerSessionId === null
+        ? event.itemId !== itemId
+        : event.playerSessionId !== playerSessionId || event.itemId !== currentItemIdRef.current) {
         return;
       }
 
-      void onProgress(event);
+      void onProgress(event, event.playerSessionId);
     });
-  }, [itemId, onProgress]);
+  }, [itemId, onProgress, playerSessionId]);
 
   useEffect(() => {
     if (!onEpisodeSelect || typeof window.embyDesktop.player.onEpisodeSelect !== 'function') {
       return undefined;
     }
 
-    return window.embyDesktop.player.onEpisodeSelect((nextItemId) => {
-      if (nextItemId !== itemId) {
-        onEpisodeSelect(nextItemId);
+    return window.embyDesktop.player.onEpisodeSelect((event) => {
+      if (playerSessionId === null
+        ? event.itemId === itemId
+        : event.playerSessionId !== playerSessionId || event.itemId === currentItemIdRef.current) {
+        return;
       }
+      currentItemIdRef.current = event.itemId;
+      void Promise.resolve(onEpisodeSelect(event.itemId, event.playerSessionId)).then((accepted) => {
+        if (accepted !== false) currentItemIdRef.current = event.itemId;
+        else if (currentItemIdRef.current === event.itemId) currentItemIdRef.current = itemId;
+      });
     });
-  }, [itemId, onEpisodeSelect]);
+  }, [itemId, onEpisodeSelect, playerSessionId]);
 
   if (launchError) {
     return (

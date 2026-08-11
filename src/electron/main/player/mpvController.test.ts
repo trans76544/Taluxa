@@ -180,7 +180,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -223,20 +223,20 @@ describe('MpvController', () => {
     child.emit('spawn'); ipcClient.emit('connect'); ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`)); await launch;
     ipcClient.write.mockClear();
     const markers = [{ startSeconds: 12, names: ['A | "B" {中文}'], kinds: ['chapter' as const] }];
-    expect(controller.setStoryMarkers({ itemId: 'active', markers })).toBe(true);
+    expect(controller.setStoryMarkers({ playerSessionId: 1, itemId: 'active', markers })).toBe(true);
     expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'active', JSON.stringify(markers)] })}\n`);
-    await controller.switchEpisode(createLaunchInput({ itemId: 'pending' }), createProxySettings());
-    expect(controller.setStoryMarkers({ itemId: 'pending', markers: [] })).toBe(true);
+    await controller.switchEpisode({ playerSessionId: 1, ...createLaunchInput({ itemId: 'pending' }) }, createProxySettings());
+    expect(controller.setStoryMarkers({ playerSessionId: 1, itemId: 'pending', markers: [] })).toBe(true);
     expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'pending', '[]'] })}\n`);
     const calls = ipcClient.write.mock.calls.length;
-    expect(controller.setStoryMarkers({ itemId: 'stale', markers })).toBe(false);
+    expect(controller.setStoryMarkers({ playerSessionId: 1, itemId: 'stale', markers })).toBe(false);
     expect(ipcClient.write).toHaveBeenCalledTimes(calls);
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'stop' })}\n`));
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
     const promotedCalls = ipcClient.write.mock.calls.length;
-    controller.setStoryMarkers({ itemId: 'active', markers });
+    controller.setStoryMarkers({ playerSessionId: 1, itemId: 'active', markers });
     expect(ipcClient.write).toHaveBeenCalledTimes(promotedCalls);
-    controller.setStoryMarkers({ itemId: 'pending', markers });
+    controller.setStoryMarkers({ playerSessionId: 1, itemId: 'pending', markers });
     expect(ipcClient.write).toHaveBeenLastCalledWith(`${JSON.stringify({ command: ['script-message', 'taluxa-story-markers', 'pending', JSON.stringify(markers)] })}\n`);
   });
 
@@ -260,7 +260,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     ipcClient.emit(
       'data',
@@ -314,7 +314,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
@@ -346,7 +346,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
 
@@ -390,7 +390,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const uiScript = writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1];
 
@@ -459,7 +459,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const uiScript = String(writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1]);
     expect(uiScript).toContain('local episode_selector_enabled = #episode_items > 0');
@@ -505,7 +505,7 @@ describe('MpvController', () => {
       )
     );
 
-    expect(onEpisodeSelect).toHaveBeenCalledWith('episode-1');
+    expect(onEpisodeSelect).toHaveBeenCalledWith(1, 'episode-1');
   });
 
   it('switches a selected episode inside the active mpv process', async () => {
@@ -532,13 +532,13 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 120 })}\n`));
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'time-pos', data: 45 })}\n`));
     ipcClient.write.mockClear();
 
     await controller.switchEpisode(
-      createLaunchInput({
+      { playerSessionId: 1, ...createLaunchInput({
         httpHeaders: {
           Authorization: 'MediaBrowser Token="token-123"',
         },
@@ -546,7 +546,7 @@ describe('MpvController', () => {
         startSeconds: 18,
         streamUrl: 'https://example.com/episode-2.mp4',
         title: 'Series 1 - S1E2 - Second Case',
-      }),
+      }) },
       createProxySettings()
     );
 
@@ -615,7 +615,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const uiScript = String(writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1]);
     expect(uiScript).toContain('local episode_selector_enabled = #episode_items > 0');
@@ -665,7 +665,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     await flushAsyncQueue();
     expect(writeTextFile).toHaveBeenCalledWith(
       danmakuAssPath,
@@ -731,7 +731,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(writeTextFile).not.toHaveBeenCalledWith(
       danmakuAssPath,
       expect.stringContaining('Dialogue: 0,0:00:12.00')
@@ -797,7 +797,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     await flushAsyncQueue();
 
     expect(writeTextFile).not.toHaveBeenCalledWith(danmakuAssPath, expect.any(String));
@@ -849,7 +849,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     await flushAsyncQueue();
 
     expect(writeTextFile).not.toHaveBeenCalledWith(danmakuAssPath, expect.any(String));
@@ -883,7 +883,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(ipcClient.write).not.toHaveBeenCalledWith(
       `${JSON.stringify({ command: ['show-text', danmakuNoMatchNotice, '5000'] })}\n`
     );
@@ -929,7 +929,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(fetchDanmaku).not.toHaveBeenCalled();
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
@@ -988,7 +988,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(writeTextFile).toHaveBeenCalledWith(
       danmakuAssPath,
       expect.stringContaining('Style: Scroll,Microsoft YaHei UI,51,&HBF00FFFFFF')
@@ -1032,7 +1032,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     await flushAsyncQueue();
 
     ipcClient.emit(
@@ -1076,7 +1076,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain(`danmaku_settings = ${luaUtf8Bytes('\u5f39\u5e55\u8bbe\u7f6e')}`);
@@ -1109,7 +1109,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain("mp.commandv('script-binding', 'stats/display-stats-toggle')");
@@ -1135,7 +1135,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain("local BLUE = 'FF7716'");
@@ -1182,7 +1182,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain("local utils = require 'mp.utils'");
@@ -1228,7 +1228,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain('local function add_range_button(id, x1, y1, x2, y2, value)');
@@ -1303,7 +1303,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(writeTextFile).toHaveBeenCalledWith(
       inputConfigPath,
       expect.stringContaining('F6 cycle-values speed 0.5 0.75 1 1.25 1.5 2 3 4 5')
@@ -1514,7 +1514,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     ipcClient.write.mockClear();
     ipcClient.emit(
@@ -1563,7 +1563,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain("menu_open = 'settings'");
@@ -1636,7 +1636,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     const script = String(writeTextFile.mock.calls.find(([target]) => target === uiScriptPath)?.[1]);
     expect(script).toContain("mp.commandv('set', 'sid'");
@@ -1675,7 +1675,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -1730,7 +1730,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -1786,7 +1786,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -1846,7 +1846,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -1908,7 +1908,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -1968,7 +1968,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -2027,7 +2027,7 @@ describe('MpvController', () => {
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(spawnProcess).toHaveBeenCalledWith(
       expectedPath,
       [
@@ -2117,7 +2117,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     expect(onPlaybackEvent).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'started', itemId: 'episode-1', sequence: 1,
     }));
@@ -2146,6 +2146,7 @@ describe('MpvController', () => {
 
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onProgress).toHaveBeenLastCalledWith({
+      playerSessionId: 1,
       itemId: 'episode-1',
       positionSeconds: 12,
       durationSeconds: 180,
@@ -2182,7 +2183,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     ipcClient.emit(
       'data',
@@ -2195,6 +2196,7 @@ describe('MpvController', () => {
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'end-file', reason: 'eof' })}\n`));
 
     expect(onProgress).toHaveBeenLastCalledWith({
+      playerSessionId: 1,
       itemId: 'episode-final',
       positionSeconds: 42,
       durationSeconds: 180,
@@ -2246,7 +2248,7 @@ describe('MpvController', () => {
     expect(connectIpc).toHaveBeenCalledTimes(2);
     secondIpcClient.emit('connect');
     secondIpcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
     secondIpcClient.emit(
       'data',
       Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 240 })}\n`)
@@ -2265,6 +2267,7 @@ describe('MpvController', () => {
       `${JSON.stringify({ command: ['observe_property', 2, 'duration'] })}\n`
     );
     expect(onProgress).toHaveBeenCalledWith({
+      playerSessionId: 1,
       itemId: 'episode-2',
       positionSeconds: 18,
       durationSeconds: 240,
@@ -2294,7 +2297,7 @@ describe('MpvController', () => {
     await expect(launchPromise).rejects.toThrow(/before playback became ready/i);
   });
 
-  it('terminates the previous mpv process when launching another playback session', async () => {
+  it('keeps the previous mpv process alive when launching another playback session', async () => {
     const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
     const firstChild = new FakeSpawnedProcess();
     const secondChild = new FakeSpawnedProcess();
@@ -2327,14 +2330,15 @@ describe('MpvController', () => {
     const secondLaunch = controller.launch(createLaunchInput({ itemId: 'item-2' }), createProxySettings());
     secondChild.emit('spawn');
     secondIpcClient.emit('connect');
+    firstIpcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
     secondIpcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(firstLaunch).resolves.toBeUndefined();
-    await expect(secondLaunch).resolves.toBeUndefined();
-    expect(firstChild.kill).toHaveBeenCalledTimes(1);
+    await expect(firstLaunch).resolves.toEqual({ playerSessionId: 1 });
+    await expect(secondLaunch).resolves.toEqual({ playerSessionId: 2 });
+    expect(firstChild.kill).not.toHaveBeenCalled();
     expect(secondChild.kill).not.toHaveBeenCalled();
     expect(onPlaybackEvent.mock.calls.map(([event]) => `${event.phase}:${event.itemId}`)).toEqual([
-      'started:item-2',
+      'started:item-1', 'started:item-2',
     ]);
   });
 
@@ -2367,7 +2371,7 @@ describe('MpvController', () => {
 
     ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
   });
 
   it('resolves launch when playback properties arrive before file-loaded', async () => {
@@ -2402,7 +2406,7 @@ describe('MpvController', () => {
       Buffer.from(`${JSON.stringify({ event: 'property-change', name: 'duration', data: 7200 })}\n`)
     );
 
-    await expect(launchPromise).resolves.toBeUndefined();
+    await expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
   });
 
   it('resolves launch after ipc connects when mpv does not emit readiness events', async () => {
@@ -2426,7 +2430,7 @@ describe('MpvController', () => {
     child.emit('spawn');
     ipcClient.emit('connect');
 
-    const timeoutAssertion = expect(launchPromise).resolves.toBeUndefined();
+    const timeoutAssertion = expect(launchPromise).resolves.toEqual({ playerSessionId: 1 });
 
     await vi.advanceTimersByTimeAsync(1500);
     await timeoutAssertion;

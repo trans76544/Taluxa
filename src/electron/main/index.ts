@@ -87,9 +87,9 @@ const mpvController = new MpvController({
       logger: (message) => console.info(message),
     }),
   getWindowMaximizeBounds: getMpvWindowMaximizeBounds,
-  onEpisodeSelect: (itemId) => {
+  onEpisodeSelect: (playerSessionId, itemId) => {
     for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send('player:episode-select', itemId);
+      window.webContents.send('player:episode-select', { playerSessionId, itemId });
     }
   },
   onPlayerSettingsPatch: async (settingsPatch) => {
@@ -132,7 +132,7 @@ function resizeCachedImage(bytes: Buffer, contentType: string, maxDimension: num
   };
 }
 
-async function prepareLaunchInput(input: LaunchMpvInput): Promise<LaunchMpvInput> {
+async function prepareLaunchInput<T extends LaunchMpvInput>(input: T): Promise<T> {
   if (!input.streamUrl.toLowerCase().includes('.m3u8')) {
     return input;
   }
@@ -144,7 +144,7 @@ async function prepareLaunchInput(input: LaunchMpvInput): Promise<LaunchMpvInput
       httpHeaders: input.httpHeaders ?? {},
       streamUrl: input.streamUrl,
     }),
-  };
+  } as T;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -197,11 +197,11 @@ async function prepareEpisodeThumbnail(
   };
 }
 
-async function prepareEpisodeSelectorThumbnails(
-  input: LaunchMpvInput,
+async function prepareEpisodeSelectorThumbnails<T extends LaunchMpvInput>(
+  input: T,
   imageCache: ImageCache,
   thumbnailDir: string
-): Promise<LaunchMpvInput> {
+): Promise<T> {
   const episodeSelector = input.episodeSelector;
 
   if (!episodeSelector) {
@@ -236,7 +236,7 @@ async function prepareEpisodeSelectorThumbnails(
       ...episodeSelector,
       episodes,
     },
-  };
+  } as T;
 }
 
 function registerWindowControlIpc() {
@@ -319,7 +319,10 @@ app.whenReady().then(() => {
           }
         );
       });
-      ipcMain.handle('player:switch-episode', async (_event, input: LaunchMpvInput) => {
+      ipcMain.handle('player:switch-episode', async (_event, input: LaunchMpvInput & { playerSessionId: number }) => {
+        if (!input || !Number.isSafeInteger(input.playerSessionId) || input.playerSessionId <= 0) {
+          throw new Error('Invalid player session target.');
+        }
         const settings = readPersistedState().settings;
         const preparedInput = await prepareLaunchInput(input);
 
@@ -364,5 +367,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  mpvController.stopAll();
   hlsProxyServer.close();
 });
