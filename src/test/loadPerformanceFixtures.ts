@@ -7,6 +7,10 @@ import type {
   LibrarySeason,
 } from '@shared/models/library';
 import type { PersistedState } from '@shared/store/persistence';
+import type {
+  PlayerRetryRequest,
+  PlayerStartupEvent,
+} from '@shared/models/playerStartup';
 import { vi } from 'vitest';
 
 export function createHomePosterItem(overrides: Partial<HomePosterItem> = {}): HomePosterItem {
@@ -200,18 +204,42 @@ export function createContinueWatchingPosterItem(
 
 export function createControllablePlayerBridge() {
   const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
+  const startupListeners = new Set<(event: PlayerStartupEvent) => void>();
+  const retryListeners = new Set<(event: PlayerRetryRequest) => void>();
+  const load = vi.fn().mockResolvedValue(undefined);
   return {
-    launch: vi.fn().mockResolvedValue({ playerSessionId: 1 }),
+    // Test-only alias retained while legacy assertions migrate to the split load contract.
+    launch: load,
+    open: vi.fn((input: { launchRequestId: number }) => Promise.resolve({
+      launchRequestId: input.launchRequestId,
+      playerSessionId: input.launchRequestId,
+    })),
+    load,
+    reportStartupFailure: vi.fn().mockResolvedValue(undefined),
     onEpisodeSelect: vi.fn((listener: (event: { playerSessionId: number; itemId: string }) => void) => {
       episodeSelectListeners.add(listener);
       return () => episodeSelectListeners.delete(listener);
     }),
     onProgress: vi.fn(() => () => undefined),
+    onStartupEvent: vi.fn((listener: (event: PlayerStartupEvent) => void) => {
+      startupListeners.add(listener);
+      return () => startupListeners.delete(listener);
+    }),
+    onRetryRequest: vi.fn((listener: (event: PlayerRetryRequest) => void) => {
+      retryListeners.add(listener);
+      return () => retryListeners.delete(listener);
+    }),
     preflight: vi.fn().mockResolvedValue(undefined),
     setStoryMarkers: vi.fn().mockResolvedValue(undefined),
     switchEpisode: vi.fn().mockResolvedValue(undefined),
     emitEpisodeSelect(itemId: string) {
       for (const listener of episodeSelectListeners) listener({ playerSessionId: 1, itemId });
+    },
+    emitStartupEvent(event: PlayerStartupEvent) {
+      for (const listener of startupListeners) listener(event);
+    },
+    emitRetryRequest(event: PlayerRetryRequest) {
+      for (const listener of retryListeners) listener(event);
     },
   };
 }

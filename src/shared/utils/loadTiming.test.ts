@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLoadTimingRecorder, getTimingSegments } from './loadTiming';
+import { createLoadTimingRecorder, getPlayerStartupTimingSegments, getTimingSegments } from './loadTiming';
 
 describe('createLoadTimingRecorder', () => {
   it('records elapsed timing milestones with an injected clock', () => {
@@ -103,6 +103,19 @@ describe('createLoadTimingRecorder', () => {
         name: 'player-readiness',
         startMilestone: 'player-launch-requested',
       },
+    ]);
+  });
+
+  it('defines split player startup segments through first frame and failure', () => {
+    const milestones = [
+      ['play-acknowledged', 0], ['player-open-requested', 2], ['player-surface-ready', 100],
+      ['playback-source-ready', 180], ['media-load-requested', 185], ['media-ready', 320],
+      ['first-frame', 350], ['playback-recoverable-failure', 400],
+    ].map(([name, elapsedMs]) => ({
+      attemptId: 1, name: String(name), elapsedMs: Number(elapsedMs), result: 'success' as const, surface: 'playback',
+    }));
+    expect(getPlayerStartupTimingSegments(milestones).map((segment) => segment.name)).toEqual([
+      'surface-open', 'source-preparation', 'load-dispatch', 'media-readiness', 'first-frame', 'failure-detection',
     ]);
   });
 });

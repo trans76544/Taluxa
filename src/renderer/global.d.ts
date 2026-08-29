@@ -16,6 +16,14 @@ import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/i
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
 import type { ReportPlaybackProgressInput } from '@shared/api/emby/playback';
 import type { PlayerStoryMarkerUpdate, StoryMarkerDiagnostic } from '@shared/models/storyLandmark';
+import type {
+  PlayerLoadInput,
+  PlayerOpenInput,
+  PlayerOpenResult,
+  PlayerRetryRequest,
+  PlayerStartupFailureInput,
+  PlayerStartupEvent,
+} from '@shared/models/playerStartup';
 
 export {};
 
@@ -39,11 +47,16 @@ declare global {
         reportStoryMarkerDiagnostic?: (input: StoryMarkerDiagnostic) => Promise<void>;
         setStoryMarkers: (input: PlayerStoryMarkerUpdate) => Promise<void>;
         launch: (input: PlayerLaunchInput) => Promise<PlayerLaunchResult>;
+        open: (input: PlayerOpenInput) => Promise<PlayerOpenResult>;
+        load: (input: PlayerLoadInput) => Promise<void>;
+        reportStartupFailure: (input: PlayerStartupFailureInput) => Promise<void>;
         switchEpisode: (input: PlayerSwitchEpisodeInput) => Promise<void>;
         preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) => Promise<void>;
         onEpisodeSelect: (listener: (event: PlayerEpisodeSelectEvent) => void) => () => void;
         onProgress: (listener: (event: PlayerProgressEvent) => void) => () => void;
         onPlaybackEvent?: (listener: (event: PlayerPlaybackEvent) => void) => () => void;
+        onStartupEvent: (listener: (event: PlayerStartupEvent) => void) => () => void;
+        onRetryRequest: (listener: (event: PlayerRetryRequest) => void) => () => void;
       };
       imageCache: {
         resolve: (sourceUrl: string) => Promise<ImageCacheResolveResult>;

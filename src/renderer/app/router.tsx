@@ -71,11 +71,10 @@ import {
 } from '@shared/utils/browsingLoad';
 import {
   createLoadTimingRecorder,
-  getTimingSegments,
+  getPlayerStartupTimingSegments,
   type LoadTimingMilestone,
   type LoadTimingRecorder,
   type TimingSegment,
-  type TimingSegmentDefinition,
 } from '@shared/utils/loadTiming';
 import {
   createSessionSnapshotKey,
@@ -210,33 +209,6 @@ interface ItemRouteState {
 }
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000;
-const PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS = 250;
-const PLAYBACK_STARTUP_SEGMENT_DEFINITIONS: TimingSegmentDefinition[] = [
-  {
-    avoidable: true,
-    from: 'play-acknowledged',
-    name: 'source-resolution',
-    to: 'playback-source-ready',
-  },
-  {
-    avoidable: true,
-    from: 'playback-source-ready',
-    name: 'preflight-budget',
-    to: 'player-launch-requested',
-  },
-  {
-    avoidable: false,
-    from: 'player-launch-requested',
-    name: 'player-readiness',
-    to: 'playback-ready',
-  },
-  {
-    avoidable: false,
-    from: 'player-launch-requested',
-    name: 'player-readiness',
-    to: 'playback-recoverable-failure',
-  },
-];
 
 function emitLoadTimingMilestone(milestone: LoadTimingMilestone) {
   window.dispatchEvent(
@@ -255,35 +227,13 @@ function emitLoadTimingSegment(segment: TimingSegment) {
 }
 
 function emitPlaybackStartupTimingSegments(timingRecorder: LoadTimingRecorder) {
-  for (const segment of getTimingSegments(
-    timingRecorder.milestones,
-    PLAYBACK_STARTUP_SEGMENT_DEFINITIONS
-  )) {
+  for (const segment of getPlayerStartupTimingSegments(timingRecorder.milestones)) {
     emitLoadTimingSegment(segment);
   }
 }
 
-async function waitForFastPlaybackPreflight(source: PlaybackStreamSource): Promise<void> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  const preflightPromise = window.embyDesktop.player.preflight(source);
-  preflightPromise.catch(() => undefined);
-
-  try {
-    const result = await Promise.race([
-      preflightPromise.then(() => 'completed' as const),
-      new Promise<'timed-out'>((resolve) => {
-        timeoutId = setTimeout(resolve, PLAYBACK_PREFLIGHT_FAST_TIMEOUT_MS, 'timed-out');
-      }),
-    ]);
-
-    if (result === 'timed-out') {
-      return;
-    }
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
-  }
+function runPlaybackPreflight(source: PlaybackStreamSource): void {
+  void window.embyDesktop.player.preflight(source).catch(() => undefined);
 }
 
 function getJsonByteLength(value: unknown): number {
@@ -478,7 +428,7 @@ function ItemDetailsRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const { registerPlaybackContext } = usePlaybackSync();
-  const { allocateLaunchId, registerSession } = usePlayerSessionHost();
+  const { allocateLaunchId, startStartup } = usePlayerSessionHost();
   const location = useLocation();
   const itemRouteState = (location.state as ItemRouteState | null | undefined) ?? {};
   const resumeEpisodeId = itemRouteState.resumeEpisodeId;
@@ -514,7 +464,6 @@ function ItemDetailsRoute() {
   const episodeSwitchGenerationRef = useRef(createRequestGenerationGuard());
   const playbackSessionIdRef = useRef<number | null>(null);
   const playbackLaunchesRef = useRef(new Map<number, CurrentPlaybackLaunch>());
-  const routeMarkerRequestIdsRef = useRef(new Set<number>());
   const storyMarkerDeliveryRef = useRef<StoryMarkerDeliveryCoordinator | null>(null);
   storyMarkerDeliveryRef.current ??= new StoryMarkerDeliveryCoordinator((update) =>
     window.embyDesktop.player.setStoryMarkers(update)
@@ -615,10 +564,6 @@ function ItemDetailsRoute() {
 
   useLayoutEffect(() => {
     return () => {
-      for (const requestId of routeMarkerRequestIdsRef.current) {
-        storyMarkerDeliveryRef.current?.cancel(requestId);
-      }
-      routeMarkerRequestIdsRef.current.clear();
       preparedPlaybackCandidateRef.current = null;
     };
   }, [itemId, resolvedActiveAccountId, serverUrl]);
@@ -926,18 +871,26 @@ function ItemDetailsRoute() {
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
     setPlaybackLaunchId(nextLaunchId);
-    setPlaybackTitle(
-      resolvePlaybackTitle({
-        fallbackTitle: details?.name || '',
-        selectionTitle: selection?.title,
-      })
-    );
-    setPlaybackEpisodeSelector(details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined);
+    const clickTitle = resolvePlaybackTitle({
+      fallbackTitle: details?.name || '',
+      selectionTitle: selection?.title,
+    });
+    const clickEpisodeSelector = details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined;
+    setPlaybackTitle(clickTitle);
+    setPlaybackEpisodeSelector(clickEpisodeSelector);
 
-    try {
+    emitLoadTimingMilestone(timingRecorder.mark('player-open-requested'));
+    startStartup({
+      key: String(nextLaunchId),
+      launchRequestId: nextLaunchId,
+      itemId: playItemId,
+      title: clickTitle,
+      ...(clickEpisodeSelector ? { episodeSelector: clickEpisodeSelector } : {}),
+      prepare: async () => {
+      try {
       const descriptor = createPlaybackSourceDescriptor(playItemId, resumeTicks, selection);
       if (!descriptor) {
-        return;
+        throw new Error('Playback source descriptor is unavailable.');
       }
       const preparedCandidate = preparedPlaybackCandidateRef.current;
       const preparationDecision = choosePlaybackPreparationDecision({
@@ -981,7 +934,7 @@ function ItemDetailsRoute() {
         sourcePromise,
       ]);
       emitLoadTimingMilestone(timingRecorder.mark('playback-source-ready'));
-      await waitForFastPlaybackPreflight(nextSource);
+      runPlaybackPreflight(nextSource);
 
       const progressByItemId = getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId);
       const savedPositionSeconds = progressByItemId[playItemId]?.positionSeconds ?? null;
@@ -999,7 +952,7 @@ function ItemDetailsRoute() {
       }
       setInitialPositionSeconds(getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }));
       setPlaybackSource(nextSource);
-      registerSession({
+      const preparedRecord = {
         key: String(nextLaunchId),
         props: {
           authMode: nextSource.authMode,
@@ -1007,24 +960,28 @@ function ItemDetailsRoute() {
           itemId: playItemId,
           launchRequestId: nextLaunchId,
           redactedDisplayUrl: nextSource.redactedDisplayUrl,
-          title: resolvePlaybackTitle({ fallbackTitle: details?.name || '', selectionTitle: selection?.title }),
+          title: clickTitle,
           streamUrl: nextSource.streamUrl,
           initialPositionSeconds: getResumePositionSeconds({ savedPositionSeconds, serverPositionTicks: resumeTicks === undefined ? null : resumeTicks }),
           episodeSelector: details?.type === 'Series' ? createEpisodeSelector(playItemId, episodes) : undefined,
           onEpisodeSelect: handleEpisodeSelect,
           onLaunchFailure: handlePlaybackLaunchFailure,
           onLaunchReady: handlePlaybackLaunchReady,
+          onStartupEvent: handlePlaybackStartupEvent,
           onProgress: handleProgress,
         },
-      });
-      routeMarkerRequestIdsRef.current.add(storyMarkerRequestId);
-      emitLoadTimingMilestone(timingRecorder.mark('player-launch-requested'));
+      };
+      emitLoadTimingMilestone(timingRecorder.mark('media-load-requested'));
+      return preparedRecord;
     } catch (err) {
       const requestId = playbackLaunchesRef.current.get(nextLaunchId)?.storyMarkerRequestId;
       if (requestId !== null && requestId !== undefined) storyMarkerDeliveryRef.current?.cancel(requestId);
       playbackLaunchesRef.current.delete(nextLaunchId);
       setPlaybackErrorMessage('Could not prepare desktop playback.');
+      throw err;
     }
+      },
+    });
   }
 
   function handlePlaybackLaunchReady({
@@ -1042,7 +999,7 @@ function ItemDetailsRoute() {
       return;
     }
 
-    emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('playback-ready'));
+    emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('player-surface-ready'));
     if (playerSessionId !== undefined) {
       playbackSessionIdRef.current = playerSessionId;
       if (currentLaunch.playbackContext) {
@@ -1054,7 +1011,19 @@ function ItemDetailsRoute() {
       storyMarkerDeliveryRef.current?.accept(currentLaunch.storyMarkerRequestId);
     }
     emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
-    playbackLaunchesRef.current.delete(launchRequestId);
+  }
+
+  function handlePlaybackStartupEvent(event: import('@shared/models/playerStartup').PlayerStartupEvent) {
+    const currentLaunch = playbackLaunchesRef.current.get(event.launchRequestId);
+    if (!currentLaunch) return;
+    const milestoneName = event.phase === 'media-ready'
+      ? 'media-ready'
+      : event.phase === 'first-frame'
+        ? 'first-frame'
+        : null;
+    if (!milestoneName) return;
+    emitLoadTimingMilestone(currentLaunch.timingRecorder.mark(milestoneName));
+    if (event.phase === 'first-frame') emitPlaybackStartupTimingSegments(currentLaunch.timingRecorder);
   }
 
   function handlePlaybackLaunchFailure({
@@ -1147,8 +1116,6 @@ function ItemDetailsRoute() {
         });
       },
     });
-    routeMarkerRequestIdsRef.current.add(storyMarkerRequestId);
-
     try {
       const [persistedState, nextSource] = await Promise.all([
         window.embyDesktop.storage.read(),
@@ -1158,7 +1125,7 @@ function ItemDetailsRoute() {
         storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
         return false;
       }
-      await waitForFastPlaybackPreflight(nextSource);
+      runPlaybackPreflight(nextSource);
       if (!episodeSwitchGenerationRef.current.isCurrent(generation)) {
         storyMarkerDeliveryRef.current?.cancel(storyMarkerRequestId);
         return false;

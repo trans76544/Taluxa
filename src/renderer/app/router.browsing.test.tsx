@@ -95,6 +95,11 @@ function createPersistedState(overrides: Partial<StoredPersistedState> = {}): St
 
 function mockDesktopBridge(state: StoredPersistedState) {
   const launch = vi.fn().mockResolvedValue(undefined);
+  const open = vi.fn((input: { launchRequestId: number }) => Promise.resolve({
+    launchRequestId: input.launchRequestId,
+    playerSessionId: input.launchRequestId,
+  }));
+  const load = launch;
   const preflight = vi.fn().mockResolvedValue(undefined);
 
   window.embyDesktop = {
@@ -113,8 +118,13 @@ function mockDesktopBridge(state: StoredPersistedState) {
     },
     player: {
       launch,
+      open,
+      load,
+      reportStartupFailure: vi.fn().mockResolvedValue(undefined),
       onEpisodeSelect: vi.fn(() => () => undefined),
       onProgress: vi.fn(() => () => undefined),
+      onStartupEvent: vi.fn(() => () => undefined),
+      onRetryRequest: vi.fn(() => () => undefined),
       preflight,
       switchEpisode: vi.fn().mockResolvedValue(undefined),
     },
@@ -130,7 +140,7 @@ function mockDesktopBridge(state: StoredPersistedState) {
     },
   } as unknown as Window['embyDesktop'];
 
-  return { launch, preflight };
+  return { launch, load, preflight };
 }
 
 function renderAuthenticatedRoute(hash: string) {
@@ -258,7 +268,7 @@ describe('browsing route session snapshots', () => {
     fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
     await waitFor(() => {
-      expect(bridge.launch).toHaveBeenCalledWith(
+      expect(bridge.load).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'movie-1',
         })

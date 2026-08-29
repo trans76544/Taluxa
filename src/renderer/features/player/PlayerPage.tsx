@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { redactErrorMessage } from '@shared/network/redaction';
+import type { PlayerStartupEvent } from '@shared/models/playerStartup';
 
 export interface PlayerLaunchReadyEvent {
   itemId: string;
@@ -25,6 +26,7 @@ export interface PlayerPageProps {
   onEpisodeSelect?: (itemId: string, playerSessionId?: number) => void | Promise<boolean | void>;
   onLaunchFailure?: (event: PlayerLaunchFailureEvent) => void;
   onLaunchReady?: (event: PlayerLaunchReadyEvent) => void;
+  onStartupEvent?: (event: PlayerStartupEvent) => void;
   onProgress: (input: {
     itemId: string;
     positionSeconds: number;
@@ -96,6 +98,7 @@ export function PlayerPage({
   onEpisodeSelect,
   onLaunchFailure,
   onLaunchReady,
+  onStartupEvent,
   onProgress,
 }: PlayerPageProps) {
   const [launchError, setLaunchError] = useState('');
@@ -119,6 +122,10 @@ export function PlayerPage({
     let cancelled = false;
 
     setLaunchError('');
+    if (initialPlayerSessionId !== undefined) {
+      setPlayerSessionId(initialPlayerSessionId);
+      return () => { cancelled = true; };
+    }
     const launch = window.embyDesktop.player.launch;
     const pendingLaunchPromises = getPendingLaunchPromises(launch);
     let launchPromise = pendingLaunchPromises.get(launchKey);
@@ -188,6 +195,25 @@ export function PlayerPage({
       void onProgress(event, event.playerSessionId);
     });
   }, [itemId, onProgress, playerSessionId]);
+
+  useEffect(() => {
+    if (playerSessionId === null || typeof window.embyDesktop.player.onStartupEvent !== 'function') {
+      return undefined;
+    }
+    return window.embyDesktop.player.onStartupEvent((event) => {
+      if (event.playerSessionId !== playerSessionId ||
+          event.launchRequestId !== launchRequestId ||
+          event.itemId !== currentItemIdRef.current) return;
+      onStartupEvent?.(event);
+      if (event.phase === 'failed') {
+        const message = event.message?.trim()
+          ? redactErrorMessage(new Error(event.message))
+          : 'Unable to load this video.';
+        setLaunchError(message);
+        onLaunchFailure?.({ itemId: event.itemId, launchRequestId, playerSessionId, message });
+      }
+    });
+  }, [launchRequestId, onLaunchFailure, onStartupEvent, playerSessionId]);
 
   useEffect(() => {
     if (!onEpisodeSelect || typeof window.embyDesktop.player.onEpisodeSelect !== 'function') {

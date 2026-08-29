@@ -1,4 +1,4 @@
-﻿import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { HashRouter } from 'react-router-dom';
@@ -113,6 +113,11 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
   const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
   const settingsSyncListeners = new Set<(event: SettingsSyncEvent) => void>();
   const launch = vi.fn().mockResolvedValue({ playerSessionId: 1 });
+  const open = vi.fn((input: { launchRequestId: number }) => Promise.resolve({
+    launchRequestId: input.launchRequestId,
+    playerSessionId: input.launchRequestId,
+  }));
+  const load = launch;
   const switchEpisode = vi.fn().mockResolvedValue(undefined);
   const preflight = vi.fn().mockResolvedValue(undefined);
   const setStoryMarkers = vi.fn().mockResolvedValue(undefined);
@@ -161,11 +166,16 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     },
     player: {
       launch,
+      open,
+      load,
+      reportStartupFailure: vi.fn().mockResolvedValue(undefined),
       switchEpisode,
       onEpisodeSelect,
       preflight,
       setStoryMarkers,
       onProgress,
+      onStartupEvent: vi.fn(() => () => undefined),
+      onRetryRequest: vi.fn(() => () => undefined),
     },
     storage: {
       read,
@@ -183,6 +193,8 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
 
   return {
     launch,
+    open,
+    load,
     setStoryMarkers,
     switchEpisode,
     onEpisodeSelect,
@@ -313,7 +325,7 @@ async function renderPlayingSeries(accounts: SavedAccount[] = [createSavedAccoun
   const { container } = render(<HashRouter><App /></HashRouter>);
   fireEvent.click(await screen.findByRole('link', { name: /1\. outgoing/ }));
   fireEvent.click(container.querySelector<HTMLButtonElement>('.btn-play')!);
-  await waitFor(() => expect(storage.launch).toHaveBeenCalledWith(
+  await waitFor(() => expect(storage.load).toHaveBeenCalledWith(
     expect.objectContaining({ itemId: 'outgoing' })
   ));
   return storage;
@@ -825,7 +837,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
+      expect(storage.load).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'item-1',
           title: 'Movie 1',
@@ -833,7 +845,7 @@ describe('App', () => {
         })
       );
     });
-    expect(storage.launch).toHaveBeenCalledWith(
+    expect(storage.load).toHaveBeenCalledWith(
       expect.objectContaining({
         httpHeaders: {
           Authorization: 'MediaBrowser Token="token-123"',
@@ -853,7 +865,7 @@ describe('App', () => {
     });
   });
 
-  it('shows playback stream preflight failures before launching mpv', async () => {
+  it('keeps playback load independent from a failed diagnostic preflight', async () => {
     const storage = mockStorageRead(
       createPersistedState({
         accounts: [createSavedAccount()],
@@ -895,13 +907,13 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
     fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not prepare desktop playback.'
-    );
-    expect(storage.launch).not.toHaveBeenCalled();
+    await waitFor(() => expect(storage.load).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'item-1', title: 'Movie 1',
+    })));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('launches mpv when playback stream preflight is still pending after a short wait', async () => {
+  it('opens and loads mpv without waiting for a pending playback preflight', async () => {
     const storage = mockStorageRead(
       createPersistedState({
         accounts: [createSavedAccount()],
@@ -941,19 +953,16 @@ describe('App', () => {
     const playButton = container.querySelector<HTMLButtonElement>('.btn-play');
     expect(playButton).not.toBeNull();
 
-    vi.useFakeTimers();
     fireEvent.click(playButton!);
 
     await flushAsyncQueue();
     expect(storage.preflight).toHaveBeenCalled();
-    expect(storage.launch).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-      await flushAsyncQueue();
-    });
-
-    expect(storage.launch).toHaveBeenCalledWith(
+    expect(storage.open).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'item-1',
+      title: 'Movie 1',
+    }));
+    expect(storage.load).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
+    expect(storage.load).toHaveBeenCalledWith(
       expect.objectContaining({
         itemId: 'item-1',
         title: 'Movie 1',
@@ -1027,7 +1036,7 @@ describe('App', () => {
         audioStreamIndex: 2,
       })
     );
-    expect(storage.launch).not.toHaveBeenCalled();
+    expect(storage.load).not.toHaveBeenCalled();
   });
 
   it('does not load continue watching items from local progress when Emby resume is empty', async () => {
@@ -2390,7 +2399,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
+      expect(storage.load).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'movie-1',
           title: 'Movie 1',
@@ -2558,7 +2567,7 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
 
-    expect(storage.launch).not.toHaveBeenCalled();
+    expect(storage.load).not.toHaveBeenCalled();
     expect(screen.getByText('S1:E2 - Second Case')).toBeInTheDocument();
 
     const playButton = container.querySelector<HTMLButtonElement>('.btn-play');
@@ -2566,7 +2575,7 @@ describe('App', () => {
     fireEvent.click(playButton!);
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
+      expect(storage.load).toHaveBeenCalledWith(
         expect.objectContaining({
           episodeSelector: {
             currentItemId: 'episode-2',
@@ -2623,7 +2632,7 @@ describe('App', () => {
       mediaSourceId: 'episode-1-source',
       durationSeconds: 60,
     }));
-    expect(storage.launch).toHaveBeenCalledTimes(1);
+    expect(storage.load).toHaveBeenCalledTimes(1);
   });
 
   it('keeps only the latest episode markers and route state during a rapid A to B switch', async () => {
@@ -2713,7 +2722,7 @@ describe('App', () => {
     expect(reportPlaybackProgressMock).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
   });
 
-  it('discards a switched episode marker result after the active account and server change', async () => {
+  it('delivers switched episode markers to the bound player after the active account changes', async () => {
     const markers = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
     fetchStoryTimelineMarkersMock.mockImplementation(({ itemId }: { itemId: string }) =>
       itemId === 'episode-a' ? markers.promise : Promise.resolve([])
@@ -2736,7 +2745,11 @@ describe('App', () => {
     markers.resolve([{ startSeconds: 15, names: ['Old server'], kinds: ['chapter'] }]);
     await flushAsyncQueue();
 
-    expect(storage.setStoryMarkers).not.toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-a' }));
+    expect(storage.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'episode-a',
+      playerSessionId: 1,
+      markers: [{ startSeconds: 15, names: ['Old server'], kinds: ['chapter'] }],
+    });
   });
 
   it('marks movie details as played from the detail action button', async () => {
@@ -3106,7 +3119,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    expect(storage.launch).not.toHaveBeenCalled();
+    expect(storage.load).not.toHaveBeenCalled();
 
     deferred.resolve(
       createPersistedState({
@@ -3133,14 +3146,14 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
+      expect(storage.load).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'item-1',
           startSeconds: 120,
         })
       );
     });
-    expect(storage.launch).not.toHaveBeenCalledWith(
+    expect(storage.load).not.toHaveBeenCalledWith(
       expect.objectContaining({
         itemId: 'item-1',
         startSeconds: 0,
@@ -3171,7 +3184,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
+      expect(storage.load).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'item-1',
           startSeconds: 0,
@@ -3306,7 +3319,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
+      expect(storage.load).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
     });
 
     storage.emitProgress({
@@ -3432,7 +3445,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
 
     await waitFor(() => {
-      expect(storage.launch).toHaveBeenCalledWith(
+      expect(storage.load).toHaveBeenCalledWith(
         expect.objectContaining({
           itemId: 'item-1',
           title: 'Movie 1',
@@ -3440,7 +3453,7 @@ describe('App', () => {
         })
       );
     });
-    expect(storage.launch).toHaveBeenCalledWith(
+    expect(storage.load).toHaveBeenCalledWith(
       expect.objectContaining({
         itemId: 'item-1',
         title: 'Movie 1',
@@ -3493,7 +3506,7 @@ describe('App', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
-    await waitFor(() => expect(storage.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(storage.load).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: 'item-a' })
     ));
@@ -3512,7 +3525,7 @@ describe('App', () => {
       itemId: 'item-a',
       markers: [{ startSeconds: 7, names: ['Stale A'], kinds: ['chapter'] }],
     });
-    expect(storage.launch).toHaveBeenCalledTimes(1);
+    expect(storage.load).toHaveBeenCalledTimes(1);
   });
 
   it('clears the persisted session when signing out from settings', async () => {

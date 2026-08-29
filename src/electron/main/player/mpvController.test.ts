@@ -12,6 +12,7 @@ import {
 import type { DanmakuComment } from './danmaku';
 import type { DanmakuSettings, ProxySettings } from '@shared/models/settings';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import type { PlayerStartupEvent } from '@shared/models/playerStartup';
 
 class FakeSpawnedProcess extends EventEmitter implements SpawnedMpvProcess {
   readonly stderr = new EventEmitter();
@@ -211,6 +212,200 @@ describe('MpvController', () => {
       }
     );
     expect(child.unref).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens an idle surface without a command-line media URL and resolves on IPC connection', async () => {
+    const expectedPath = path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe');
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn((_command: string, _args: string[], _options: unknown) => child);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(expectedPath);
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess,
+    });
+
+    const openPromise = controller.open({ launchRequestId: 7, itemId: 'item-1', title: 'Episode 1' }, createProxySettings());
+    child.emit('spawn');
+    ipcClient.emit('connect');
+
+    await expect(openPromise).resolves.toEqual({ launchRequestId: 7, playerSessionId: 1 });
+    const args = spawnProcess.mock.calls[0]?.[1] ?? [];
+    expect(args).toContain('--idle=yes');
+    expect(args).toContain('--force-window=immediate');
+    expect(args).not.toContain('https://example.com/stream.m3u8');
+    expect(args.some((arg) => arg.startsWith('--start='))).toBe(false);
+  });
+
+  it('deduplicates repeated open delivery for one launch request', async () => {
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const spawnProcess = vi.fn(() => child);
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe'));
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient), createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir, spawnProcess,
+    });
+    const input = { launchRequestId: 9, itemId: 'item-1', title: 'Episode 1' };
+
+    const first = controller.open(input, createProxySettings());
+    const second = controller.open(input, createProxySettings());
+    child.emit('spawn'); ipcClient.emit('connect');
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { launchRequestId: 9, playerSessionId: 1 },
+      { launchRequestId: 9, playerSessionId: 1 },
+    ]);
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up an idle surface when IPC connection fails before readiness', async () => {
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe'));
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient), createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir, spawnProcess: vi.fn(() => child), connectTimeoutMs: 25,
+    });
+
+    const openPromise = controller.open(
+      { launchRequestId: 11, itemId: 'item-1', title: 'Episode 1' },
+      createProxySettings()
+    );
+    child.emit('spawn');
+    child.emit('error', new Error('spawn/connect failed'));
+
+    await expect(openPromise).rejects.toThrow('spawn/connect failed');
+    expect(child.kill).toHaveBeenCalled();
+  });
+
+  it('loads prepared media with per-file options and emits media-ready and first-frame milestones', async () => {
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const startupEvents: PlayerStartupEvent[] = [];
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe'));
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient), createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir, spawnProcess: vi.fn(() => child),
+      onStartupEvent: (event) => startupEvents.push(event),
+    });
+    const open = controller.open({ launchRequestId: 20, itemId: 'item-1', title: 'Episode 1' }, createProxySettings());
+    child.emit('spawn'); ipcClient.emit('connect');
+    const { playerSessionId } = await open;
+    ipcClient.write.mockClear();
+
+    await controller.load({
+      playerSessionId, launchRequestId: 20, loadRequestId: 1,
+      itemId: 'item-1', title: 'Episode 1', streamUrl: 'https://example.com/video.mp4',
+      httpHeaders: { Authorization: 'MediaBrowser token' }, startSeconds: 12,
+    }, createProxySettings());
+
+    expect(ipcClient.write).toHaveBeenCalledWith(`${JSON.stringify({ command: [
+      'loadfile', 'https://example.com/video.mp4', 'replace', -1,
+      { start: '12', 'force-media-title': 'Episode 1' },
+    ] })}\n`);
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'playback-restart' })}\n`));
+    expect(startupEvents.map((event) => event.phase)).toEqual([
+      'surface-ready', 'media-loading', 'media-ready', 'first-frame',
+    ]);
+    await expect(controller.load({
+      playerSessionId, launchRequestId: 20, loadRequestId: 1,
+      itemId: 'item-1', title: 'Episode 1', streamUrl: 'https://example.com/video.mp4',
+    }, createProxySettings())).rejects.toThrow('Stale');
+  });
+
+  it('keeps the idle surface visible with preparing, failed, and same-surface retry controls', async () => {
+    const child = new FakeSpawnedProcess();
+    const ipcClient = new FakeIpcClient();
+    const writeTextFile = vi.fn();
+    const onRetryRequest = vi.fn();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe'));
+    const controller = createController({
+      connectIpc: vi.fn(() => ipcClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn(() => child),
+      writeTextFile,
+      onRetryRequest,
+    });
+
+    const opened = controller.open(
+      { launchRequestId: 21, itemId: 'item-1', title: 'Episode 1' },
+      createProxySettings()
+    );
+    child.emit('spawn');
+    ipcClient.emit('connect');
+    const { playerSessionId } = await opened;
+    const uiScript = String(
+      writeTextFile.mock.calls.find(([targetPath]) => targetPath === uiScriptPath)?.[1]
+    );
+    expect(uiScript).toContain("mp.register_script_message('taluxa-startup-state'");
+    expect(uiScript).toContain("add_button(out, 'retry'");
+    expect(uiScript).toContain("mp.commandv('script-message', 'taluxa-retry-load')");
+    expect(ipcClient.write).toHaveBeenCalledWith(expect.stringContaining('taluxa-startup-state'));
+
+    await controller.load({
+      playerSessionId,
+      launchRequestId: 21,
+      loadRequestId: 1,
+      itemId: 'item-1',
+      title: 'Episode 1',
+      streamUrl: 'https://example.com/video.mp4',
+    }, createProxySettings());
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({
+      event: 'end-file', reason: 'error', file_error: 'https://secret.example/token=abc',
+    })}\n`));
+
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(ipcClient.write).toHaveBeenCalledWith(expect.stringContaining('Unable to load this video.'));
+    expect(ipcClient.write).not.toHaveBeenCalledWith(expect.stringContaining('secret.example'));
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({
+      event: 'client-message', args: ['taluxa-retry-load'],
+    })}\n`));
+    expect(onRetryRequest).toHaveBeenCalledWith({
+      playerSessionId,
+      launchRequestId: 21,
+      itemId: 'item-1',
+      failedLoadRequestId: 1,
+    });
+  });
+
+  it('isolates duplicate-item idle sessions and closes only the targeted process', async () => {
+    const firstChild = new FakeSpawnedProcess();
+    const secondChild = new FakeSpawnedProcess();
+    const firstClient = new FakeIpcClient();
+    const secondClient = new FakeIpcClient();
+    existingPaths.add(path.join(repoRoot, 'package.json'));
+    existingPaths.add(path.join(repoRoot, 'vendor', 'mpv', 'windows-x64', 'mpv.exe'));
+    const controller = createController({
+      connectIpc: vi.fn().mockReturnValueOnce(firstClient).mockReturnValueOnce(secondClient),
+      createIpcEndpoint: () => ipcServerPath,
+      moduleDir: devModuleDir,
+      spawnProcess: vi.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild),
+    });
+    const first = controller.open({ launchRequestId: 31, itemId: 'same-item', title: 'First' }, createProxySettings());
+    const second = controller.open({ launchRequestId: 32, itemId: 'same-item', title: 'Second' }, createProxySettings());
+    firstChild.emit('spawn'); secondChild.emit('spawn');
+    secondClient.emit('connect'); firstClient.emit('connect');
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(controller.close(firstResult.playerSessionId)).toBe(true);
+    expect(firstChild.kill).toHaveBeenCalledOnce();
+    expect(secondChild.kill).not.toHaveBeenCalled();
+    await expect(controller.load({
+      playerSessionId: secondResult.playerSessionId, launchRequestId: 32, loadRequestId: 1,
+      itemId: 'same-item', title: 'Second', streamUrl: 'https://example.com/second.mp4',
+    }, createProxySettings())).resolves.toBeUndefined();
+    controller.stopAll();
+    expect(secondChild.kill).toHaveBeenCalledOnce();
   });
 
   it('forwards story markers only for the active or pending item as one JSON argument', async () => {
@@ -1157,7 +1352,7 @@ describe('MpvController', () => {
       "append_text(out, volume_value_x, controls_y - 28, 8, 16, string.format('%d%%', math.floor(clamp(volume, 0, 100) + 0.5)), 'FFFFFF', 0, false)"
     );
     expect(script).toContain(
-      'local function should_show_controls()\n  if seek_dragging or volume_dragging then return true end\n  return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until\nend'
+      "local function should_show_controls()\n  if seek_dragging or volume_dragging then return true end\n  return startup_state ~= 'playing' or paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until\nend"
     );
     expect(script).not.toContain('append_box(out, volume_value_x - 8, controls_y - 9');
   });

@@ -10,6 +10,18 @@ import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache
 import { isPlayerPlaybackEvent, type PlayerPlaybackEvent } from '../../shared/models/playback';
 import type { ReportPlaybackProgressInput } from '../../shared/api/emby/playback';
 import type { PlayerStoryMarkerUpdate, StoryMarkerDiagnostic } from '../../shared/models/storyLandmark';
+import {
+  isPlayerRetryRequest,
+  isPlayerStartupEvent,
+  type PlayerLoadInput,
+  type PlayerOpenInput,
+  type PlayerOpenResult,
+  type PlayerRetryRequest,
+  type PlayerStartupFailureInput,
+  type PlayerStartupEvent,
+  type PlayerEpisodeSelector as SharedPlayerEpisodeSelector,
+  type PlayerEpisodeSelectorItem as SharedPlayerEpisodeSelectorItem,
+} from '../../shared/models/playerStartup';
 
 export interface PlayerLaunchInput {
   authMode?: 'header' | 'local-proxy' | 'tokenless';
@@ -30,21 +42,8 @@ export interface PlayerSwitchEpisodeInput extends PlayerLaunchInput {
   playerSessionId: number;
 }
 
-export interface PlayerEpisodeSelector {
-  currentItemId: string;
-  episodes: PlayerEpisodeSelectorItem[];
-}
-
-export interface PlayerEpisodeSelectorItem {
-  durationSeconds?: number | null;
-  itemId: string;
-  thumbnailHeight?: number | null;
-  thumbnailPath?: string | null;
-  thumbnailStride?: number | null;
-  thumbnailUrl?: string | null;
-  thumbnailWidth?: number | null;
-  title: string;
-}
+export type PlayerEpisodeSelector = SharedPlayerEpisodeSelector;
+export type PlayerEpisodeSelectorItem = SharedPlayerEpisodeSelectorItem;
 
 export interface PlayerProgressEvent {
   playerSessionId: number;
@@ -84,6 +83,12 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       ipcRenderer.invoke('player:set-story-markers', input) as Promise<void>,
     launch: (input: PlayerLaunchInput) =>
       ipcRenderer.invoke('player:launch', input) as Promise<PlayerLaunchResult>,
+    open: (input: PlayerOpenInput) =>
+      ipcRenderer.invoke('player:open', input) as Promise<PlayerOpenResult>,
+    load: (input: PlayerLoadInput) =>
+      ipcRenderer.invoke('player:load', input) as Promise<void>,
+    reportStartupFailure: (input: PlayerStartupFailureInput) =>
+      ipcRenderer.invoke('player:startup-failure', input) as Promise<void>,
     switchEpisode: (input: PlayerSwitchEpisodeInput) =>
       ipcRenderer.invoke('player:switch-episode', input) as Promise<void>,
     preflight: (input: Pick<PlayerLaunchInput, 'httpHeaders' | 'streamUrl'>) =>
@@ -105,6 +110,20 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       };
       ipcRenderer.on('player:playback-event', handler);
       return () => ipcRenderer.removeListener('player:playback-event', handler);
+    },
+    onStartupEvent: (listener: (event: PlayerStartupEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (isPlayerStartupEvent(payload)) listener(payload);
+      };
+      ipcRenderer.on('player:startup-event', handler);
+      return () => ipcRenderer.removeListener('player:startup-event', handler);
+    },
+    onRetryRequest: (listener: (event: PlayerRetryRequest) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (isPlayerRetryRequest(payload)) listener(payload);
+      };
+      ipcRenderer.on('player:retry-request', handler);
+      return () => ipcRenderer.removeListener('player:retry-request', handler);
     },
     onEpisodeSelect: (listener: (event: PlayerEpisodeSelectEvent) => void) => {
       const handleEpisodeSelect = (_event: Electron.IpcRendererEvent, payload: PlayerEpisodeSelectEvent) => {

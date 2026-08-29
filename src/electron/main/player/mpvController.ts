@@ -14,6 +14,14 @@ import {
 } from '@shared/models/settings';
 import { isCustomProxyConfigured } from '@shared/network/proxy';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import type {
+  PlayerLoadInput,
+  PlayerOpenInput,
+  PlayerOpenResult,
+  PlayerRetryRequest,
+  PlayerStartupFailureInput,
+  PlayerStartupEvent,
+} from '@shared/models/playerStartup';
 import type { PlayerStoryMarkerUpdate } from '@shared/models/storyLandmark';
 import {
   DanmakuSourceError,
@@ -132,12 +140,16 @@ interface ActiveSession {
   hasDanmakuSubtitle: boolean;
   ipcServerPath: string;
   isReady: boolean;
+  isSurfaceReady: boolean;
   itemId: string;
+  launchRequestId: number | null;
+  loadRequestId: number | null;
   onFailure: (error: Error) => void;
   onReady: () => void;
   pendingCommands: unknown[][];
   positionSeconds: number | null;
   readyFallbackTimeout: NodeJS.Timeout | null;
+  resolveOnConnect: boolean;
   retryTimeout: NodeJS.Timeout | null;
   sessionId: number;
   logFilePath: string;
@@ -401,6 +413,8 @@ local cache_state = nil
 local duration = 0
 local active_item_id = ${toLuaSingleQuotedString(itemId)}
 local story_markers = {}
+local startup_state = 'preparing'
+local startup_message = 'Preparing video...'
 local menu_open = nil
 local muted = false
 local paused = false
@@ -486,7 +500,7 @@ end
 
 local function should_show_controls()
   if seek_dragging or volume_dragging then return true end
-  return paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until
+  return startup_state ~= 'playing' or paused or menu_open ~= nil or episode_panel_open or mp.get_time() <= controls_visible_until
 end
 
 local function track_mouse_activity()
@@ -1260,6 +1274,12 @@ local function draw_controls()
   if display_subtitle ~= '' then
     append_text(out, 24, subtitle_y, 1, 18, display_subtitle, 'E6E6E6', 0, false)
   end
+  if startup_state ~= 'playing' then
+    append_text(out, math.floor(width / 2), math.floor(height / 2) - 16, 8, 28, startup_message, 'FFFFFF', 0, true)
+    if startup_state == 'failed' then
+      add_button(out, 'retry', math.floor(width / 2) - 90, math.floor(height / 2) + 18, 180, 48, 'Retry', 22)
+    end
+  end
 
   append_text(out, 24, bar_y + 5, 4, 16, format_clock(position), 'FFFFFF', 0, false)
   append_text(out, width - 24, bar_y + 5, 6, 16, format_clock(remaining), 'FFFFFF', 0, false)
@@ -1412,7 +1432,11 @@ local function handle_click()
     return
   end
 
-  if id == 'story-marker' and duration > 0 and button.value then
+  if id == 'retry' and startup_state == 'failed' then
+    startup_state = 'preparing'
+    startup_message = 'Preparing video...'
+    mp.commandv('script-message', 'taluxa-retry-load')
+  elseif id == 'story-marker' and duration > 0 and button.value then
     menu_open = nil
     episode_panel_open = false
     mp.commandv('set', 'time-pos', tostring(clamp(tonumber(button.value) or 0, 0, duration)))
@@ -1668,6 +1692,47 @@ mp.register_script_message('taluxa-active-episode', function(item_id, next_title
   duration = 0
   draw_controls()
 end)
+mp.register_script_message('taluxa-episode-selector', function(selector_json)
+  local parsed = utils.parse_json(tostring(selector_json or ''))
+  if type(parsed) ~= 'table' or type(parsed.episodes) ~= 'table' then return end
+  local next_items = {}
+  local current_item_id = tostring(parsed.currentItemId or '')
+  for _, episode in ipairs(parsed.episodes) do
+    if type(episode) == 'table' then
+      local next_item_id = tostring(episode.itemId or '')
+      local next_title = tostring(episode.title or '')
+      if next_item_id ~= '' and next_title ~= '' then
+        local duration_seconds = tonumber(episode.durationSeconds) or 0
+        table.insert(next_items, {
+          item_id = next_item_id,
+          title = next_title,
+          duration = duration_seconds > 0 and string.format('%dmin', math.max(1, math.floor(duration_seconds / 60 + 0.5))) or '',
+          thumbnail_height = tonumber(episode.thumbnailHeight) or 0,
+          thumbnail_path = tostring(episode.thumbnailPath or ''),
+          thumbnail_stride = tonumber(episode.thumbnailStride) or 0,
+          thumbnail_url = tostring(episode.thumbnailUrl or ''),
+          thumbnail_width = tonumber(episode.thumbnailWidth) or 0,
+          is_current = next_item_id == current_item_id,
+        })
+      end
+    end
+  end
+  if #next_items == 0 then return end
+  clear_episode_thumbnail_overlays()
+  episode_items = next_items
+  episode_selector_enabled = true
+  episode_scroll_offset = 0
+  draw_controls()
+end)
+mp.register_script_message('taluxa-startup-state', function(next_state, next_message)
+  local allowed = { preparing = true, loading = true, playing = true, failed = true }
+  next_state = tostring(next_state or '')
+  if not allowed[next_state] then return end
+  startup_state = next_state
+  startup_message = tostring(next_message or '')
+  mark_controls_active()
+  draw_controls()
+end)
 apply_scale_mode(scale_mode, false)
 apply_subtitle_settings(false)
 update_audio_tracks(mp.get_property_native('track-list'))
@@ -1696,6 +1761,8 @@ export interface MpvControllerOptions {
   onPlayerSettingsPatch?: (patch: PlayerSettingsPatch) => void | Promise<void>;
   onProgress?: (snapshot: MpvProgressSnapshot) => void;
   onPlaybackEvent?: (event: PlayerPlaybackEvent) => void;
+  onStartupEvent?: (event: PlayerStartupEvent) => void;
+  onRetryRequest?: (event: PlayerRetryRequest) => void;
   readTextFile?: (targetPath: string) => string;
   resourcesPath?: string;
   spawnProcess?: SpawnProcess;
@@ -1994,6 +2061,8 @@ function redactSensitivePlaybackText(value: string): string {
 export class MpvController {
   private readonly sessions = new Map<number, ActiveSession>();
 
+  private readonly openPromises = new Map<number, Promise<PlayerOpenResult>>();
+
   private readonly connectIpc: ConnectIpc;
 
   private readonly connectRetryDelayMs: number;
@@ -2030,6 +2099,10 @@ export class MpvController {
 
   private readonly onProgress: (snapshot: MpvProgressSnapshot) => void;
   private readonly onPlaybackEvent: (event: PlayerPlaybackEvent) => void;
+
+  private readonly onStartupEvent: (event: PlayerStartupEvent) => void;
+
+  private readonly onRetryRequest: (event: PlayerRetryRequest) => void;
 
   private readonly readTextFile: (targetPath: string) => string;
 
@@ -2075,6 +2148,8 @@ export class MpvController {
     this.onPlayerSettingsPatch = options.onPlayerSettingsPatch ?? (() => undefined);
     this.onProgress = options.onProgress ?? (() => undefined);
     this.onPlaybackEvent = options.onPlaybackEvent ?? (() => undefined);
+    this.onStartupEvent = options.onStartupEvent ?? (() => undefined);
+    this.onRetryRequest = options.onRetryRequest ?? (() => undefined);
     this.readTextFile =
       options.readTextFile ?? ((targetPath) => readFileSync(targetPath, 'utf8'));
     this.resourcesPath = options.resourcesPath ?? process.resourcesPath;
@@ -2191,6 +2266,7 @@ export class MpvController {
           danmakuSettings: normalizedPlayerSettings.danmaku,
           sessionId,
           itemId: input.itemId,
+          launchRequestId: null,
           ipcServerPath,
           logFilePath,
           onFailure: (error) => {
@@ -2199,6 +2275,7 @@ export class MpvController {
           onReady: () => {
             settleLaunch(resolve);
           },
+          resolveOnConnect: false,
           stderrLines,
         });
         this.startDanmakuLookup(
@@ -2212,6 +2289,7 @@ export class MpvController {
       };
       const handleError = (error: Error) => {
         child.removeListener('spawn', handleSpawn);
+        child.kill?.();
         settleLaunch(() => reject(error));
       };
       const handleExit = () => {
@@ -2244,6 +2322,172 @@ export class MpvController {
     });
 
     return { playerSessionId: sessionId };
+  }
+
+  open(
+    input: PlayerOpenInput,
+    proxy: ProxySettings,
+    playerSettings?: Partial<LaunchPlayerSettings>
+  ): Promise<PlayerOpenResult> {
+    const existing = this.openPromises.get(input.launchRequestId);
+    if (existing) return existing;
+
+    const promise = this.openSurface(input, proxy, playerSettings);
+    this.openPromises.set(input.launchRequestId, promise);
+    void promise.catch(() => this.openPromises.delete(input.launchRequestId));
+    return promise;
+  }
+
+  private async openSurface(
+    input: PlayerOpenInput,
+    proxy: ProxySettings,
+    playerSettings?: Partial<LaunchPlayerSettings>
+  ): Promise<PlayerOpenResult> {
+    const normalizedPlayerSettings = normalizeLaunchPlayerSettings(playerSettings);
+    const executablePath = this.getExecutablePath();
+    const ipcServerPath = this.createIpcEndpoint();
+    const sessionId = ++this.sessionCounter;
+    const inputConfigFilePath = this.createInputConfigFilePath(sessionId);
+    const uiScriptFilePath = this.createUiScriptFilePath(sessionId);
+    const danmakuFilePath = this.createDanmakuFilePath(sessionId);
+    const logFilePath = this.createLogFilePath(sessionId);
+    this.writeTextFile(inputConfigFilePath, createMpvInputConfig());
+    this.writeTextFile(
+      uiScriptFilePath,
+      createMpvUiScript(input.itemId, input.title, normalizedPlayerSettings, input.episodeSelector)
+    );
+    const args = [
+      '--idle=yes',
+      '--force-window=immediate',
+      '--border=no',
+      '--keepaspect-window=no',
+      '--osc=no',
+      `--input-ipc-server=${ipcServerPath}`,
+      `--input-conf=${inputConfigFilePath}`,
+      `--script=${uiScriptFilePath}`,
+      `--title=${input.title}`,
+      '--osd-font=Microsoft YaHei UI',
+      '--osd-duration=1500',
+      '--volume-max=100',
+      '--input-builtin-dragging=no',
+      '--hwdec=auto-safe',
+      '--cache=yes',
+      `--cache-secs=${DEFAULT_CACHE_SECONDS}`,
+      '--msg-level=all=v',
+      `--log-file=${logFilePath}`,
+      '--ytdl=no',
+      ...getProxyArgs(proxy),
+    ];
+
+    await new Promise<void>((resolve, reject) => {
+      let child: SpawnedMpvProcess;
+      let settled = false;
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        callback();
+      };
+      try {
+        child = this.spawnProcess(executablePath, args, {
+          stdio: ['ignore', 'ignore', 'pipe'],
+          windowsHide: true,
+        });
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      const stderrLines: string[] = [];
+      child.stderr?.on('data', (chunk) => {
+        const lines = String(chunk).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+        stderrLines.push(...lines);
+        if (stderrLines.length > MAX_STDERR_LINES) {
+          stderrLines.splice(0, stderrLines.length - MAX_STDERR_LINES);
+        }
+      });
+      const handleSpawn = () => {
+        child.once('exit', handleExit);
+        this.startSession({
+          child,
+          danmakuFilePath,
+          danmakuSettings: normalizedPlayerSettings.danmaku,
+          ipcServerPath,
+          itemId: input.itemId,
+          launchRequestId: input.launchRequestId,
+          logFilePath,
+          onFailure: (error) => settle(() => reject(error)),
+          onReady: () => settle(resolve),
+          resolveOnConnect: true,
+          sessionId,
+          stderrLines,
+        });
+        child.unref();
+      };
+      const handleError = (error: Error) => {
+        child.removeListener('spawn', handleSpawn);
+        if (this.getSession(sessionId)) this.clearSession(sessionId);
+        else child.kill?.();
+        settle(() => reject(error));
+      };
+      const handleExit = () => {
+        const session = this.getSession(sessionId);
+        if (!session) return;
+        if (!session.isSurfaceReady) {
+          session.onFailure(new Error('mpv exited before the player surface became ready.'));
+        }
+        this.clearSession(sessionId);
+      };
+      child.once('spawn', handleSpawn);
+      child.once('error', handleError);
+    });
+
+    return { launchRequestId: input.launchRequestId, playerSessionId: sessionId };
+  }
+
+  async load(
+    input: PlayerLoadInput,
+    proxy: ProxySettings,
+    playerSettings?: Partial<LaunchPlayerSettings>
+  ): Promise<void> {
+    const session = this.getSession(input.playerSessionId);
+    if (!session || session.launchRequestId !== input.launchRequestId) {
+      throw new Error('Invalid player load target.');
+    }
+    if (session.loadRequestId !== null && input.loadRequestId <= session.loadRequestId) {
+      throw new Error('Stale player load request.');
+    }
+    session.loadRequestId = input.loadRequestId;
+    session.itemId = input.itemId;
+    session.positionSeconds = null;
+    session.durationSeconds = 0;
+    session.currentItemStarted = false;
+    session.currentItemStopped = false;
+    const normalizedPlayerSettings = normalizeLaunchPlayerSettings(playerSettings);
+    this.emitStartupEvent(session, 'media-loading');
+    session.danmakuSettings = normalizedPlayerSettings.danmaku;
+    this.queueSessionCommand(session.sessionId, [
+      'script-message', 'taluxa-startup-state', 'loading', 'Loading video...',
+    ]);
+    this.queueSessionCommand(session.sessionId, [
+      'set_property', 'http-header-fields', getHttpHeaderFields(input.httpHeaders),
+    ]);
+    const proxyValue = getPlaybackProxyValue(input.streamUrl, proxy);
+    if (proxyValue !== null) {
+      this.queueSessionCommand(session.sessionId, ['set_property', 'http-proxy', proxyValue]);
+    }
+    this.queueSessionCommand(session.sessionId, [
+      'loadfile', input.streamUrl, 'replace', -1, createLoadFileOptions(input),
+    ]);
+    const { displayTitle, displaySubtitle } = splitPlaybackTitle(input.title);
+    this.queueSessionCommand(session.sessionId, [
+      'script-message', 'taluxa-active-episode', input.itemId, input.title, displayTitle, displaySubtitle,
+    ]);
+    this.startDanmakuLookup(
+      session.sessionId,
+      input,
+      normalizedPlayerSettings.danmakuServers,
+      session.danmakuFilePath,
+      normalizedPlayerSettings.danmaku
+    );
   }
 
   async switchEpisode(
@@ -2295,6 +2539,33 @@ export class MpvController {
     ]);
   }
 
+  updateEpisodeSelector(input: PlayerLoadInput): boolean {
+    const session = this.getSession(input.playerSessionId);
+    const selector = normalizeEpisodeSelector(input.episodeSelector);
+    if (!session || !selector || session.launchRequestId !== input.launchRequestId ||
+        session.loadRequestId !== input.loadRequestId || session.itemId !== input.itemId) {
+      return false;
+    }
+    this.queueSessionCommand(session.sessionId, [
+      'script-message', 'taluxa-episode-selector', JSON.stringify(selector),
+    ]);
+    return true;
+  }
+
+  reportStartupFailure(input: PlayerStartupFailureInput): boolean {
+    const session = this.getSession(input.playerSessionId);
+    if (!session || session.launchRequestId !== input.launchRequestId || session.itemId !== input.itemId ||
+        (session.loadRequestId !== null && session.loadRequestId !== input.loadRequestId)) {
+      return false;
+    }
+    session.loadRequestId = input.loadRequestId;
+    this.emitStartupEvent(session, 'failed', { message: input.message, retryable: true });
+    this.queueSessionCommand(session.sessionId, [
+      'script-message', 'taluxa-startup-state', 'failed', input.message,
+    ]);
+    return true;
+  }
+
   setStoryMarkers(update: PlayerStoryMarkerUpdate): boolean {
     const session = this.getSession(update.playerSessionId);
     const pendingItemId = session?.pendingReplacement?.input.itemId;
@@ -2322,6 +2593,7 @@ export class MpvController {
       clearTimeout(session.readyFallbackTimeout);
     }
 
+    if (session.isSurfaceReady) this.emitStartupEvent(session, 'closed');
     session.client?.destroy();
     session.child.kill?.();
     this.removeFile(session.danmakuFilePath);
@@ -2329,6 +2601,7 @@ export class MpvController {
     this.removeFile(this.createUiScriptFilePath(session.sessionId));
     this.removeFile(session.logFilePath);
     this.sessions.delete(sessionId);
+    if (session.launchRequestId !== null) this.openPromises.delete(session.launchRequestId);
   }
 
   stopAll(): void {
@@ -2418,7 +2691,7 @@ export class MpvController {
       return;
     }
 
-    if (session.client && session.isReady) {
+    if (session.client && session.hasConnected) {
       this.writeCommand(session.client, command);
       return;
     }
@@ -2454,11 +2727,26 @@ export class MpvController {
 
       session.connectAttempt = 0;
       session.hasConnected = true;
-      session.readyFallbackTimeout = setTimeout(() => {
-        if (this.isActiveSession(session.sessionId)) {
-          this.markSessionReady(session);
+      session.isSurfaceReady = true;
+      if (session.resolveOnConnect) {
+        if (session.connectTimeout) {
+          clearTimeout(session.connectTimeout);
+          session.connectTimeout = null;
         }
-      }, IPC_CONNECTED_READY_FALLBACK_MS);
+        session.onReady();
+        this.emitStartupEvent(session, 'surface-ready');
+        this.queueSessionCommand(session.sessionId, [
+          'script-message', 'taluxa-startup-state', 'preparing', 'Preparing video...',
+        ]);
+        this.flushPendingCommands(session);
+      }
+      if (!session.resolveOnConnect) {
+        session.readyFallbackTimeout = setTimeout(() => {
+          if (this.isActiveSession(session.sessionId)) {
+            this.markSessionReady(session);
+          }
+        }, IPC_CONNECTED_READY_FALLBACK_MS);
+      }
       this.observeProperty(client, 1, 'time-pos');
       this.observeProperty(client, 2, 'duration');
     });
@@ -2467,7 +2755,7 @@ export class MpvController {
     });
     client.on('close', () => {
       if (this.isActiveSession(session.sessionId) && session.client === client) {
-        if (!session.isReady) {
+        if (!session.isSurfaceReady) {
           session.onFailure(
             new Error(
               this.buildFailureMessage(
@@ -2499,7 +2787,7 @@ export class MpvController {
         return;
       }
 
-      if (!session.isReady) {
+      if (!session.isSurfaceReady) {
         session.onFailure(
           new Error(
             this.buildFailureMessage(
@@ -2595,12 +2883,35 @@ export class MpvController {
         };
 
         if (payload.event === 'file-loaded') {
+          if (session.launchRequestId !== null && session.loadRequestId !== null) {
+            this.emitStartupEvent(session, 'media-ready');
+            this.queueSessionCommand(session.sessionId, [
+              'script-message', 'taluxa-startup-state', 'playing', '',
+            ]);
+          }
           if (session.isReady) this.emitStarted(session);
           else this.markSessionReady(session);
           continue;
         }
 
+        if (payload.event === 'playback-restart') {
+          if (session.launchRequestId !== null && session.loadRequestId !== null) {
+            this.emitStartupEvent(session, 'first-frame');
+          }
+          continue;
+        }
+
         if (payload.event === 'end-file' && !session.isReady) {
+          if (session.launchRequestId !== null && session.loadRequestId !== null) {
+            this.emitStartupEvent(session, 'failed', {
+              message: 'Unable to load this video.',
+              retryable: true,
+            });
+            this.queueSessionCommand(session.sessionId, [
+              'script-message', 'taluxa-startup-state', 'failed', 'Unable to load this video.',
+            ]);
+            continue;
+          }
           const errorDetail =
             normalizeFailureDetail(payload.error) ||
             normalizeFailureDetail(payload.file_error) ||
@@ -2653,6 +2964,15 @@ export class MpvController {
             this.onEpisodeSelect(session.sessionId, rawPatch.trim());
           }
 
+          if (name === 'taluxa-retry-load' && session.launchRequestId !== null && session.loadRequestId !== null) {
+            this.onRetryRequest({
+              playerSessionId: session.sessionId,
+              launchRequestId: session.launchRequestId,
+              itemId: session.itemId,
+              failedLoadRequestId: session.loadRequestId,
+            });
+          }
+
           continue;
         }
 
@@ -2690,6 +3010,27 @@ export class MpvController {
     }
   }
 
+  close(playerSessionId: number): boolean {
+    if (!this.getSession(playerSessionId)) return false;
+    this.clearSession(playerSessionId);
+    return true;
+  }
+
+  private emitStartupEvent(session: ActiveSession, phase: PlayerStartupEvent['phase'], options: {
+    message?: string;
+    retryable?: boolean;
+  } = {}): void {
+    if (session.launchRequestId === null) return;
+    this.onStartupEvent({
+      playerSessionId: session.sessionId,
+      launchRequestId: session.launchRequestId,
+      ...(session.loadRequestId !== null ? { loadRequestId: session.loadRequestId } : {}),
+      itemId: session.itemId,
+      phase,
+      ...options,
+    });
+  }
+
   private refreshDanmakuSubtitle(session: ActiveSession): void {
     if (!session.hasDanmakuSubtitle || session.danmakuComments.length === 0) {
       return;
@@ -2725,7 +3066,7 @@ export class MpvController {
       clearTimeout(session.readyFallbackTimeout);
       session.readyFallbackTimeout = null;
     }
-    session.onReady();
+    if (!session.resolveOnConnect) session.onReady();
     this.flushPendingCommands(session);
   }
 
@@ -2808,9 +3149,11 @@ export class MpvController {
     danmakuSettings,
     ipcServerPath,
     itemId,
+    launchRequestId,
     logFilePath,
     onFailure,
     onReady,
+    resolveOnConnect,
     sessionId,
     stderrLines,
   }: {
@@ -2819,9 +3162,11 @@ export class MpvController {
     danmakuSettings: DanmakuSettings;
     ipcServerPath: string;
     itemId: string;
+    launchRequestId: number | null;
     logFilePath: string;
     onFailure: (error: Error) => void;
     onReady: () => void;
+    resolveOnConnect: boolean;
     sessionId: number;
     stderrLines: string[];
   }): void {
@@ -2839,13 +3184,17 @@ export class MpvController {
       hasDanmakuSubtitle: false,
       ipcServerPath,
       isReady: false,
+      isSurfaceReady: false,
       itemId,
+      launchRequestId,
+      loadRequestId: null,
       logFilePath,
       onFailure,
       onReady,
       pendingCommands: [],
       positionSeconds: null,
       readyFallbackTimeout: null,
+      resolveOnConnect,
       retryTimeout: null,
       sessionId,
       stderrLines,
@@ -2858,7 +3207,7 @@ export class MpvController {
 
     this.sessions.set(session.sessionId, session);
     session.connectTimeout = setTimeout(() => {
-      if (!this.isActiveSession(session.sessionId) || session.isReady) {
+      if (!this.isActiveSession(session.sessionId) || session.isSurfaceReady) {
         return;
       }
 

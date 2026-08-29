@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayerPage } from './PlayerPage';
+import type { PlayerRetryRequest, PlayerStartupEvent } from '@shared/models/playerStartup';
 
 interface PlayerProgressEvent {
   playerSessionId: number;
@@ -13,6 +14,8 @@ interface PlayerProgressEvent {
 function mockPlayerBridge() {
   const listeners = new Set<(event: PlayerProgressEvent) => void>();
   const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
+  const startupListeners = new Set<(event: PlayerStartupEvent) => void>();
+  const retryListeners = new Set<(event: PlayerRetryRequest) => void>();
   const launch = vi.fn<() => Promise<{ playerSessionId: number } | void>>(
     () => new Promise<{ playerSessionId: number } | void>(() => undefined)
   );
@@ -30,12 +33,22 @@ function mockPlayerBridge() {
       episodeSelectListeners.delete(listener);
     };
   });
+  const onStartupEvent = vi.fn((listener: (event: PlayerStartupEvent) => void) => {
+    startupListeners.add(listener);
+    return () => startupListeners.delete(listener);
+  });
+  const onRetryRequest = vi.fn((listener: (event: PlayerRetryRequest) => void) => {
+    retryListeners.add(listener);
+    return () => retryListeners.delete(listener);
+  });
 
   window.embyDesktop = {
     player: {
       launch,
       onEpisodeSelect,
       onProgress,
+      onStartupEvent,
+      onRetryRequest,
     },
   } as unknown as Window['embyDesktop'];
 
@@ -43,6 +56,8 @@ function mockPlayerBridge() {
     launch,
     onEpisodeSelect,
     onProgress,
+    onStartupEvent,
+    onRetryRequest,
     emitEpisodeSelect(itemId: string, playerSessionId = 1) {
       for (const listener of episodeSelectListeners) {
         listener({ playerSessionId, itemId });
@@ -52,6 +67,9 @@ function mockPlayerBridge() {
       for (const listener of listeners) {
         listener({ playerSessionId: 1, ...event });
       }
+    },
+    emitStartup(event: PlayerStartupEvent) {
+      for (const listener of startupListeners) listener(event);
     },
   };
 }
@@ -72,6 +90,38 @@ afterEach(() => {
 });
 
 describe('PlayerPage', () => {
+  it('forwards only current redacted startup failures and ignores events after unmount', () => {
+    const bridge = mockPlayerBridge();
+    const onLaunchFailure = vi.fn();
+    const { unmount } = render(
+      <PlayerPage
+        httpHeaders={{}} itemId="item-1" initialPlayerSessionId={2} launchRequestId={7}
+        title="Movie 1" streamUrl="https://media.example/video.mp4" initialPositionSeconds={0}
+        onLaunchFailure={onLaunchFailure} onProgress={vi.fn()}
+      />
+    );
+    act(() => {
+      bridge.emitStartup({
+        playerSessionId: 3, launchRequestId: 7, loadRequestId: 1, itemId: 'item-1',
+        phase: 'failed', retryable: true, message: 'Wrong session',
+      });
+      bridge.emitStartup({
+        playerSessionId: 2, launchRequestId: 7, loadRequestId: 1, itemId: 'item-1',
+        phase: 'failed', retryable: true, message: 'Unable to load this video.',
+      });
+    });
+    expect(onLaunchFailure).toHaveBeenCalledOnce();
+    expect(onLaunchFailure).toHaveBeenCalledWith({
+      itemId: 'item-1', launchRequestId: 7, playerSessionId: 2,
+      message: 'Unable to load this video.',
+    });
+    unmount();
+    act(() => bridge.emitStartup({
+      playerSessionId: 2, launchRequestId: 7, loadRequestId: 1, itemId: 'item-1',
+      phase: 'failed', retryable: true, message: 'Late failure',
+    }));
+    expect(onLaunchFailure).toHaveBeenCalledOnce();
+  });
   it('keeps the launcher bridge hidden while playback starts', () => {
     mockPlayerBridge();
 

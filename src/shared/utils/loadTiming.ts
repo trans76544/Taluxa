@@ -88,3 +88,16 @@ export function getTimingSegments(
     return segments;
   }, []);
 }
+
+const PLAYER_STARTUP_SEGMENTS: TimingSegmentDefinition[] = [
+  { name: 'surface-open', from: 'player-open-requested', to: 'player-surface-ready', avoidable: false },
+  { name: 'source-preparation', from: 'play-acknowledged', to: 'playback-source-ready', avoidable: true },
+  { name: 'load-dispatch', from: 'playback-source-ready', to: 'media-load-requested', avoidable: true },
+  { name: 'media-readiness', from: 'media-load-requested', to: 'media-ready', avoidable: false },
+  { name: 'first-frame', from: 'media-ready', to: 'first-frame', avoidable: false },
+  { name: 'failure-detection', from: 'media-load-requested', to: 'playback-recoverable-failure', avoidable: false },
+];
+
+export function getPlayerStartupTimingSegments(milestones: LoadTimingMilestone[]): TimingSegment[] {
+  return getTimingSegments(milestones, PLAYER_STARTUP_SEGMENTS);
+}

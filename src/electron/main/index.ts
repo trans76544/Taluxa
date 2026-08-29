@@ -6,6 +6,7 @@ import { readPersistedState, registerStorageIpc, writeSettingsPatchFromMain } fr
 import { registerImageCacheIpc } from './ipc/imageCache';
 import { registerAuthIpc } from './ipc/auth';
 import { registerStoryMarkerIpc } from './ipc/storyMarkers';
+import { registerPlayerStartupIpc } from './ipc/playerStartup';
 import { ImageCache, IMAGE_CACHE_PROTOCOL } from './image/imageCache';
 import { registerImageCacheProtocol } from './image/protocol';
 import { applyProxySettings, applyProxySettingsWithFallback } from './network/proxy';
@@ -29,6 +30,7 @@ import type { ImageCacheResolution } from '@shared/models/settings';
 import type { Settings, ProxySettings } from '@shared/models/settings';
 import type { PersistedState, SettingsSyncEvent } from '@shared/store/persistence';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import type { PlayerRetryRequest, PlayerStartupEvent } from '@shared/models/playerStartup';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -49,6 +51,14 @@ function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
 
 function sendPlayerPlaybackEvent(event: PlayerPlaybackEvent) {
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('player:playback-event', event);
+}
+
+function sendPlayerStartupEvent(event: PlayerStartupEvent) {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('player:startup-event', event);
+}
+
+function sendPlayerRetryRequest(event: PlayerRetryRequest) {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('player:retry-request', event);
 }
 
 function broadcastSettingsSync(event: SettingsSyncEvent) {
@@ -100,6 +110,8 @@ const mpvController = new MpvController({
   },
   onProgress: sendPlayerProgress,
   onPlaybackEvent: sendPlayerPlaybackEvent,
+  onStartupEvent: sendPlayerStartupEvent,
+  onRetryRequest: sendPlayerRetryRequest,
 });
 const hlsProxyServer = new HlsProxyServer((url, init) => session.defaultSession.fetch(url, init));
 const MPV_EPISODE_THUMBNAIL_WIDTH = 128;
@@ -318,6 +330,16 @@ app.whenReady().then(() => {
             danmaku: settings.danmaku,
           }
         );
+      });
+      registerPlayerStartupIpc(ipcMain, {
+        controller: mpvController,
+        readSettings: () => readPersistedState().settings,
+        prepareLoad: (input) => prepareLaunchInput(input),
+        enrichEpisodeSelector: (input) => prepareEpisodeSelectorThumbnails(
+          input,
+          imageCache,
+          join(app.getPath('userData'), 'mpv-episode-thumbnails')
+        ),
       });
       ipcMain.handle('player:switch-episode', async (_event, input: LaunchMpvInput & { playerSessionId: number }) => {
         if (!input || !Number.isSafeInteger(input.playerSessionId) || input.playerSessionId <= 0) {

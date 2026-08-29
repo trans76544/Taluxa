@@ -1,12 +1,13 @@
 // @vitest-environment node
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ImageCache } from './imageCache';
 
 async function createTempCacheDir() {
-  return mkdtemp(join('C:\\tmp', 'taluxa-image-cache-'));
+  return mkdtemp(join(tmpdir(), 'taluxa-image-cache-'));
 }
 
 describe('ImageCache', () => {

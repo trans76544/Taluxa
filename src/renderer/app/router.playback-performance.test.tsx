@@ -292,15 +292,74 @@ describe('playback performance route behavior', () => {
     fetchServerInfoMock.mockResolvedValue({ serverName: null });
   });
 
+  it('opens a movie surface before delayed source and storage preparation, then loads once', async () => {
+    const source = createDeferred<{ httpHeaders: Record<string, string>; streamUrl: string }>();
+    const storage = createDeferred<PersistedState>();
+    fetchPlaybackStreamSourceMock.mockReturnValue(source.promise);
+    const bridge = renderMovieRoute(createLibraryItemDetails({
+      id: 'movie-1',
+      mediaSources: [createPlaybackInfoFallbackMediaSource({ id: 'slow-source' })],
+    }));
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+    vi.mocked(window.embyDesktop.storage.read).mockReturnValueOnce(storage.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+
+    await waitFor(() => expect(bridge.open).toHaveBeenCalledWith(expect.objectContaining({
+      launchRequestId: 1, itemId: 'movie-1', title: 'Movie 1',
+    })));
+    expect(bridge.load).not.toHaveBeenCalled();
+
+    const account = createSavedAccount();
+    storage.resolve(createPersistedState({ accounts: [account], activeAccountId: account.id }) as PersistedState);
+    source.resolve({ httpHeaders: {}, streamUrl: 'https://demo.emby.local/Videos/movie-1/master.m3u8' });
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
+  });
+
+  it('opens the selected episode surface before delayed persisted-state preparation', async () => {
+    const bridge = renderSeriesRoute();
+    fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
+    const storage = createDeferred<PersistedState>();
+    vi.mocked(window.embyDesktop.storage.read).mockReturnValueOnce(storage.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    await waitFor(() => expect(bridge.open).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'episode-2', title: 'Series 1 - S1:E2 - Second Case',
+    })));
+    expect(bridge.load).not.toHaveBeenCalled();
+
+    const account = createSavedAccount();
+    storage.resolve(createPersistedState({ accounts: [account], activeAccountId: account.id }) as PersistedState);
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
+  });
+
+  it('opens a continue-watching surface before delayed resume-state preparation', async () => {
+    const bridge = renderHomeRoute();
+    fireEvent.click(await screen.findByRole('link', { name: /Resume Movie/ }));
+    expect(await screen.findByRole('heading', { name: 'Resume Movie' })).toBeInTheDocument();
+    const storage = createDeferred<PersistedState>();
+    vi.mocked(window.embyDesktop.storage.read).mockReturnValueOnce(storage.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    await waitFor(() => expect(bridge.open).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'resume-movie-1', title: 'Resume Movie',
+    })));
+    expect(bridge.load).not.toHaveBeenCalled();
+
+    const account = createSavedAccount();
+    storage.resolve(createPersistedState({ accounts: [account], activeAccountId: account.id }) as PersistedState);
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledWith(expect.objectContaining({ startSeconds: 15 })));
+  });
+
   it('keeps two accepted play actions as independent session bridges', async () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('player-session-host').querySelectorAll('[data-testid="player-page"]')).toHaveLength(2);
   });
 
@@ -309,7 +368,7 @@ describe('playback performance route behavior', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       window.location.hash = '#/libraries';
@@ -328,7 +387,7 @@ describe('playback performance route behavior', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 2' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('player-session-host').querySelectorAll('[data-testid="player-page"]')).toHaveLength(2);
   });
 
@@ -397,7 +456,7 @@ describe('playback performance route behavior', () => {
 
     await waitFor(() => {
       expect(bridge.preflight).toHaveBeenCalledTimes(2);
-      expect(bridge.launch).toHaveBeenCalledTimes(2);
+      expect(bridge.load).toHaveBeenCalledTimes(2);
     });
 
     await act(async () => {
@@ -405,7 +464,7 @@ describe('playback performance route behavior', () => {
       await flushPromises();
     });
 
-    expect(bridge.launch).toHaveBeenCalledTimes(2);
+    expect(bridge.load).toHaveBeenCalledTimes(2);
   });
 
   it('does not delay direct playback while story markers are still loading', async () => {
@@ -416,7 +475,7 @@ describe('playback performance route behavior', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: 'movie-1' })
     );
@@ -427,7 +486,7 @@ describe('playback performance route behavior', () => {
     });
   });
 
-  it('does not block player launch on a slow preflight beyond the fast budget', async () => {
+  it('does not block media load on a slow preflight', async () => {
     const markersDeferred = createDeferred<never[]>();
     fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const bridge = renderMovieRoute(createLibraryItemDetails({ id: 'movie-1' }));
@@ -435,7 +494,6 @@ describe('playback performance route behavior', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
     await act(async () => {
@@ -443,14 +501,9 @@ describe('playback performance route behavior', () => {
     });
 
     expect(bridge.preflight).toHaveBeenCalledTimes(1);
-    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.load).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-      await flushPromises();
-    });
-
-    expect(bridge.launch).toHaveBeenCalledTimes(1);
+    expect(bridge.load).toHaveBeenCalledTimes(1);
     expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
 
     markersDeferred.resolve([]);
@@ -472,7 +525,7 @@ describe('playback performance route behavior', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(expect.objectContaining({
       mediaSourceId: 'fallback-source',
@@ -505,29 +558,32 @@ describe('playback performance route behavior', () => {
     }));
   });
 
-  it('cancels a pending marker result when the detail route unmounts', async () => {
+  it('delivers an accepted pending marker result after the detail route unmounts', async () => {
     const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
     fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     cleanup();
     markersDeferred.resolve([{ startSeconds: 7, names: ['Late'], kinds: ['chapter'] }]);
-    await flushPromises();
-    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1',
+      playerSessionId: 1,
+      markers: [{ startSeconds: 7, names: ['Late'], kinds: ['chapter'] }],
+    }));
   });
 
-  it('cancels an accepted pending marker result when the detail route item changes', async () => {
+  it('delivers accepted markers to the bound player after the detail route item changes', async () => {
     const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
     fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       window.location.hash = '#/item/movie-2';
@@ -539,11 +595,14 @@ describe('playback performance route behavior', () => {
     ));
 
     markersDeferred.resolve([{ startSeconds: 13, names: ['Old item'], kinds: ['chapter'] }]);
-    await flushPromises();
-    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1',
+      playerSessionId: 1,
+      markers: [{ startSeconds: 13, names: ['Old item'], kinds: ['chapter'] }],
+    }));
   });
 
-  it('cancels a pending marker result when the active server account changes', async () => {
+  it('delivers accepted markers to the bound player after the active account changes', async () => {
     const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
     fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const first = createSavedAccount();
@@ -562,7 +621,7 @@ describe('playback performance route behavior', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     const backupButton = screen.getByRole('button', { name: /backup\.emby\.local/i });
     await act(async () => {
       fireEvent.click(backupButton);
@@ -575,10 +634,14 @@ describe('playback performance route behavior', () => {
       markersDeferred.resolve([{ startSeconds: 11, names: ['Late'], kinds: ['chapter'] }]);
       await flushPromises();
     });
-    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+    expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1',
+      playerSessionId: 1,
+      markers: [{ startSeconds: 11, names: ['Late'], kinds: ['chapter'] }],
+    });
   });
 
-  it('cancels accepted markers before promise microtasks after an account change commit', async () => {
+  it('keeps accepted marker delivery alive across account-change cleanup microtasks', async () => {
     const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
     fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const first = createSavedAccount();
@@ -597,7 +660,7 @@ describe('playback performance route behavior', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     itemDetailsLayoutCleanup.current = () => {
       markersDeferred.resolve([{ startSeconds: 11, names: ['Old account'], kinds: ['chapter'] }]);
@@ -608,10 +671,14 @@ describe('playback performance route behavior', () => {
     });
     itemDetailsLayoutCleanup.current = null;
 
-    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+    expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1',
+      playerSessionId: 1,
+      markers: [{ startSeconds: 11, names: ['Old account'], kinds: ['chapter'] }],
+    });
   });
 
-  it('cancels pending markers when playback preflight fails', async () => {
+  it('keeps playback and optional markers independent when preflight fails', async () => {
     const markersDeferred = createDeferred<Array<{ startSeconds: number; names: string[]; kinds: ['chapter'] }>>();
     fetchStoryTimelineMarkersMock.mockReturnValue(markersDeferred.promise);
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
@@ -620,11 +687,14 @@ describe('playback performance route behavior', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /播放/ }));
     await waitFor(() => expect(bridge.preflight).toHaveBeenCalledTimes(1));
-    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.load).toHaveBeenCalledTimes(1);
 
     markersDeferred.resolve([{ startSeconds: 9, names: ['Late'], kinds: ['chapter'] }]);
     await flushPromises();
-    expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
+    await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
+      itemId: 'movie-1', playerSessionId: 1,
+      markers: [{ startSeconds: 9, names: ['Late'], kinds: ['chapter'] }],
+    }));
   });
 
   it('does not deliver markers when PlaybackInfo source resolution fails', async () => {
@@ -639,7 +709,7 @@ describe('playback performance route behavior', () => {
     await waitFor(() => expect(fetchPlaybackStreamSourceMock).toHaveBeenCalled());
     await flushPromises();
 
-    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.load).not.toHaveBeenCalled();
     expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
   });
 
@@ -659,7 +729,7 @@ describe('playback performance route behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
       await waitFor(() => {
-        expect(bridge.launch).toHaveBeenCalledWith(
+        expect(bridge.load).toHaveBeenCalledWith(
           expect.objectContaining({
             itemId: 'movie-1',
             streamUrl: expect.stringMatching(
@@ -672,9 +742,10 @@ describe('playback performance route behavior', () => {
       expect(milestones.map((milestone) => milestone.name)).toEqual(
         expect.arrayContaining([
           'play-acknowledged',
+          'player-open-requested',
           'playback-source-ready',
-          'player-launch-requested',
-          'playback-ready',
+          'player-surface-ready',
+          'media-load-requested',
         ])
       );
     } finally {
@@ -691,7 +762,7 @@ describe('playback performance route behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
       await waitFor(() => {
-        expect(bridge.launch).toHaveBeenCalledWith(
+        expect(bridge.load).toHaveBeenCalledWith(
           expect.objectContaining({
             itemId: 'episode-2',
             title: 'Series 1 - S1:E2 - Second Case',
@@ -701,9 +772,10 @@ describe('playback performance route behavior', () => {
       expect(milestones.map((milestone) => milestone.name)).toEqual(
         expect.arrayContaining([
           'play-acknowledged',
+          'player-open-requested',
           'playback-source-ready',
-          'player-launch-requested',
-          'playback-ready',
+          'player-surface-ready',
+          'media-load-requested',
         ])
       );
     } finally {
@@ -718,7 +790,7 @@ describe('playback performance route behavior', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
     fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
-    await waitFor(() => expect(bridge.launch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'episode-2', playerSessionId: 1, markers: [],
     }));
@@ -749,7 +821,7 @@ describe('playback performance route behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
       await waitFor(() => {
-        expect(bridge.launch).toHaveBeenCalledWith(
+        expect(bridge.load).toHaveBeenCalledWith(
           expect.objectContaining({
             itemId: 'resume-movie-1',
             startSeconds: 15,
@@ -759,9 +831,10 @@ describe('playback performance route behavior', () => {
       expect(milestones.map((milestone) => milestone.name)).toEqual(
         expect.arrayContaining([
           'play-acknowledged',
+          'player-open-requested',
           'playback-source-ready',
-          'player-launch-requested',
-          'playback-ready',
+          'player-surface-ready',
+          'media-load-requested',
         ])
       );
     } finally {
@@ -796,7 +869,7 @@ describe('playback performance route behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /播放/ }));
 
       await waitFor(() => {
-        expect(bridge.launch).toHaveBeenCalledWith(
+        expect(bridge.load).toHaveBeenCalledWith(
           expect.objectContaining({
             itemId: 'movie-1',
             streamUrl: 'https://demo.emby.local/Videos/item-1/master.m3u8',
@@ -807,9 +880,10 @@ describe('playback performance route behavior', () => {
       expect(milestones.map((milestone) => milestone.name)).toEqual(
         expect.arrayContaining([
           'play-acknowledged',
+          'player-open-requested',
           'playback-source-ready',
-          'player-launch-requested',
-          'playback-ready',
+          'player-surface-ready',
+          'media-load-requested',
         ])
       );
     } finally {
@@ -817,7 +891,7 @@ describe('playback performance route behavior', () => {
     }
   });
 
-  it('emits playback ready timing without showing startup status when the current mpv launch resolves', async () => {
+  it('emits player surface timing without showing startup status when open resolves', async () => {
     const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
 
     try {
@@ -828,11 +902,11 @@ describe('playback performance route behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
 
       await waitFor(() => {
-        expect(milestones.map((milestone) => milestone.name)).toContain('playback-ready');
+        expect(milestones.map((milestone) => milestone.name)).toContain('player-surface-ready');
       });
       expect(milestones).toContainEqual(
         expect.objectContaining({
-          name: 'playback-ready',
+          name: 'player-surface-ready',
           result: 'success',
           surface: 'playback',
         })
@@ -853,7 +927,7 @@ describe('playback performance route behavior', () => {
       })
     );
     const { cleanup: cleanupMilestones, milestones } = collectLoadTimingMilestones();
-    bridge.launch.mockRejectedValueOnce(
+    bridge.load.mockRejectedValueOnce(
       new Error(
         'mpv failed for https://demo.emby.local/Videos/movie-1/stream.mp4?api_key=token-123'
       )
@@ -886,48 +960,39 @@ describe('playback performance route behavior', () => {
     }
   });
 
-  it('reports startup critical-path segments after playback is ready', async () => {
-    const launchDeferred = createDeferred<void>();
+  it('reports split startup critical-path segments through first frame', async () => {
     const bridge = renderMovieRoute(createLibraryItemDetails({ id: 'movie-1' }));
     const segments: Array<{ durationMs: number; name: string }> = [];
     const listener = (event: Event) => {
       segments.push((event as CustomEvent<{ durationMs: number; name: string }>).detail);
     };
-    bridge.launch.mockReturnValueOnce(launchDeferred.promise);
     window.addEventListener('taluxa-load-timing-segment', listener);
 
     try {
       expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-      vi.useFakeTimers();
       fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
-
-      await act(async () => {
-        await flushPromises();
-      });
-      expect(bridge.launch).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(750);
-        launchDeferred.resolve();
-        await flushPromises();
+      await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
+      act(() => {
+        bridge.emitStartupEvent({
+          playerSessionId: 1, launchRequestId: 1, loadRequestId: 1,
+          itemId: 'movie-1', phase: 'media-ready',
+        });
+        bridge.emitStartupEvent({
+          playerSessionId: 1, launchRequestId: 1, loadRequestId: 1,
+          itemId: 'movie-1', phase: 'first-frame',
+        });
       });
 
       expect(segments).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ name: 'source-resolution' }),
-          expect.objectContaining({ name: 'preflight-budget' }),
-          expect.objectContaining({
-            durationMs: 750,
-            name: 'player-readiness',
-          }),
+          expect.objectContaining({ name: 'surface-open' }),
+          expect.objectContaining({ name: 'source-preparation' }),
+          expect.objectContaining({ name: 'load-dispatch' }),
+          expect.objectContaining({ name: 'media-readiness' }),
+          expect.objectContaining({ name: 'first-frame' }),
         ])
       );
-      expect(
-        segments.reduce((largest, segment) =>
-          segment.durationMs > largest.durationMs ? segment : largest
-        ).name
-      ).toBe('player-readiness');
     } finally {
       window.removeEventListener('taluxa-load-timing-segment', listener);
     }
