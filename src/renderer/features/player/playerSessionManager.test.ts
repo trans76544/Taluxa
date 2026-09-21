@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
+import { act, render, waitFor } from '@testing-library/react';
+import { createElement, useEffect } from 'react';
 import {
   PlayerSessionManager,
+  PlayerSessionHost,
   PlayerStartupCoordinator,
   type PlayerSessionEvent,
+  usePlayerSessionHost,
 } from './playerSessionManager';
+import { createControllablePlayerBridge } from '../../../test/loadPerformanceFixtures';
 
 function event(playerSessionId: number, itemId = `item-${playerSessionId}`): PlayerSessionEvent {
   return {
@@ -207,5 +212,59 @@ describe('PlayerStartupCoordinator', () => {
       message: 'Unable to prepare this video.',
     }));
     expect(coordinator.get(8)).toEqual(expect.objectContaining({ state: 'failed', playerSessionId: 14 }));
+  });
+});
+
+describe('PlayerSessionHost next-episode preload lifecycle', () => {
+  it('starts only the matching session candidate from raw playback progress and releases it when closed', async () => {
+    const player = createControllablePlayerBridge();
+    const originalDesktop = window.embyDesktop;
+    window.embyDesktop = { player } as unknown as Window['embyDesktop'];
+    let host: ReturnType<typeof usePlayerSessionHost> | null = null;
+    const source = { streamUrl: 'https://media.example/episode-2' };
+    const prepare = vi.fn().mockResolvedValue(source);
+
+    function Probe() {
+      const value = usePlayerSessionHost();
+      useEffect(() => { host = value; }, [value]);
+      return null;
+    }
+
+    const view = render(createElement(PlayerSessionHost, null, createElement(Probe)));
+    await waitFor(() => expect(host).not.toBeNull());
+    host!.registerNextEpisodePreload({
+      playerSessionId: 4,
+      currentItemId: 'episode-1',
+      targetItemId: 'episode-2',
+      fingerprint: 'fingerprint',
+      prepare,
+    });
+
+    act(() => {
+      player.emitPlaybackEvent({
+        playerSessionId: 9, playbackId: '9:1', sequence: 1, phase: 'progress',
+        itemId: 'episode-1', positionSeconds: 95, durationSeconds: 100,
+      });
+      player.emitPlaybackEvent({
+        playerSessionId: 4, playbackId: '4:1', sequence: 1, phase: 'progress',
+        itemId: 'episode-1', positionSeconds: 85, durationSeconds: 100,
+      });
+    });
+    await waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+    await expect(host!.consumeNextEpisodePreload<typeof source>({
+      playerSessionId: 4, currentItemId: 'episode-1', targetItemId: 'episode-2', fingerprint: 'fingerprint',
+    })).resolves.toBe(source);
+
+    act(() => {
+      player.emitStartupEvent({
+        playerSessionId: 4, launchRequestId: 1, itemId: 'episode-1', phase: 'closed',
+      });
+    });
+    expect(host!.consumeNextEpisodePreload<typeof source>({
+      playerSessionId: 4, currentItemId: 'episode-1', targetItemId: 'episode-2', fingerprint: 'fingerprint',
+    })).toBeNull();
+
+    view.unmount();
+    window.embyDesktop = originalDesktop;
   });
 });

@@ -11,6 +11,7 @@ import type {
   PlayerRetryRequest,
   PlayerStartupEvent,
 } from '@shared/models/playerStartup';
+import type { PlayerPlaybackEvent } from '@shared/models/playback';
 import { vi } from 'vitest';
 
 export function createHomePosterItem(overrides: Partial<HomePosterItem> = {}): HomePosterItem {
@@ -204,6 +205,7 @@ export function createContinueWatchingPosterItem(
 
 export function createControllablePlayerBridge() {
   const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
+  const playbackListeners = new Set<(event: PlayerPlaybackEvent) => void>();
   const startupListeners = new Set<(event: PlayerStartupEvent) => void>();
   const retryListeners = new Set<(event: PlayerRetryRequest) => void>();
   const load = vi.fn().mockResolvedValue(undefined);
@@ -221,6 +223,10 @@ export function createControllablePlayerBridge() {
       return () => episodeSelectListeners.delete(listener);
     }),
     onProgress: vi.fn(() => () => undefined),
+    onPlaybackEvent: vi.fn((listener: (event: PlayerPlaybackEvent) => void) => {
+      playbackListeners.add(listener);
+      return () => playbackListeners.delete(listener);
+    }),
     onStartupEvent: vi.fn((listener: (event: PlayerStartupEvent) => void) => {
       startupListeners.add(listener);
       return () => startupListeners.delete(listener);
@@ -234,6 +240,9 @@ export function createControllablePlayerBridge() {
     switchEpisode: vi.fn().mockResolvedValue(undefined),
     emitEpisodeSelect(itemId: string) {
       for (const listener of episodeSelectListeners) listener({ playerSessionId: 1, itemId });
+    },
+    emitPlaybackEvent(event: PlayerPlaybackEvent) {
+      for (const listener of playbackListeners) listener(event);
     },
     emitStartupEvent(event: PlayerStartupEvent) {
       for (const listener of startupListeners) listener(event);
