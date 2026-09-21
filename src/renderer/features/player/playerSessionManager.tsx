@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { PlayerPlaybackEvent } from '@shared/models/playback';
 import type {
   PlayerLoadInput,
   PlayerOpenInput,
@@ -8,6 +7,12 @@ import type {
   PlayerStartupFailureInput,
   PlayerStartupEvent,
 } from '@shared/models/playerStartup';
+import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import {
+  NextEpisodePreloadCoordinator,
+  type NextEpisodePreloadConsumeInput,
+  type NextEpisodePreloadRegistration,
+} from './nextEpisodePreload';
 import type { PlayerEpisodeSelectEvent, PlayerProgressEvent } from '../../../electron/preload';
 import { PlayerPage, type PlayerPageProps } from './PlayerPage';
 import { redactErrorMessage } from '@shared/network/redaction';
@@ -294,6 +299,9 @@ interface PlayerSessionHostValue {
   registerSession: (record: PlayerSessionBridgeRecord) => void;
   startStartup: (request: PlayerSessionStartupRequest) => PlayerStartupRecord;
   removeSession: (key: string) => void;
+  registerNextEpisodePreload: <T>(registration: NextEpisodePreloadRegistration<T>) => void;
+  consumeNextEpisodePreload: <T>(input: NextEpisodePreloadConsumeInput) => Promise<T> | null;
+  releaseNextEpisodePreload: (playerSessionId: number) => void;
 }
 
 const PlayerSessionHostContext = createContext<PlayerSessionHostValue | null>(null);
@@ -302,6 +310,7 @@ export function PlayerSessionHost({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<PlayerSessionBridgeRecord[]>([]);
   const preparedRecordsRef = useRef(new Map<number, PlayerSessionBridgeRecord>());
   const surfaceReadyNotifiedRef = useRef(new Set<number>());
+  const nextEpisodePreloadRef = useRef(new NextEpisodePreloadCoordinator<unknown>());
   const [startupCoordinator] = useState(() => new PlayerStartupCoordinator(
     {
       open: (input) => window.embyDesktop.player.open(input),
@@ -354,13 +363,18 @@ export function PlayerSessionHost({ children }: { children: ReactNode }) {
   useEffect(() => {
     const player = window.embyDesktop?.player;
     if (!player) return undefined;
+    const unsubscribePlayback = player.onPlaybackEvent?.((event: PlayerPlaybackEvent) => {
+      nextEpisodePreloadRef.current.handleEvent(event);
+    });
     const unsubscribeStartup = player.onStartupEvent?.((event) => {
       startupCoordinator.handleStartupEvent(event);
+      if (event.phase === 'closed') nextEpisodePreloadRef.current.releaseSession(event.playerSessionId);
     });
     const unsubscribeRetry = player.onRetryRequest?.((event) => {
       startupCoordinator.retry(event);
     });
     return () => {
+      unsubscribePlayback?.();
       unsubscribeStartup?.();
       unsubscribeRetry?.();
     };
@@ -420,9 +434,33 @@ export function PlayerSessionHost({ children }: { children: ReactNode }) {
   const removeSession = useCallback((key: string) => {
     setSessions((current) => current.filter((record) => record.key !== key));
   }, []);
+  const registerNextEpisodePreload = useCallback(<T,>(registration: NextEpisodePreloadRegistration<T>) => {
+    nextEpisodePreloadRef.current.register(registration as NextEpisodePreloadRegistration<unknown>);
+  }, []);
+  const consumeNextEpisodePreload = useCallback(<T,>(input: NextEpisodePreloadConsumeInput) =>
+    nextEpisodePreloadRef.current.consume(input) as Promise<T> | null, []);
+  const releaseNextEpisodePreload = useCallback((playerSessionId: number) => {
+    nextEpisodePreloadRef.current.releaseSession(playerSessionId);
+  }, []);
   const value = useMemo(
-    () => ({ allocateLaunchId, registerSession, startStartup, removeSession }),
-    [allocateLaunchId, registerSession, startStartup, removeSession]
+    () => ({
+      allocateLaunchId,
+      registerSession,
+      startStartup,
+      removeSession,
+      registerNextEpisodePreload,
+      consumeNextEpisodePreload,
+      releaseNextEpisodePreload,
+    }),
+    [
+      allocateLaunchId,
+      registerSession,
+      startStartup,
+      removeSession,
+      registerNextEpisodePreload,
+      consumeNextEpisodePreload,
+      releaseNextEpisodePreload,
+    ]
   );
 
   return (

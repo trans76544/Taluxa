@@ -175,7 +175,19 @@ function renderMovieRoute(details = createLibraryItemDetails()) {
   return bridge;
 }
 
-function renderSeriesRoute() {
+function renderSeriesRoute(episodes = [
+  createLibraryEpisode({
+    id: 'episode-1',
+    name: 'First Case',
+    mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-1-source' })],
+  }),
+  createLibraryEpisode({
+    id: 'episode-2',
+    name: 'Second Case',
+    indexNumber: 2,
+    mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-2-source' })],
+  }),
+]) {
   const account = createSavedAccount();
   const bridge = mockStorageRead(
     createPersistedState({
@@ -186,19 +198,7 @@ function renderSeriesRoute() {
 
   fetchItemDetailsMock.mockResolvedValue(createSeriesDetails());
   fetchSeasonsMock.mockResolvedValue([createLibrarySeason()]);
-  fetchEpisodesMock.mockResolvedValue([
-    createLibraryEpisode({
-      id: 'episode-1',
-      name: 'First Case',
-      mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-1-source' })],
-    }),
-    createLibraryEpisode({
-      id: 'episode-2',
-      name: 'Second Case',
-      indexNumber: 2,
-      mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-2-source' })],
-    }),
-  ]);
+  fetchEpisodesMock.mockResolvedValue(episodes);
   window.location.hash = '#/item/series-1';
 
   render(
@@ -996,5 +996,72 @@ describe('playback performance route behavior', () => {
     } finally {
       window.removeEventListener('taluxa-load-timing-segment', listener);
     }
+  });
+
+  it('prepares the immediate next episode at or above 85 percent and reuses its source on selection', async () => {
+    const bridge = renderSeriesRoute([
+      createLibraryEpisode({
+        id: 'episode-1',
+        name: 'First Case',
+        mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-1-source' })],
+      }),
+      createLibraryEpisode({
+        id: 'episode-2',
+        name: 'Second Case',
+        indexNumber: 2,
+        mediaSources: [createPlaybackInfoFallbackMediaSource({ id: 'episode-2-source' })],
+      }),
+    ]);
+
+    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-1' })));
+
+    act(() => bridge.emitPlaybackEvent({
+      playerSessionId: 1, playbackId: '1:1', sequence: 1, phase: 'progress',
+      itemId: 'episode-1', positionSeconds: 85, durationSeconds: 100,
+    }));
+    await waitFor(() => expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'episode-2' })
+    ));
+
+    act(() => bridge.emitEpisodeSelect('episode-2'));
+    await waitFor(() => expect(bridge.switchEpisode).toHaveBeenCalledWith(expect.objectContaining({
+      playerSessionId: 1, itemId: 'episode-2',
+    })));
+    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the normal source request when an in-flight next-episode preparation fails', async () => {
+    const preloadedSource = createDeferred<{ httpHeaders: Record<string, string>; streamUrl: string }>();
+    fetchPlaybackStreamSourceMock
+      .mockReturnValueOnce(preloadedSource.promise)
+      .mockResolvedValueOnce({ httpHeaders: {}, streamUrl: 'https://demo.emby.local/Videos/episode-2/fallback.m3u8' });
+    const bridge = renderSeriesRoute([
+      createLibraryEpisode({
+        id: 'episode-1',
+        mediaSources: [createDirectPlaybackMediaSource({ id: 'episode-1-source' })],
+      }),
+      createLibraryEpisode({
+        id: 'episode-2',
+        indexNumber: 2,
+        mediaSources: [createPlaybackInfoFallbackMediaSource({ id: 'episode-2-source' })],
+      }),
+    ]);
+
+    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
+    act(() => bridge.emitPlaybackEvent({
+      playerSessionId: 1, playbackId: '1:1', sequence: 1, phase: 'progress',
+      itemId: 'episode-1', positionSeconds: 90, durationSeconds: 100,
+    }));
+    await waitFor(() => expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1));
+
+    act(() => bridge.emitEpisodeSelect('episode-2'));
+    preloadedSource.reject(new Error('temporary preload failure'));
+
+    await waitFor(() => expect(bridge.switchEpisode).toHaveBeenCalledWith(expect.objectContaining({
+      playerSessionId: 1, itemId: 'episode-2', streamUrl: 'https://demo.emby.local/Videos/episode-2/fallback.m3u8',
+    })));
+    expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(2);
   });
 });

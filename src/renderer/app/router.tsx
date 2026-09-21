@@ -428,7 +428,13 @@ function ItemDetailsRoute() {
   const { activeAccountId, serverUrl, session } = useAuth();
   const { itemId = '' } = useParams();
   const { registerPlaybackContext } = usePlaybackSync();
-  const { allocateLaunchId, startStartup } = usePlayerSessionHost();
+  const {
+    allocateLaunchId,
+    startStartup,
+    registerNextEpisodePreload,
+    consumeNextEpisodePreload,
+    releaseNextEpisodePreload,
+  } = usePlayerSessionHost();
   const location = useLocation();
   const itemRouteState = (location.state as ItemRouteState | null | undefined) ?? {};
   const resumeEpisodeId = itemRouteState.resumeEpisodeId;
@@ -463,6 +469,7 @@ function ItemDetailsRoute() {
   const playbackAttemptGenerationRef = useRef(createRequestGenerationGuard());
   const episodeSwitchGenerationRef = useRef(createRequestGenerationGuard());
   const playbackSessionIdRef = useRef<number | null>(null);
+  const playbackItemIdRef = useRef('');
   const playbackLaunchesRef = useRef(new Map<number, CurrentPlaybackLaunch>());
   const storyMarkerDeliveryRef = useRef<StoryMarkerDeliveryCoordinator | null>(null);
   storyMarkerDeliveryRef.current ??= new StoryMarkerDeliveryCoordinator((update) =>
@@ -556,6 +563,35 @@ function ItemDetailsRoute() {
           audioStreamIndex: descriptor.audioStreamIndex,
         })
     );
+  }
+
+  function registerImmediateNextEpisodePreload(playerSessionId: number, currentItemId: string): void {
+    if (!details || details.type !== 'Series') {
+      releaseNextEpisodePreload(playerSessionId);
+      return;
+    }
+    const currentIndex = episodes.findIndex((episode) => episode.id === currentItemId);
+    const targetEpisode = currentIndex < 0 ? undefined : episodes[currentIndex + 1];
+    if (!targetEpisode) {
+      releaseNextEpisodePreload(playerSessionId);
+      return;
+    }
+    const descriptor = createPlaybackSourceDescriptor(
+      targetEpisode.id,
+      targetEpisode.serverPositionTicks,
+      createDefaultPlaybackSelection(targetEpisode.id)
+    );
+    if (!descriptor) {
+      releaseNextEpisodePreload(playerSessionId);
+      return;
+    }
+    registerNextEpisodePreload({
+      playerSessionId,
+      currentItemId,
+      targetItemId: targetEpisode.id,
+      fingerprint: descriptor.key,
+      prepare: () => resolvePlaybackSourceFromDescriptor(descriptor),
+    });
   }
 
   useEffect(() => {
@@ -870,6 +906,7 @@ function ItemDetailsRoute() {
     emitLoadTimingMilestone(timingRecorder.mark('play-acknowledged'));
     setPlaybackSource(null);
     setPlaybackItemId(playItemId);
+    playbackItemIdRef.current = playItemId;
     setPlaybackLaunchId(nextLaunchId);
     const clickTitle = resolvePlaybackTitle({
       fallbackTitle: details?.name || '',
@@ -985,6 +1022,7 @@ function ItemDetailsRoute() {
   }
 
   function handlePlaybackLaunchReady({
+    itemId: launchItemId,
     launchRequestId,
     playerSessionId,
   }: {
@@ -1002,6 +1040,7 @@ function ItemDetailsRoute() {
     emitLoadTimingMilestone(currentLaunch.timingRecorder.mark('player-surface-ready'));
     if (playerSessionId !== undefined) {
       playbackSessionIdRef.current = playerSessionId;
+      registerImmediateNextEpisodePreload(playerSessionId, launchItemId);
       if (currentLaunch.playbackContext) {
         registerPlaybackContext({ ...currentLaunch.playbackContext, playerSessionId });
       }
@@ -1077,25 +1116,22 @@ function ItemDetailsRoute() {
       return true;
     }
 
-    const selectedMediaSource = pickPlaybackMediaSource(episode.mediaSources);
-    const directSource = selectedMediaSource && isFastDirectPlaybackMediaSource(selectedMediaSource)
-      ? buildDirectPlaybackStreamSource({
-          serverUrl,
-          userId: currentSession.userId,
-          itemId: episode.id,
-          accessToken: currentSession.accessToken,
-          mediaSourceId: selectedMediaSource.id,
-        })
-      : null;
-    const nextSourcePromise = Promise.resolve(
-      directSource ??
-        fetchPlaybackStreamSource({
-          serverUrl,
-          userId: currentSession.userId,
-          itemId: episode.id,
-          accessToken: currentSession.accessToken,
-        })
+    const descriptor = createPlaybackSourceDescriptor(
+      episode.id,
+      episode.serverPositionTicks,
+      createDefaultPlaybackSelection(episode.id)
     );
+    if (!descriptor) return false;
+    const fallbackSource = () => resolvePlaybackSourceFromDescriptor(descriptor);
+    const preparedSource = consumeNextEpisodePreload<PlaybackStreamSource>({
+      playerSessionId,
+      currentItemId: playbackItemIdRef.current,
+      targetItemId: episode.id,
+      fingerprint: descriptor.key,
+    });
+    const nextSourcePromise = preparedSource
+      ? preparedSource.catch(() => fallbackSource())
+      : fallbackSource();
     const storyMarkerRequestId = storyMarkerDeliveryRef.current!.begin({
       accountId: currentAccountId,
       serverUrl,
@@ -1167,7 +1203,11 @@ function ItemDetailsRoute() {
       }
       storyMarkerDeliveryRef.current?.accept(storyMarkerRequestId);
 
+      releaseNextEpisodePreload(playerSessionId);
+      registerImmediateNextEpisodePreload(playerSessionId, episode.id);
+
       setPlaybackItemId(episode.id);
+      playbackItemIdRef.current = episode.id;
       setPlaybackTitle(nextTitle);
       setPlaybackEpisodeSelector(nextEpisodeSelector);
       setInitialPositionSeconds(nextInitialPositionSeconds);
