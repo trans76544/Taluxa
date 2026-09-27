@@ -1,7 +1,7 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthProvider } from '@renderer/features/auth/AuthContext';
+import { AuthProvider, useAuth } from '@renderer/features/auth/AuthContext';
 import { createAccountScopedProgressKey, createEmptyPersistedState, mergePersistedState } from '@shared/store/persistence';
 import { reportPlaybackProgress, reportPlaybackStarted, reportPlaybackStopped } from '@shared/api/emby/playback';
 import { PlaybackSyncProvider, usePlaybackSync } from './PlaybackSyncProvider';
@@ -30,8 +30,55 @@ function RegisterContext() {
   return null;
 }
 
+function LastPlayedValue() {
+  const { lastPlayedAtByAccountId } = useAuth();
+  return <p data-testid="last-played">{lastPlayedAtByAccountId[account.id] ?? 'missing'}</p>;
+}
+
 describe('PlaybackSyncProvider', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('records the registered account only after a first-frame startup event', async () => {
+    let startupListener: ((event: import('@shared/models/playerStartup').PlayerStartupEvent) => void) | undefined;
+    let state = mergePersistedState({ accounts: [account], activeAccountId: account.id });
+    const write = vi.fn(async (patch) => { state = mergePersistedState(patch, state); return state; });
+    window.embyDesktop = {
+      storage: { read: vi.fn(async () => state), write },
+      player: {
+        onPlaybackEvent: vi.fn(() => vi.fn()),
+        onStartupEvent: vi.fn((listener) => { startupListener = listener; return vi.fn(); }),
+      },
+    } as unknown as typeof window.embyDesktop;
+    render(<AuthProvider initialState={{ accounts: [account], activeAccountId: account.id }}>
+      <PlaybackSyncProvider><RegisterContext /><LastPlayedValue /></PlaybackSyncProvider>
+    </AuthProvider>);
+    await waitFor(() => expect(startupListener).toBeDefined());
+    const event = { playerSessionId: 1, launchRequestId: 1, loadRequestId: 1, itemId: 'item-1' } as const;
+    await act(async () => startupListener?.({ ...event, phase: 'media-ready' }));
+    expect(write).not.toHaveBeenCalled();
+    await act(async () => startupListener?.({ ...event, phase: 'first-frame' }));
+    await waitFor(() => expect(screen.getByTestId('last-played')).not.toHaveTextContent('missing'));
+    expect(write).toHaveBeenCalledWith({ lastPlayedAtByAccountId: { [account.id]: expect.any(String) } });
+  });
+
+  it('attributes a background player frame to its registered account after selection changes', async () => {
+    const other = { ...account, id: 'https://demo.local::user-2', userId: 'user-2', userName: 'Other' };
+    let startupListener: ((event: import('@shared/models/playerStartup').PlayerStartupEvent) => void) | undefined;
+    let state = mergePersistedState({ accounts: [account, other], activeAccountId: account.id });
+    const write = vi.fn(async (patch) => { state = mergePersistedState(patch, state); return state; });
+    window.embyDesktop = { storage: { read: vi.fn(async () => state), write }, player: {
+      onPlaybackEvent: vi.fn(() => vi.fn()),
+      onStartupEvent: vi.fn((listener) => { startupListener = listener; return vi.fn(); }),
+    } } as unknown as typeof window.embyDesktop;
+    function SwitchAccount() { const { setActiveAccountId } = useAuth(); return <button onClick={() => setActiveAccountId(other.id)}>Switch</button>; }
+    render(<AuthProvider initialState={{ accounts: [account, other], activeAccountId: account.id }}><PlaybackSyncProvider>
+      <RegisterContext /><SwitchAccount /><LastPlayedValue />
+    </PlaybackSyncProvider></AuthProvider>);
+    act(() => screen.getByRole('button', { name: 'Switch' }).click());
+    await act(async () => startupListener?.({ playerSessionId: 1, launchRequestId: 1, loadRequestId: 1, itemId: 'item-1', phase: 'first-frame' }));
+    expect(state.lastPlayedAtByAccountId[account.id]).toEqual(expect.any(String));
+    expect(state.lastPlayedAtByAccountId[other.id]).toBeUndefined();
+  });
 
   it('owns one player-event subscription and forwards events to the coordinator', async () => {
     let listener: ((event: Parameters<NonNullable<typeof window.embyDesktop.player.onPlaybackEvent>>[0] extends (event: infer T) => void ? T : never) => void) | undefined;

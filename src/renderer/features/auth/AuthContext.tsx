@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchServerInfo } from '@shared/api/emby/system';
-import { createAccountId, isSettingsSyncEvent } from '@shared/store/persistence';
+import { createAccountId, isSettingsSyncEvent, normalizeLastPlayedAt } from '@shared/store/persistence';
 import type { SavedAccount, Session } from '@shared/models/session';
 import { createDefaultSettings, normalizeThemeMode, type Settings } from '@shared/models/settings';
 
 interface AuthState {
   accounts: SavedAccount[];
   activeAccountId: string | null;
+  lastPlayedAtByAccountId: Record<string, string>;
   settings: Settings;
 }
 
@@ -29,6 +30,7 @@ interface AuthContextValue extends AuthState {
   session: Session | null;
   clearAuthState: () => void;
   getServerDisplayName: (serverUrl: string) => string;
+  recordLastPlayedAt: (accountId: string, observedAt: string) => Promise<void>;
   setActiveAccountId: (accountId: string) => void;
   setAuthState: (next: AuthStateUpdate) => void;
   updateSettings: (nextSettings: Partial<Settings>) => void;
@@ -41,6 +43,7 @@ function createDefaultAuthState(): AuthState {
   return {
     accounts: [],
     activeAccountId: null,
+    lastPlayedAtByAccountId: {},
     settings: createDefaultSettings(),
   };
 }
@@ -149,6 +152,7 @@ function normalizeAuthState(initialState?: Partial<AuthState>): AuthState {
   return {
     accounts,
     activeAccountId: normalizeActiveAccountId(accounts, initialState?.activeAccountId),
+    lastPlayedAtByAccountId: initialState?.lastPlayedAtByAccountId ?? {},
     settings: mergeSettings(createDefaultSettings(), initialState?.settings),
   };
 }
@@ -179,6 +183,8 @@ export function AuthProvider({
   const serverDisplayNameGenerationByUrlRef = useRef(new Map<string, number>());
   latestInitialStateRef.current = initialState;
   const resolvedAuthState = authState ?? normalizeAuthState(initialState);
+  const latestAuthStateRef = useRef(resolvedAuthState);
+  latestAuthStateRef.current = resolvedAuthState;
   const activeAccount =
     resolvedAuthState.accounts.find((account) => account.id === resolvedAuthState.activeAccountId) ??
     null;
@@ -205,8 +211,38 @@ export function AuthProvider({
     }));
   }
 
+  async function recordLastPlayedAt(accountId: string, observedAt: string): Promise<void> {
+    const current = latestAuthStateRef.current;
+    const normalized = normalizeLastPlayedAt(observedAt);
+    if (!normalized || !current.accounts.some((account) => account.id === accountId) ||
+        (current.lastPlayedAtByAccountId[accountId] && current.lastPlayedAtByAccountId[accountId] >= normalized)) {
+      return;
+    }
+    latestAuthStateRef.current = {
+      ...current,
+      lastPlayedAtByAccountId: { ...current.lastPlayedAtByAccountId, [accountId]: normalized },
+    };
+    updateState((state) => ({
+      ...state,
+      lastPlayedAtByAccountId: {
+        ...state.lastPlayedAtByAccountId,
+        [accountId]: state.lastPlayedAtByAccountId[accountId] && state.lastPlayedAtByAccountId[accountId] > normalized
+          ? state.lastPlayedAtByAccountId[accountId] : normalized,
+      },
+    }));
+
+    try {
+      await window.embyDesktop?.storage?.write?.({
+        lastPlayedAtByAccountId: { [accountId]: normalized },
+      });
+    } catch {
+      // A local storage failure must not interrupt playback.
+    }
+  }
+
   function upsertAccount(account: SavedAccount, settings?: Partial<Settings>) {
     updateState((current) => ({
+      ...current,
       accounts: mergeAccounts(current.accounts, [account]),
       activeAccountId: account.id,
       settings: mergeSettings(current.settings, settings),
@@ -345,6 +381,7 @@ export function AuthProvider({
         session: toSession(activeAccount),
         clearAuthState,
         getServerDisplayName,
+        recordLastPlayedAt,
         setActiveAccountId,
         setAuthState: updateAuthState,
         updateSettings,

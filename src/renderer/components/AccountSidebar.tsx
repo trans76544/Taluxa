@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { SavedAccount } from '@shared/models/session';
+import { normalizeLastPlayedAt } from '@shared/store/persistence';
 
 interface AccountSidebarProps {
   accounts: SavedAccount[];
   activeAccountId: string | null;
+  lastPlayedAtByAccountId?: Record<string, string>;
   serverDisplayNamesByUrl: Record<string, string>;
   onSelectAccount: (accountId: string) => void | Promise<void>;
   onAddServer?: () => void;
@@ -26,6 +28,7 @@ interface ServerEditorState {
 export function AccountSidebar({
   accounts,
   activeAccountId,
+  lastPlayedAtByAccountId,
   serverDisplayNamesByUrl,
   onAddServer,
   onSelectAccount,
@@ -110,7 +113,8 @@ export function AccountSidebar({
           {accounts.map((account) => {
             const isActive = account.id === activeAccountId;
             const serverDisplayName = serverDisplayNamesByUrl[account.serverUrl]?.trim() || account.serverUrl;
-            
+            const lastPlayedAt = normalizeLastPlayedAt(lastPlayedAtByAccountId?.[account.id]);
+
             return (
               <button
                 key={account.id}
@@ -138,7 +142,9 @@ export function AccountSidebar({
                 <div className="server-item__info">
                   <span className="server-item__name">{serverDisplayName}</span>
                   <span className="server-item__status">
-                    {account.userName} ({new Date(account.lastUsedAt).toLocaleDateString()} 登录过)
+                    {account.userName} ({lastPlayedAt
+                      ? `${new Date(lastPlayedAt).toLocaleDateString()} 播放过`
+                      : '暂无播放记录'})
                   </span>
                 </div>
                 <div className="server-item__action">=</div>

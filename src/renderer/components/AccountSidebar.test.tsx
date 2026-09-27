@@ -29,6 +29,33 @@ function createAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
 }
 
 describe('AccountSidebar', () => {
+  it('shows the account playback date instead of a newer login date', () => {
+    const account = createAccount({ lastUsedAt: '2026-09-27T00:00:00.000Z' });
+    render(<MemoryRouter><AccountSidebar
+      accounts={[account]}
+      activeAccountId={account.id}
+      serverDisplayNamesByUrl={{}}
+      lastPlayedAtByAccountId={{ [account.id]: '2026-09-21T08:00:00.000Z' }}
+      onSelectAccount={vi.fn()}
+    /></MemoryRouter>);
+    const row = screen.getByRole('button', { name: /Alice/ });
+    expect(row).toHaveTextContent(`${new Date('2026-09-21T08:00:00.000Z').toLocaleDateString()} 播放过`);
+    expect(row).not.toHaveTextContent('登录过');
+  });
+
+  it('shows no playback history for missing or malformed times without changing row order', () => {
+    const alice = createAccount({ userName: 'Alice' });
+    const bob = createAccount({ id: 'https://demo.emby.local::user-2', userId: 'user-2', userName: 'Bob' });
+    render(<MemoryRouter><AccountSidebar accounts={[alice, bob]} activeAccountId={bob.id}
+      serverDisplayNamesByUrl={{ [alice.serverUrl]: 'Shared server' }}
+      lastPlayedAtByAccountId={{ [bob.id]: 'invalid' }} onSelectAccount={vi.fn()} /></MemoryRouter>);
+    const rows = screen.getAllByRole('button', { name: /Shared server/ });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Alice (暂无播放记录)');
+    expect(rows[1]).toHaveTextContent('Bob (暂无播放记录)');
+    expect(rows[1]).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('renders the enlarged Taluxa brand logo without the product name', () => {
     render(
       <MemoryRouter>

@@ -14,7 +14,7 @@ interface LayoutProps {
 
 export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
   const navigate = useNavigate();
-  const { accounts, activeAccountId, getServerDisplayName, session, settings, setActiveAccountId, updateSettings } =
+  const { accounts, activeAccountId, getServerDisplayName, lastPlayedAtByAccountId, session, settings, setActiveAccountId, updateSettings } =
     useAuth();
   const [isAddServerDialogOpen, setIsAddServerDialogOpen] = useState(false);
   const {
@@ -111,6 +111,7 @@ export function Layout({ children, sidebar, title = 'Taluxa' }: LayoutProps) {
       <AccountSidebar
         accounts={accounts}
         activeAccountId={activeAccountId}
+        lastPlayedAtByAccountId={lastPlayedAtByAccountId}
         serverDisplayNamesByUrl={serverDisplayNamesByUrl}
         onAddServer={openAddServerDialog}
         onSelectAccount={handleSelectAccount}

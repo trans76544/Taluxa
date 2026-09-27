@@ -250,6 +250,7 @@ describe('writePersistedStatePatch', () => {
     expect(storeLike.store).toEqual({
       accounts: [],
       activeAccountId: null,
+      lastPlayedAtByAccountId: {},
       settings: {
         rememberSession: false,
         defaultVolume: 1,
@@ -372,6 +373,7 @@ describe('writePersistedStatePatch', () => {
     expect(storeLike.store).toEqual({
       accounts: [],
       activeAccountId: null,
+      lastPlayedAtByAccountId: {},
       settings: {
         rememberSession: false,
         defaultVolume: 1,

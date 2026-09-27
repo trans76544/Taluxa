@@ -72,6 +72,49 @@ const DEFAULT_SUBTITLE_SETTINGS = {
 } as const;
 
 describe('persistence', () => {
+  it('starts new and legacy accounts without app playback history', () => {
+    expect(createEmptyPersistedState().lastPlayedAtByAccountId).toEqual({});
+    const legacy = migrateLegacyPersistedState({
+      serverUrl: 'https://demo.emby.local',
+      session: { userId: 'user-1', userName: 'Alice', accessToken: 'token-123' },
+      progressByItemId: {
+        'item-1': { itemId: 'item-1', positionSeconds: 42, durationSeconds: 100, updatedAt: '2026-04-21T00:00:00.000Z' },
+      },
+    });
+    expect(legacy.accounts).toHaveLength(1);
+    expect(legacy.lastPlayedAtByAccountId).toEqual({});
+    expect(legacy.progressByItemId).not.toEqual({});
+  });
+
+  it('writes a playback time without replacing the saved account', () => {
+    const account = {
+      id: 'https://demo.emby.local::user-1', serverUrl: 'https://demo.emby.local',
+      userId: 'user-1', userName: 'Alice', accessToken: 'secret-token',
+      lastUsedAt: '2026-09-27T00:00:00.000Z',
+    };
+    const before = mergePersistedState({ accounts: [account], activeAccountId: account.id });
+    const next = mergePersistedState({
+      lastPlayedAtByAccountId: { [account.id]: '2026-09-21T08:00:00.000Z' },
+    }, before);
+    expect(next.lastPlayedAtByAccountId).toEqual({ [account.id]: '2026-09-21T08:00:00.000Z' });
+    expect(next.accounts).toEqual([account]);
+    expect(next.activeAccountId).toBe(account.id);
+    expect(next.settings).toEqual(before.settings);
+    expect(next.progressByItemId).toEqual(before.progressByItemId);
+  });
+
+  it('keeps each same-server account timestamp monotonic through login patches', () => {
+    const first = { id: 'https://demo.local::one', serverUrl: 'https://demo.local', userId: 'one', userName: 'One', accessToken: 'secret-1', lastUsedAt: '2026-09-01T00:00:00.000Z' };
+    const second = { ...first, id: 'https://demo.local::two', userId: 'two', userName: 'Two', accessToken: 'secret-2' };
+    let state = mergePersistedState({ accounts: [first, second] });
+    state = mergePersistedState({ lastPlayedAtByAccountId: { [first.id]: '2026-09-21T08:00:00.000Z', [second.id]: '2026-09-22T08:00:00.000Z' } }, state);
+    state = mergePersistedState({ lastPlayedAtByAccountId: { [first.id]: '2026-09-20T08:00:00.000Z', [second.id]: 'bad-date', missing: '2026-09-25T00:00:00.000Z' } }, state);
+    state = mergePersistedState({ accounts: [{ ...first, lastUsedAt: '2026-09-27T00:00:00.000Z' }] }, state);
+    expect(state.lastPlayedAtByAccountId).toEqual({ [first.id]: '2026-09-21T08:00:00.000Z', [second.id]: '2026-09-22T08:00:00.000Z' });
+    expect(state.accounts[0].lastUsedAt).toBe('2026-09-27T00:00:00.000Z');
+    expect(migrateLegacyPersistedState({ accounts: [first], lastPlayedAtByAccountId: { [first.id]: 'invalid' } }).lastPlayedAtByAccountId).toEqual({});
+  });
+
   it('creates empty persisted state with multi-account defaults', () => {
     const state = createEmptyPersistedState();
 
@@ -95,6 +138,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
     expect('serverUrl' in state).toBe(false);
@@ -278,6 +322,7 @@ describe('persistence', () => {
         },
       },
       progressByItemId: {},
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     };
 
@@ -324,6 +369,7 @@ describe('persistence', () => {
         },
       },
       progressByItemId: {},
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
   });
@@ -431,6 +477,7 @@ describe('persistence', () => {
           completed: false,
         },
       },
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
     expect('serverUrl' in state).toBe(false);
@@ -478,6 +525,7 @@ describe('persistence', () => {
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
       },
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     };
 
@@ -571,6 +619,7 @@ describe('persistence', () => {
           updatedAt: '2026-04-21T00:00:00.000Z',
         },
       },
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
   });
@@ -605,6 +654,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     };
 
@@ -644,6 +694,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
   });
@@ -687,6 +738,7 @@ describe('persistence', () => {
         serverPreferencesByUrl: {},
       },
       progressByItemId: {},
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
   });
@@ -742,6 +794,7 @@ describe('persistence', () => {
               updatedAt: '2026-04-20T00:00:00.000Z',
             },
           },
+          lastPlayedAtByAccountId: {},
           homeCacheByKey: {},
         }
       )
@@ -792,6 +845,7 @@ describe('persistence', () => {
           completed: false,
         },
       },
+      lastPlayedAtByAccountId: {},
       homeCacheByKey: {},
     });
   });
@@ -832,6 +886,7 @@ describe('persistence', () => {
             updatedAt: '2026-04-22T09:00:00.000Z',
           },
         },
+        lastPlayedAtByAccountId: {},
         homeCacheByKey: {},
       }
     );

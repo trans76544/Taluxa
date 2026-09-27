@@ -110,6 +110,7 @@ interface PlayerProgressEvent {
 
 function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedState>) {
   const progressListeners = new Set<(event: PlayerProgressEvent) => void>();
+  const startupListeners = new Set<(event: import('@shared/models/playerStartup').PlayerStartupEvent) => void>();
   const episodeSelectListeners = new Set<(event: { playerSessionId: number; itemId: string }) => void>();
   const settingsSyncListeners = new Set<(event: SettingsSyncEvent) => void>();
   const launch = vi.fn().mockResolvedValue({ playerSessionId: 1 });
@@ -127,6 +128,10 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     return () => {
       progressListeners.delete(listener);
     };
+  });
+  const onStartupEvent = vi.fn((listener: (event: import('@shared/models/playerStartup').PlayerStartupEvent) => void) => {
+    startupListeners.add(listener);
+    return () => startupListeners.delete(listener);
   });
   const onEpisodeSelect = vi.fn((listener: (event: { playerSessionId: number; itemId: string }) => void) => {
     episodeSelectListeners.add(listener);
@@ -174,7 +179,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       preflight,
       setStoryMarkers,
       onProgress,
-      onStartupEvent: vi.fn(() => () => undefined),
+      onStartupEvent,
       onRetryRequest: vi.fn(() => () => undefined),
     },
     storage: {
@@ -201,6 +206,7 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
     onSettingsSync,
     preflight,
     onProgress,
+    onStartupEvent,
     read,
     write,
     clearSession,
@@ -213,6 +219,9 @@ function mockStorageRead(state: StoredPersistedState | Promise<StoredPersistedSt
       for (const listener of progressListeners) {
         listener({ ...event, playerSessionId: event.playerSessionId ?? 1 });
       }
+    },
+    emitStartup(event: import('@shared/models/playerStartup').PlayerStartupEvent) {
+      for (const listener of startupListeners) listener(event);
     },
     emitEpisodeSelect(itemId: string) {
       for (const listener of episodeSelectListeners) {
@@ -233,6 +242,7 @@ type PersistedStateOverrides = {
   settings?: PersistedState['settings'];
   progressByItemId?: PersistedState['progressByItemId'];
   homeCacheByKey?: PersistedState['homeCacheByKey'];
+  lastPlayedAtByAccountId?: PersistedState['lastPlayedAtByAccountId'];
 };
 
 function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount {
@@ -285,6 +295,7 @@ function createPersistedState(overrides: PersistedStateOverrides = {}): StoredPe
     settings: overrides.settings ?? createDefaultSettings(),
     progressByItemId: overrides.progressByItemId ?? {},
     homeCacheByKey: overrides.homeCacheByKey ?? {},
+    lastPlayedAtByAccountId: overrides.lastPlayedAtByAccountId ?? {},
   };
 
   if (Object.prototype.hasOwnProperty.call(overrides, 'activeAccountId')) {
@@ -488,6 +499,7 @@ describe('App', () => {
     deferred.resolve({
       accounts: [createSavedAccount()],
       activeAccountId: 'https://demo.emby.local::user-1',
+      lastPlayedAtByAccountId: {},
       settings: createSettings(),
       progressByItemId: {},
       homeCacheByKey: {},
@@ -786,6 +798,8 @@ describe('App', () => {
       'user-2',
       'token-456'
     );
+    expect(screen.getByRole('button', { name: /Alice/ })).toHaveTextContent('暂无播放记录');
+    expect(screen.getByRole('button', { name: /Bob/ })).toHaveTextContent('暂无播放记录');
   });
 
   it('passes server resume ticks through to the player route', async () => {
@@ -834,7 +848,7 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(storage.load).toHaveBeenCalledWith(
@@ -905,7 +919,7 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /Movies/ }));
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(storage.load).toHaveBeenCalledWith(expect.objectContaining({
       itemId: 'item-1', title: 'Movie 1',
@@ -2396,7 +2410,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(storage.load).toHaveBeenCalledWith(
@@ -2451,7 +2465,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
@@ -3143,7 +3157,7 @@ describe('App', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(storage.load).toHaveBeenCalledWith(
@@ -3181,7 +3195,7 @@ describe('App', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(storage.load).toHaveBeenCalledWith(
@@ -3316,7 +3330,7 @@ describe('App', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(storage.load).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
@@ -3442,7 +3456,7 @@ describe('App', () => {
     );
 
     fireEvent.click(await screen.findByRole('link', { name: /Movie 1/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(storage.load).toHaveBeenCalledWith(
@@ -3505,7 +3519,7 @@ describe('App', () => {
       </HashRouter>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(storage.load).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: 'item-a' })
@@ -4365,5 +4379,25 @@ describe('App', () => {
 
     expect(screen.queryByRole('link', { name: /First Result/ })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Second Result/ })).toBeInTheDocument();
+  });
+
+  it('updates the played server row after a confirmed frame without navigation', async () => {
+    const storage = await renderPlayingSeries();
+    const loadInput = storage.load.mock.calls[0]?.[0] as { launchRequestId: number; loadRequestId: number };
+    const event = {
+      playerSessionId: 1,
+      launchRequestId: loadInput.launchRequestId,
+      loadRequestId: loadInput.loadRequestId,
+      itemId: 'outgoing',
+    } as const;
+    const row = screen.getByRole('button', { name: /Alice/ });
+    expect(row).toHaveTextContent('暂无播放记录');
+    act(() => storage.emitStartup({ ...event, phase: 'failed', retryable: true, message: 'Could not load video' }));
+    expect(row).toHaveTextContent('暂无播放记录');
+    act(() => storage.emitStartup({ ...event, phase: 'first-frame' }));
+    await waitFor(() => expect(row).toHaveTextContent('播放过'));
+    expect(storage.write).toHaveBeenCalledWith({
+      lastPlayedAtByAccountId: { ['https://demo.emby.local::user-1']: expect.any(String) },
+    });
   });
 });

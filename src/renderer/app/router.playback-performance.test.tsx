@@ -112,6 +112,7 @@ function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount
 function createPersistedState(overrides: Partial<StoredPersistedState> = {}): StoredPersistedState {
   return {
     accounts: [],
+    lastPlayedAtByAccountId: {},
     homeCacheByKey: {},
     progressByItemId: {},
     settings: createDefaultSettings(),
@@ -303,7 +304,7 @@ describe('playback performance route behavior', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     vi.mocked(window.embyDesktop.storage.read).mockReturnValueOnce(storage.promise);
 
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.open).toHaveBeenCalledWith(expect.objectContaining({
       launchRequestId: 1, itemId: 'movie-1', title: 'Movie 1',
@@ -322,7 +323,7 @@ describe('playback performance route behavior', () => {
     const storage = createDeferred<PersistedState>();
     vi.mocked(window.embyDesktop.storage.read).mockReturnValueOnce(storage.promise);
 
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.open).toHaveBeenCalledWith(expect.objectContaining({
       itemId: 'episode-2', title: 'Series 1 - S1:E2 - Second Case',
     })));
@@ -340,7 +341,7 @@ describe('playback performance route behavior', () => {
     const storage = createDeferred<PersistedState>();
     vi.mocked(window.embyDesktop.storage.read).mockReturnValueOnce(storage.promise);
 
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.open).toHaveBeenCalledWith(expect.objectContaining({
       itemId: 'resume-movie-1', title: 'Resume Movie',
     })));
@@ -355,9 +356,9 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('player-session-host').querySelectorAll('[data-testid="player-page"]')).toHaveLength(2);
@@ -367,7 +368,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     await act(async () => {
@@ -385,7 +386,7 @@ describe('playback performance route behavior', () => {
     });
 
     expect(await screen.findByRole('heading', { name: 'Movie 2' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('player-session-host').querySelectorAll('[data-testid="player-page"]')).toHaveLength(2);
@@ -418,7 +419,7 @@ describe('playback performance route behavior', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
@@ -448,11 +449,11 @@ describe('playback performance route behavior', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => {
       expect(bridge.preflight).toHaveBeenCalledTimes(1);
     });
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(bridge.preflight).toHaveBeenCalledTimes(2);
@@ -473,7 +474,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     expect(fetchStoryTimelineMarkersMock).toHaveBeenCalledWith(
@@ -494,7 +495,7 @@ describe('playback performance route behavior', () => {
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await act(async () => {
       await flushPromises();
@@ -523,7 +524,7 @@ describe('playback performance route behavior', () => {
     }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     expect(bridge.setStoryMarkers).not.toHaveBeenCalled();
@@ -539,7 +540,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'movie-1', playerSessionId: 1, markers: [],
@@ -551,7 +552,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'movie-1', playerSessionId: 1, markers: [],
@@ -564,7 +565,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     cleanup();
@@ -582,7 +583,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderMovieRoute(createMovieDetails({ id: 'movie-1' }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     await act(async () => {
@@ -620,7 +621,7 @@ describe('playback performance route behavior', () => {
     render(<HashRouter><App /></HashRouter>);
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     const backupButton = screen.getByRole('button', { name: /backup\.emby\.local/i });
     await act(async () => {
@@ -659,7 +660,7 @@ describe('playback performance route behavior', () => {
     render(<HashRouter><App /></HashRouter>);
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
 
     itemDetailsLayoutCleanup.current = () => {
@@ -685,7 +686,7 @@ describe('playback performance route behavior', () => {
     bridge.preflight.mockRejectedValueOnce(new Error('preflight failed'));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.preflight).toHaveBeenCalledTimes(1));
     expect(bridge.load).toHaveBeenCalledTimes(1);
 
@@ -705,7 +706,7 @@ describe('playback performance route behavior', () => {
     }));
 
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(fetchPlaybackStreamSourceMock).toHaveBeenCalled());
     await flushPromises();
 
@@ -726,7 +727,7 @@ describe('playback performance route behavior', () => {
     try {
       expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
       await waitFor(() => {
         expect(bridge.load).toHaveBeenCalledWith(
@@ -759,7 +760,7 @@ describe('playback performance route behavior', () => {
 
     try {
       fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
-      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
       await waitFor(() => {
         expect(bridge.load).toHaveBeenCalledWith(
@@ -789,7 +790,7 @@ describe('playback performance route behavior', () => {
     const bridge = renderSeriesRoute();
 
     fireEvent.click(await screen.findByRole('link', { name: /2\. Second Case/ }));
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(bridge.setStoryMarkers).toHaveBeenCalledWith({
       itemId: 'episode-2', playerSessionId: 1, markers: [],
@@ -818,7 +819,7 @@ describe('playback performance route behavior', () => {
       fireEvent.click(await screen.findByRole('link', { name: /Resume Movie/ }));
       expect(await screen.findByRole('heading', { name: 'Resume Movie' })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
       await waitFor(() => {
         expect(bridge.load).toHaveBeenCalledWith(
@@ -866,7 +867,7 @@ describe('playback performance route behavior', () => {
         expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1);
       });
 
-      fireEvent.click(screen.getByRole('button', { name: /播放/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
       await waitFor(() => {
         expect(bridge.load).toHaveBeenCalledWith(
@@ -899,7 +900,7 @@ describe('playback performance route behavior', () => {
 
       expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
       await waitFor(() => {
         expect(milestones.map((milestone) => milestone.name)).toContain('player-surface-ready');
@@ -936,7 +937,7 @@ describe('playback performance route behavior', () => {
     try {
       expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
       await waitFor(() => {
         expect(screen.getAllByRole('alert')).toHaveLength(1);
@@ -971,7 +972,7 @@ describe('playback performance route behavior', () => {
     try {
       expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
       await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
       act(() => {
         bridge.emitStartupEvent({
@@ -1013,7 +1014,7 @@ describe('playback performance route behavior', () => {
       }),
     ]);
 
-    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-1' })));
 
     act(() => bridge.emitPlaybackEvent({
@@ -1048,7 +1049,7 @@ describe('playback performance route behavior', () => {
       }),
     ]);
 
-    fireEvent.click(await screen.findByRole('button', { name: /播放/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
     await waitFor(() => expect(bridge.load).toHaveBeenCalledTimes(1));
     act(() => bridge.emitPlaybackEvent({
       playerSessionId: 1, playbackId: '1:1', sequence: 1, phase: 'progress',

@@ -7,7 +7,7 @@ interface Value { registerPlaybackContext: (context: PlaybackReportContext) => v
 const Context = createContext<Value | null>(null);
 
 export function PlaybackSyncProvider({ children }: { children: ReactNode }) {
-  const { activeAccount, isHydrated } = useAuth();
+  const { activeAccount, isHydrated, recordLastPlayedAt } = useAuth();
   const coordinatorRef = useRef<PlaybackSyncCoordinator | null>(null);
   if (!coordinatorRef.current) {
     coordinatorRef.current = new PlaybackSyncCoordinator({
@@ -16,12 +16,19 @@ export function PlaybackSyncProvider({ children }: { children: ReactNode }) {
       reportStarted: (input) => window.embyDesktop.playback?.reportStarted(input) ?? reportPlaybackStarted(input),
       reportProgress: (input) => window.embyDesktop.playback?.reportProgress(input) ?? reportPlaybackProgress(input),
       reportStopped: (input) => window.embyDesktop.playback?.reportStopped(input) ?? reportPlaybackStopped(input),
+      recordLastPlayedAt,
     });
   }
   useEffect(() => {
     const subscribe = window.embyDesktop?.player?.onPlaybackEvent;
-    if (typeof subscribe !== 'function') return undefined;
-    return subscribe((event) => { void coordinatorRef.current?.handleEvent(event); });
+    const subscribeStartup = window.embyDesktop?.player?.onStartupEvent;
+    const unsubscribePlayback = typeof subscribe === 'function'
+      ? subscribe((event) => { void coordinatorRef.current?.handleEvent(event); })
+      : undefined;
+    const unsubscribeStartup = typeof subscribeStartup === 'function'
+      ? subscribeStartup((event) => { void coordinatorRef.current?.handleStartupEvent(event); })
+      : undefined;
+    return () => { unsubscribePlayback?.(); unsubscribeStartup?.(); };
   }, []);
   useEffect(() => {
     if (isHydrated && activeAccount) void coordinatorRef.current?.retryPendingForAccount(activeAccount);

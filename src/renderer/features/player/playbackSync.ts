@@ -1,6 +1,7 @@
 import type { SavedAccount } from '@shared/models/session';
 import type { PlaybackResumeItemSnapshot, PlaybackProgress } from '@shared/models/progress';
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
+import type { PlayerStartupEvent } from '@shared/models/playerStartup';
 import type { PlaybackMethod, ReportPlaybackProgressInput } from '@shared/api/emby/playback';
 import { createAccountScopedProgressKey, getPersistedProgressByItemIdForAccount, type PersistedState, type PersistedStatePatch } from '@shared/store/persistence';
 import { createConfirmedProgressUpdate, createFailedProgressUpdate, isSameProgressRevision } from '@shared/utils/playbackProgress';
@@ -19,6 +20,7 @@ interface Dependencies {
   reportStarted: (input: ReportPlaybackProgressInput) => Promise<void>;
   reportProgress: (input: ReportPlaybackProgressInput) => Promise<void>;
   reportStopped: (input: ReportPlaybackProgressInput) => Promise<void>;
+  recordLastPlayedAt?: (accountId: string, observedAt: string) => Promise<void> | void;
   now?: () => Date;
 }
 
@@ -35,19 +37,65 @@ export class PlaybackSyncCoordinator {
   private readonly contexts = new Map<string, PlaybackReportContext>();
   private readonly live = new Map<string, LiveState>();
   private readonly pendingEvents = new Map<number, PlayerPlaybackEvent[]>();
+  private readonly pendingFirstFrames = new Map<number, Array<{ itemId: string; observedAt: string }>>();
+  private readonly recordedContextBySession = new Map<number, PlaybackReportContext>();
+  private readonly closedSessions = new Set<number>();
   private queue: Promise<void> = Promise.resolve();
   private localQueue: Promise<void> = Promise.resolve();
   private readonly now: () => Date;
   constructor(private readonly dependencies: Dependencies) { this.now = dependencies.now ?? (() => new Date()); }
 
   registerContext(context: PlaybackReportContext): void {
+    this.closedSessions.delete(context.playerSessionId);
     this.contexts.set(String(context.playerSessionId), context);
+    const pendingFrames = this.pendingFirstFrames.get(context.playerSessionId);
+    this.pendingFirstFrames.delete(context.playerSessionId);
+    for (const frame of pendingFrames ?? []) {
+      if (frame.itemId === context.itemId) void this.recordFirstFrame(context, frame.observedAt);
+    }
     const pending = this.pendingEvents.get(context.playerSessionId);
     if (!pending) return;
     this.pendingEvents.delete(context.playerSessionId);
     for (const event of pending) void this.handleEvent(event);
   }
-  unregisterContext(playerSessionId: number): void { this.contexts.delete(String(playerSessionId)); }
+  unregisterContext(playerSessionId: number): void {
+    this.contexts.delete(String(playerSessionId));
+    this.pendingFirstFrames.delete(playerSessionId);
+    this.recordedContextBySession.delete(playerSessionId);
+  }
+
+  async handleStartupEvent(event: PlayerStartupEvent): Promise<void> {
+    if (event.phase === 'closed') {
+      this.unregisterContext(event.playerSessionId);
+      this.pendingEvents.delete(event.playerSessionId);
+      this.closedSessions.add(event.playerSessionId);
+      if (this.closedSessions.size > 32) this.closedSessions.delete(this.closedSessions.values().next().value!);
+      return;
+    }
+    if (event.phase !== 'first-frame') return;
+    if (this.closedSessions.has(event.playerSessionId)) return;
+    const observedAt = this.now().toISOString();
+    const context = this.contexts.get(String(event.playerSessionId));
+    if (!context) {
+      const frames = this.pendingFirstFrames.get(event.playerSessionId) ?? [];
+      frames.push({ itemId: event.itemId, observedAt });
+      this.pendingFirstFrames.set(event.playerSessionId, frames.slice(-8));
+      if (this.pendingFirstFrames.size > 32) this.pendingFirstFrames.delete(this.pendingFirstFrames.keys().next().value!);
+      return;
+    }
+    if (context.itemId !== event.itemId) return;
+    await this.recordFirstFrame(context, observedAt);
+  }
+
+  private async recordFirstFrame(context: PlaybackReportContext, observedAt: string): Promise<void> {
+    if (this.recordedContextBySession.get(context.playerSessionId) === context) return;
+    this.recordedContextBySession.set(context.playerSessionId, context);
+    try {
+      await this.dependencies.recordLastPlayedAt?.(context.accountId, observedAt);
+    } catch {
+      // Playback stays usable if recording its date fails.
+    }
+  }
 
   async handleEvent(input: PlaybackEventInput): Promise<void> {
     const event = ('playerSessionId' in input && typeof input.playerSessionId === 'number')

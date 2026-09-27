@@ -12,6 +12,61 @@ function context(): PlaybackReportContext {
 }
 
 describe('PlaybackSyncCoordinator', () => {
+  it('records one first frame for the matching registered account and ignores loading or unrelated items', async () => {
+    const recordLastPlayedAt = vi.fn().mockResolvedValue(undefined);
+    const coordinator = new PlaybackSyncCoordinator({
+      readState: async () => createEmptyPersistedState(),
+      writeState: async (patch) => mergePersistedState(patch, createEmptyPersistedState()),
+      reportStarted: vi.fn(), reportProgress: vi.fn(), reportStopped: vi.fn(),
+      recordLastPlayedAt, now: () => new Date('2026-09-27T10:00:00.000Z'),
+    });
+    coordinator.registerContext(context());
+    const firstFrame = { playerSessionId: 1, launchRequestId: 1, loadRequestId: 1, itemId: 'item-1', phase: 'first-frame' as const };
+    await coordinator.handleStartupEvent({ ...firstFrame, phase: 'media-ready' });
+    await coordinator.handleStartupEvent({ ...firstFrame, itemId: 'item-2' });
+    await coordinator.handleStartupEvent({ ...firstFrame, playerSessionId: 2 });
+    expect(recordLastPlayedAt).not.toHaveBeenCalled();
+    await coordinator.handleStartupEvent(firstFrame);
+    await coordinator.handleStartupEvent(firstFrame);
+    expect(recordLastPlayedAt).toHaveBeenCalledTimes(1);
+    expect(recordLastPlayedAt).toHaveBeenCalledWith(context().accountId, '2026-09-27T10:00:00.000Z');
+  });
+
+  it('replays an early first frame with its observation time and isolates concurrent sessions', async () => {
+    let now = '2026-09-27T10:00:00.000Z';
+    const record = vi.fn().mockResolvedValue(undefined);
+    const coordinator = new PlaybackSyncCoordinator({ readState: async () => createEmptyPersistedState(), writeState: async (patch) => mergePersistedState(patch), reportStarted: vi.fn(), reportProgress: vi.fn(), reportStopped: vi.fn(), recordLastPlayedAt: record, now: () => new Date(now) });
+    const event = { playerSessionId: 2, launchRequestId: 1, loadRequestId: 1, itemId: 'item-2', phase: 'first-frame' as const };
+    await coordinator.handleStartupEvent(event);
+    now = '2026-09-27T10:05:00.000Z';
+    coordinator.registerContext(context());
+    expect(record).not.toHaveBeenCalled();
+    coordinator.registerContext({ ...context(), accountId: 'other-account', playerSessionId: 2, itemId: 'item-2' });
+    await vi.waitFor(() => expect(record).toHaveBeenCalledWith('other-account', '2026-09-27T10:00:00.000Z'));
+    await coordinator.handleStartupEvent({ ...event, playerSessionId: 1, itemId: 'item-1' });
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  it('records a replacement episode once and clears a closed session', async () => {
+    const record = vi.fn().mockResolvedValue(undefined);
+    const coordinator = new PlaybackSyncCoordinator({ readState: async () => createEmptyPersistedState(), writeState: async (patch) => mergePersistedState(patch), reportStarted: vi.fn(), reportProgress: vi.fn(), reportStopped: vi.fn(), recordLastPlayedAt: record });
+    const event = { playerSessionId: 1, launchRequestId: 1, loadRequestId: 1, itemId: 'item-1', phase: 'first-frame' as const };
+    coordinator.registerContext(context());
+    await coordinator.handleStartupEvent(event);
+    await coordinator.handleStartupEvent(event);
+    coordinator.registerContext({ ...context(), itemId: 'item-2' });
+    await coordinator.handleStartupEvent({ ...event, itemId: 'item-1' });
+    expect(record).toHaveBeenCalledTimes(1);
+    await coordinator.handleStartupEvent({ ...event, itemId: 'item-2', loadRequestId: 2 });
+    expect(record).toHaveBeenCalledTimes(2);
+    coordinator.registerContext({ ...context(), itemId: 'item-1' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(record).toHaveBeenCalledTimes(2);
+    await coordinator.handleStartupEvent({ ...event, phase: 'closed' });
+    await coordinator.handleStartupEvent({ ...event, itemId: 'item-1' });
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
   it('buffers early events by session and replays them only to the matching context', async () => {
     const reportStarted = vi.fn().mockResolvedValue(undefined);
     const coordinator = new PlaybackSyncCoordinator({

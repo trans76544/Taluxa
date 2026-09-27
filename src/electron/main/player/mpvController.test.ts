@@ -315,6 +315,15 @@ describe('MpvController', () => {
     expect(startupEvents.map((event) => event.phase)).toEqual([
       'surface-ready', 'media-loading', 'media-ready', 'first-frame',
     ]);
+    await controller.load({
+      playerSessionId, launchRequestId: 20, loadRequestId: 2,
+      itemId: 'item-2', title: 'Episode 2', streamUrl: 'https://example.com/episode-2.mp4',
+    }, createProxySettings());
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'file-loaded' })}\n`));
+    ipcClient.emit('data', Buffer.from(`${JSON.stringify({ event: 'playback-restart' })}\n`));
+    expect(startupEvents.at(-1)).toEqual(expect.objectContaining({
+      phase: 'first-frame', itemId: 'item-2', loadRequestId: 2, playerSessionId,
+    }));
     await expect(controller.load({
       playerSessionId, launchRequestId: 20, loadRequestId: 1,
       itemId: 'item-1', title: 'Episode 1', streamUrl: 'https://example.com/video.mp4',

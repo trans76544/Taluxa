@@ -23,6 +23,7 @@ export interface PersistedHomeCacheEntry {
 export interface PersistedState {
   accounts: SavedAccount[];
   activeAccountId: string | null;
+  lastPlayedAtByAccountId: Record<string, string>;
   settings: Settings;
   progressByItemId: Record<string, PlaybackProgress>;
   homeCacheByKey: Record<string, PersistedHomeCacheEntry>;
@@ -45,13 +46,15 @@ export interface LegacyPersistedState {
   homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
   accounts?: SavedAccount[];
   activeAccountId?: string | null;
+  lastPlayedAtByAccountId?: Record<string, string>;
 }
 
 type PersistedProgressPatch = Partial<Record<string, PlaybackProgress | null>>;
 
 export type PersistedStatePatch = Partial<
-  Omit<PersistedState, 'settings' | 'progressByItemId' | 'homeCacheByKey'>
+  Omit<PersistedState, 'settings' | 'progressByItemId' | 'homeCacheByKey' | 'lastPlayedAtByAccountId'>
 > & {
+  lastPlayedAtByAccountId?: Partial<Record<string, string>>;
   settings?: PersistedSettingsPatch;
   progressByItemId?: PersistedProgressPatch;
   homeCacheByKey?: Partial<Record<string, PersistedHomeCacheEntry>>;
@@ -88,6 +91,15 @@ export function isSettingsSyncEvent(value: unknown): value is SettingsSyncEvent 
 
 export function createAccountId(serverUrl: string, userId: string): string {
   return `${serverUrl}::${userId}`;
+}
+
+export function normalizeLastPlayedAt(value: unknown): string | null {
+  if (typeof value !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)) {
+    return null;
+  }
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
 }
 
 export function createAccountScopedProgressKey(accountId: string, itemId: string): string {
@@ -163,6 +175,7 @@ export function createEmptyPersistedState(): PersistedState {
   return {
     accounts: [],
     activeAccountId: null,
+    lastPlayedAtByAccountId: {},
     settings: createDefaultSettings(),
     progressByItemId: {},
     homeCacheByKey: {},
@@ -298,6 +311,22 @@ export function mergePersistedState(
   );
   const progressByItemId = { ...currentState.progressByItemId };
   const homeCacheByKey = partial.clearHomeCache ? {} : { ...currentState.homeCacheByKey };
+  const lastPlayedAtByAccountId: Record<string, string> = {};
+
+  for (const [accountId, timestamp] of Object.entries(currentState.lastPlayedAtByAccountId ?? {})) {
+    const normalized = normalizeLastPlayedAt(timestamp);
+    if (normalized && accounts.some((account) => account.id === accountId)) {
+      lastPlayedAtByAccountId[accountId] = normalized;
+    }
+  }
+
+  for (const [accountId, timestamp] of Object.entries(partial.lastPlayedAtByAccountId ?? {})) {
+    const normalized = normalizeLastPlayedAt(timestamp);
+    if (normalized && accounts.some((account) => account.id === accountId) &&
+        (!lastPlayedAtByAccountId[accountId] || normalized > lastPlayedAtByAccountId[accountId])) {
+      lastPlayedAtByAccountId[accountId] = normalized;
+    }
+  }
 
   for (const [itemId, progress] of Object.entries(
     createScopedProgressPatch(partial.progressByItemId ?? {}, activeAccountId)
@@ -321,6 +350,7 @@ export function mergePersistedState(
   return {
     accounts,
     activeAccountId,
+    lastPlayedAtByAccountId,
     settings: mergeSettings(currentState.settings, partial.settings),
     progressByItemId,
     homeCacheByKey,
@@ -334,6 +364,7 @@ export function migrateLegacyPersistedState(
     {
       accounts: Array.isArray(legacy.accounts) ? legacy.accounts : undefined,
       activeAccountId: legacy.activeAccountId,
+      lastPlayedAtByAccountId: legacy.lastPlayedAtByAccountId,
       settings: legacy.settings,
       progressByItemId: legacy.progressByItemId,
       homeCacheByKey: legacy.homeCacheByKey,

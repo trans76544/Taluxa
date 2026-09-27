@@ -86,6 +86,7 @@ function createSavedAccount(overrides: Partial<SavedAccount> = {}): SavedAccount
 function createPersistedState(overrides: Partial<StoredPersistedState> = {}): StoredPersistedState {
   return {
     accounts: [],
+    lastPlayedAtByAccountId: {},
     homeCacheByKey: {},
     progressByItemId: {},
     settings: createDefaultSettings(),
@@ -265,7 +266,7 @@ describe('browsing route session snapshots', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
     expect(fetchSimilarItemsMock).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /\u64ad\u653e/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^▶\s*播放$/u }));
 
     await waitFor(() => {
       expect(bridge.load).toHaveBeenCalledWith(

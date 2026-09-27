@@ -3,10 +3,11 @@ import { AuthProvider } from '@renderer/features/auth/AuthContext';
 import { createDefaultSettings } from '@shared/models/settings';
 import type { PersistedState } from '@shared/store/persistence';
 
-function createInitialState(): Pick<PersistedState, 'accounts' | 'activeAccountId' | 'settings'> {
+function createInitialState(): Pick<PersistedState, 'accounts' | 'activeAccountId' | 'lastPlayedAtByAccountId' | 'settings'> {
   return {
     accounts: [],
     activeAccountId: null,
+    lastPlayedAtByAccountId: {},
     settings: createDefaultSettings(),
   };
 }
@@ -23,6 +24,7 @@ function toStartupState(persistedState: PersistedState) {
   return {
     accounts: persistedState.accounts,
     activeAccountId: resolveStartupActiveAccountId(persistedState),
+    lastPlayedAtByAccountId: persistedState.lastPlayedAtByAccountId ?? {},
     settings: persistedState.settings,
   };
 }
