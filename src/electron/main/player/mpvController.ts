@@ -338,6 +338,9 @@ local overlay = mp.create_osd_overlay('ass-events')
 
 local UI_WIDTH = 1920
 local UI_HEIGHT = 1080
+local raw_osd_width = UI_WIDTH
+local raw_osd_height = UI_HEIGHT
+local ui_dpi_scale = 1
 local BUTTON_SCALE = 2
 local WINDOW_ICON_SCALE = 0.8
 local BOTTOM_BUTTON_SCALE = 0.8
@@ -488,10 +491,26 @@ local function format_speed(value)
 end
 
 local function update_ui_dimensions()
-  UI_WIDTH = mp.get_property_number('osd-width', UI_WIDTH)
-  UI_HEIGHT = mp.get_property_number('osd-height', UI_HEIGHT)
+  local function positive_finite(value, fallback)
+    value = tonumber(value)
+    if not value or value ~= value or value <= 0 or value == math.huge then return fallback end
+    return value
+  end
+  local next_raw_width = positive_finite(mp.get_property_number('osd-width'), raw_osd_width)
+  local next_raw_height = positive_finite(mp.get_property_number('osd-height'), raw_osd_height)
+  local next_dpi_scale = positive_finite(mp.get_property_number('display-hidpi-scale'), 1)
+  local next_width = math.max(1, math.floor(next_raw_width / next_dpi_scale + 0.5))
+  local next_height = math.max(1, math.floor(next_raw_height / next_dpi_scale + 0.5))
+  local changed = next_raw_width ~= raw_osd_width or next_raw_height ~= raw_osd_height
+    or next_dpi_scale ~= ui_dpi_scale or next_width ~= UI_WIDTH or next_height ~= UI_HEIGHT
+  raw_osd_width = next_raw_width
+  raw_osd_height = next_raw_height
+  ui_dpi_scale = next_dpi_scale
+  UI_WIDTH = next_width
+  UI_HEIGHT = next_height
   overlay.res_x = UI_WIDTH
   overlay.res_y = UI_HEIGHT
+  return changed
 end
 
 local function mark_controls_active()
@@ -674,40 +693,39 @@ local function get_bottom_button_size()
 end
 
 local function get_bottom_layout(width)
-  local icon_width = get_bottom_button_size()
+  local has_episodes = episode_selector_enabled
+  local right_count = has_episodes and 6 or 5
+  local right_gap_count = right_count - 2
+  local volume_width = round_coord(clamp(width * 0.1, 64, 144))
+  local compact_total = (has_episodes and 575 or 533) + volume_width
+  local preferred_total = (has_episodes and 849 or 786) + volume_width
+  local pressure = clamp((width - compact_total) / (preferred_total - compact_total), 0, 1)
+  local function metric(compact, preferred)
+    return math.floor(compact + (preferred - compact) * pressure)
+  end
+  local icon_width = metric(40, get_bottom_button_size())
+  local left_margin = metric(20, 24)
+  local right_margin = metric(20, 36)
+  local left_gap = metric(2, 4)
+  local left_section_gap = metric(6, 15)
+  local right_speed_gap = metric(8, 13)
+  local right_gap = metric(2, 5)
+  local fullscreen_gap = metric(2, 46)
   local speed_width = round_coord(96 * BOTTOM_BUTTON_SCALE)
-  local left_gap = round_coord(8 * BOTTOM_GAP_SCALE)
-  local left_section_gap = round_coord(30 * BOTTOM_GAP_SCALE)
-  local volume_gap = round_coord(16 * BOTTOM_GAP_SCALE)
-  local right_speed_gap = round_coord(26 * BOTTOM_GAP_SCALE)
-  local right_gap = round_coord(10 * BOTTOM_GAP_SCALE)
-  local right_fullscreen_gap = round_coord(92 * BOTTOM_GAP_SCALE)
-  local episode_button_width = episode_selector_enabled and icon_width or 0
-  local episode_button_gap = episode_selector_enabled and right_gap or 0
-  local volume_width = 152
-  local prev_x = 24
+  local prev_x = left_margin
   local play_x = prev_x + icon_width + left_gap
   local next_x = play_x + icon_width + left_gap
   local mute_x = next_x + icon_width + left_section_gap
-  local volume_x = mute_x + icon_width + volume_gap
-  local right_group_width =
-    speed_width +
-    right_speed_gap +
-    icon_width * 5 +
-    right_gap * 3 +
-    episode_button_width +
-    episode_button_gap +
-    right_fullscreen_gap
-  local speed_x = width - 36 - right_group_width
+  local volume_x = mute_x + icon_width + 15
+  local right_width = speed_width + right_speed_gap +
+    right_count * icon_width + right_gap_count * right_gap + fullscreen_gap
+  local speed_x = width - right_margin - right_width
   local audio_x = speed_x + speed_width + right_speed_gap
   local sub_x = audio_x + icon_width + right_gap
   local danmaku_x = sub_x + icon_width + right_gap
   local settings_x = danmaku_x + icon_width + right_gap
   local episodes_x = settings_x + icon_width + right_gap
-  local fullscreen_x = settings_x + icon_width + right_fullscreen_gap
-  if episode_selector_enabled then
-    fullscreen_x = episodes_x + icon_width + right_fullscreen_gap
-  end
+  local fullscreen_x = (has_episodes and episodes_x or settings_x) + icon_width + fullscreen_gap
 
   return {
     audio_x = audio_x,
@@ -920,11 +938,9 @@ end
 
 local function normalize_mouse_pos(pos)
   if not pos then return nil end
-  local raw_width = mp.get_property_number('osd-width', UI_WIDTH)
-  local raw_height = mp.get_property_number('osd-height', UI_HEIGHT)
   return {
-    x = (pos.x or 0) * UI_WIDTH / math.max(1, raw_width),
-    y = (pos.y or 0) * UI_HEIGHT / math.max(1, raw_height),
+    x = (pos.x or 0) * UI_WIDTH / raw_osd_width,
+    y = (pos.y or 0) * UI_HEIGHT / raw_osd_height,
   }
 end
 
@@ -1025,6 +1041,10 @@ local function draw_options_menu(out)
     max_text_width = math.max(max_text_width, content_width)
   end
   local menu_width = math.max(menu_min_width, round_coord(max_text_width * 1.2))
+  if menu_open == 'speed' and #options > 0 then
+    local available_height = height - 128 + menu_vertical_offset - 4
+    item_height = math.min(item_height, math.max(1, math.floor(available_height / #options)))
+  end
   local menu_height = math.max(item_height, #options * item_height)
   local x = math.min(width - menu_width - 28, math.max(28, anchor_center - math.floor(menu_width / 2)))
   local y = height - 128 - menu_height + menu_vertical_offset
@@ -1071,9 +1091,15 @@ local function add_episode_thumbnail_overlay(overlay_id, x, y, episode)
     remove_episode_thumbnail_overlay(overlay_id)
     return false
   end
+  local raw_x = round_coord(x * raw_osd_width / UI_WIDTH)
+  local raw_y = round_coord(y * raw_osd_height / UI_HEIGHT)
+  local display_width = math.max(1, round_coord(128 * raw_osd_width / UI_WIDTH))
+  local display_height = math.max(1, round_coord(72 * raw_osd_height / UI_HEIGHT))
   local overlay_key = table.concat({
-    tostring(x),
-    tostring(y),
+    tostring(raw_x),
+    tostring(raw_y),
+    tostring(display_width),
+    tostring(display_height),
     episode.thumbnail_path,
     tostring(episode.thumbnail_width),
     tostring(episode.thumbnail_height),
@@ -1086,14 +1112,16 @@ local function add_episode_thumbnail_overlay(overlay_id, x, y, episode)
   mp.commandv(
     'overlay-add',
     tostring(overlay_id),
-    tostring(x),
-    tostring(y),
+    tostring(raw_x),
+    tostring(raw_y),
     episode.thumbnail_path,
     '0',
     'bgra',
     tostring(episode.thumbnail_width),
     tostring(episode.thumbnail_height),
-    tostring(episode.thumbnail_stride)
+    tostring(episode.thumbnail_stride),
+    tostring(display_width),
+    tostring(display_height)
   )
   episode_thumbnail_overlay_ids[overlay_id] = overlay_key
   return true
@@ -1318,7 +1346,7 @@ local function draw_controls()
 
   local layout = get_bottom_layout(width)
   local bottom_button_height = get_bottom_button_size()
-  local bottom_icon_button = get_bottom_button_size()
+  local bottom_icon_button = layout.icon_width
   local button_y = controls_y - math.floor(bottom_button_height / 2)
   local volume_end_x = layout.volume_x + layout.volume_width
   local volume_value_x = layout.volume_x + math.floor(layout.volume_width * clamp(volume / 100, 0, 1))
@@ -1368,6 +1396,10 @@ local function draw_controls()
   overlay:update()
 end
 
+local function refresh_pointer_geometry()
+  if update_ui_dimensions() then draw_controls() end
+end
+
 local function button_at(x, y)
   local closest_marker_button = nil
   local closest_marker_distance = math.huge
@@ -1412,6 +1444,7 @@ end
 
 local function handle_click()
   mark_controls_active()
+  refresh_pointer_geometry()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
   if not pos then
     draw_controls()
@@ -1561,6 +1594,7 @@ end
 
 local function handle_mouse_button(event)
   mark_controls_active()
+  refresh_pointer_geometry()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
   if event.event == 'down' then
     if not pos then return end
@@ -1610,6 +1644,7 @@ end
 
 local function handle_wheel(delta)
   mark_controls_active()
+  refresh_pointer_geometry()
   if episode_panel_open then
     scroll_episode_panel(delta)
     draw_controls()
@@ -1637,9 +1672,11 @@ mp.observe_property('mute', 'bool', function(_, value) muted = value or false; d
 mp.observe_property('track-list', 'native', function(_, value) update_audio_tracks(value); update_subtitle_tracks(value); draw_controls() end)
 mp.observe_property('osd-width', 'native', draw_controls)
 mp.observe_property('osd-height', 'native', draw_controls)
+mp.observe_property('display-hidpi-scale', 'native', draw_controls)
 mp.add_forced_key_binding('MBTN_LEFT', 'taluxa-click', handle_mouse_button, {complex = true})
 mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()
   mark_controls_active()
+  refresh_pointer_geometry()
   local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))
   if seek_dragging then set_seek_from_pointer(pos) end
   if volume_dragging then set_volume_from_pointer(pos) end

@@ -1464,7 +1464,7 @@ describe('MpvController', () => {
     expect(script).toContain("mp.add_forced_key_binding('MOUSE_MOVE', 'taluxa-mouse-move', function()");
     expect(script).toContain('local hover_redraw_pending = false');
     expect(script).toContain(
-      "mark_controls_active()\n  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))\n  if seek_dragging then set_seek_from_pointer(pos) end\n  if volume_dragging then set_volume_from_pointer(pos) end\n  if hover_redraw_pending then return end"
+      "mark_controls_active()\n  refresh_pointer_geometry()\n  local pos = normalize_mouse_pos(mp.get_property_native('mouse-pos'))\n  if seek_dragging then set_seek_from_pointer(pos) end\n  if volume_dragging then set_volume_from_pointer(pos) end\n  if hover_redraw_pending then return end"
     );
     expect(script).toContain('hover_redraw_pending = true');
     expect(script).toContain('mp.add_timeout(0.016, function()');
@@ -1616,7 +1616,7 @@ describe('MpvController', () => {
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
-      expect.stringContaining("UI_WIDTH = mp.get_property_number('osd-width', UI_WIDTH)")
+      expect.stringContaining("local next_raw_width = positive_finite(mp.get_property_number('osd-width'), raw_osd_width)")
     );
     expect(writeTextFile).toHaveBeenCalledWith(
       uiScriptPath,
