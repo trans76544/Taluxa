@@ -250,6 +250,56 @@ describe('browsing route session snapshots', () => {
     expect(await screen.findByRole('heading', { name: 'Movie 1 Fresh' })).toBeInTheDocument();
   });
 
+  it('keeps library posters visible when returning from details while refreshing in the background', async () => {
+    renderAuthenticatedRoute('#/libraries/movies');
+    const resolveImage = vi.mocked(window.embyDesktop.imageCache.resolve);
+    resolveImage.mockResolvedValue({ cacheKey: 'poster-hash', fromCache: true, url: 'taluxa-image-cache://poster-hash' });
+    const poster = await screen.findByRole('link', { name: /Movie 1/ });
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute('src', 'taluxa-image-cache://poster-hash'));
+    const resolutionCount = resolveImage.mock.calls.length;
+    fireEvent.click(poster);
+    expect(await screen.findByRole('heading', { name: 'Movie 1' })).toBeInTheDocument();
+
+    const refresh = createDeferred<ReturnType<typeof createLibraryItem>[]>();
+    fetchItemsMock.mockReturnValueOnce(refresh.promise);
+    await navigateTo('#/libraries/movies');
+
+    expect(screen.queryByText('Loading items...')).not.toBeInTheDocument();
+    const restoredImage = screen.getByRole('img', { name: 'Movie 1' });
+    expect(restoredImage).toHaveAttribute('src', 'taluxa-image-cache://poster-hash');
+    expect(resolveImage).toHaveBeenCalledTimes(resolutionCount);
+    await act(async () => {
+      refresh.resolve([createLibraryItem({ id: 'movie-1', name: 'Movie 1' })]);
+      await flushPromises();
+    });
+    expect(screen.getByRole('img', { name: 'Movie 1' })).toBe(restoredImage);
+    expect(resolveImage).toHaveBeenCalledTimes(resolutionCount);
+  });
+
+  it('retains library content if the background refresh fails', async () => {
+    renderAuthenticatedRoute('#/libraries/movies');
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+    await navigateTo('#/item/movie-1');
+    fetchItemsMock.mockRejectedValueOnce(new Error('offline'));
+    await navigateTo('#/libraries/movies');
+    expect(screen.getByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not refresh this library. Showing saved content.');
+  });
+
+  it('does not reuse a library snapshot for another library', async () => {
+    renderAuthenticatedRoute('#/libraries/movies');
+    expect(await screen.findByRole('link', { name: /Movie 1/ })).toBeInTheDocument();
+    const otherLibrary = createDeferred<ReturnType<typeof createLibraryItem>[]>();
+    fetchItemsMock.mockReturnValueOnce(otherLibrary.promise);
+    await navigateTo('#/libraries/other');
+    expect(screen.queryByRole('link', { name: /Movie 1/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Loading items...')).toBeInTheDocument();
+    await act(async () => {
+      otherLibrary.resolve([]);
+      await flushPromises();
+    });
+  });
+
   it('starts playback from visible detail primary content while supporting sections refresh', async () => {
     const slowSimilarItems = createDeferred<ReturnType<typeof createLibraryItem>[]>();
     fetchSimilarItemsMock.mockReturnValueOnce(slowSimilarItems.promise);

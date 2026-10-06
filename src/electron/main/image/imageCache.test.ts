@@ -83,6 +83,33 @@ describe('ImageCache', () => {
     }
   });
 
+  it('counts protocol reads as recent use when pruning cached images', async () => {
+    const cacheDir = await createTempCacheDir();
+    let nowMs = 1000;
+    const cache = new ImageCache({
+      cacheDir,
+      maxBytes: 6,
+      now: () => new Date(nowMs),
+      fetcher: vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
+        headers: { 'Content-Type': 'image/png' },
+      })),
+    });
+    try {
+      const first = await cache.resolve('https://demo.local/first.png');
+      nowMs = 2000;
+      const second = await cache.resolve('https://demo.local/second.png');
+      nowMs = 3000;
+      await cache.read(first.cacheKey);
+      nowMs = 4000;
+      const third = await cache.resolve('https://demo.local/third.png');
+      await expect(readFile(first.filePath)).resolves.toEqual(Buffer.from([1, 2, 3]));
+      await expect(readFile(second.filePath)).rejects.toThrow();
+      await expect(readFile(third.filePath)).resolves.toEqual(Buffer.from([1, 2, 3]));
+    } finally {
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+
   it('reports cache usage and clears cached image files', async () => {
     const cacheDir = await createTempCacheDir();
     const fetcher = vi.fn(async () =>

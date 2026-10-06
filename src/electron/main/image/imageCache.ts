@@ -160,6 +160,11 @@ export class ImageCache {
 
     const metadata = await this.readMetadata(cacheKey);
     const bytes = await readFile(join(this.cacheDir, metadata.fileName));
+    // Renderer URL reuse skips resolve(), so protocol reads must also count as use.
+    await this.writeMetadata(cacheKey, {
+      ...metadata,
+      lastAccessedAt: this.now().toISOString(),
+    }).catch(() => undefined);
 
     return {
       bytes,

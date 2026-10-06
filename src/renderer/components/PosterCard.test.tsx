@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { PosterCard } from './PosterCard';
+import { createDeferred } from '../../test/deferred';
 
 describe('PosterCard', () => {
   afterEach(() => {
@@ -38,6 +39,38 @@ describe('PosterCard', () => {
       );
     });
     expect(resolve).toHaveBeenCalledWith('https://demo.local/poster.jpg');
+  });
+
+  it('waits for the local cache before assigning the image source', async () => {
+    const pending = createDeferred<{ url: string; fromCache: boolean }>();
+    window.embyDesktop = {
+      imageCache: { resolve: vi.fn(() => pending.promise) },
+    } as unknown as Window['embyDesktop'];
+    render(
+      <MemoryRouter>
+        <PosterCard title="Movie 1" subtitle="2026" posterUrl="https://demo.local/poster.jpg" href="/item/1" />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('img', { name: 'Movie 1' })).not.toHaveAttribute('src');
+    pending.resolve({ url: 'taluxa-image-cache://poster-hash', fromCache: true });
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute('src', 'taluxa-image-cache://poster-hash'));
+  });
+
+  it('recovers from an evicted local image before advancing to the next candidate', async () => {
+    const resolve = vi.fn().mockResolvedValue({ url: 'taluxa-image-cache://poster-hash', fromCache: true });
+    window.embyDesktop = { imageCache: { resolve } } as unknown as Window['embyDesktop'];
+    const card = (
+      <MemoryRouter>
+        <PosterCard title="Movie 1" subtitle="2026" posterUrl="https://demo.local/poster.jpg" href="/item/1" />
+      </MemoryRouter>
+    );
+    const first = render(card);
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute('src', 'taluxa-image-cache://poster-hash'));
+    fireEvent.error(screen.getByRole('img', { name: 'Movie 1' }));
+    expect(screen.getByRole('img', { name: 'Movie 1' })).toHaveAttribute('src', 'https://demo.local/poster.jpg');
+    first.unmount();
+    render(card);
+    await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
   });
 
   it('falls back from the primary image to thumb before showing a placeholder', () => {

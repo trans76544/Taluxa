@@ -82,6 +82,7 @@ import {
 } from '@shared/utils/sessionSnapshot';
 import { Layout } from '@renderer/components/Layout';
 import { AppTitleBar } from '@renderer/components/AppTitleBar';
+import { invalidateCachedImageUrls } from '@renderer/components/useCachedImageUrl';
 import { useAuth } from '@renderer/features/auth/AuthContext';
 import { LoginPage } from '@renderer/features/auth/LoginPage';
 import { useLoginFlow } from '@renderer/features/auth/useLoginFlow';
@@ -177,6 +178,7 @@ interface DetailRouteSnapshot {
 }
 
 const detailSessionSnapshots = createSessionSnapshotStore<DetailRouteSnapshot>();
+const librarySessionSnapshots = createSessionSnapshotStore<LibraryItem[]>();
 const sessionSnapshotScopeIds = new WeakMap<object, number>();
 let nextSessionSnapshotScopeId = 1;
 
@@ -1960,11 +1962,22 @@ function LibrariesRoute() {
 }
 
 function LibraryItemsRoute() {
-  const { serverUrl, session, settings, updateSettings } = useAuth();
+  const { activeAccountId, serverUrl, session, settings, updateSettings } = useAuth();
   const { viewId = '' } = useParams();
   const location = useLocation();
-  const [items, setItems] = useState<LibraryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const sessionUserId = session?.userId;
+  const sessionAccessToken = session?.accessToken;
+  const snapshotKey = sessionUserId && sessionAccessToken && viewId
+    ? createSessionSnapshotKey({
+        accountId: activeAccountId ?? createAccountId(serverUrl, sessionUserId),
+        parts: ['library', getSessionSnapshotScopeId(), serverUrl, sessionUserId, sessionAccessToken, viewId, settings.librarySortMode],
+      })
+    : null;
+  const snapshot = settings.cache.dataCacheEnabled && snapshotKey
+    ? librarySessionSnapshots.get(snapshotKey)
+    : undefined;
+  const [items, setItems] = useState<LibraryItem[]>(snapshot ?? []);
+  const [isLoading, setIsLoading] = useState(!snapshot);
   const [errorMessage, setErrorMessage] = useState('');
   const libraryGenerationRef = useRef(createRequestGenerationGuard());
   const libraryName =
@@ -1990,7 +2003,7 @@ function LibraryItemsRoute() {
   }
 
   useEffect(() => {
-    if (!session || !viewId) {
+    if (!sessionUserId || !sessionAccessToken || !viewId || !snapshotKey) {
       setItems([]);
       setIsLoading(false);
       return;
@@ -1999,21 +2012,26 @@ function LibraryItemsRoute() {
     const generation = libraryGenerationRef.current.next();
     let cancelled = false;
 
-    setIsLoading(true);
+    const savedItems = settings.cache.dataCacheEnabled ? librarySessionSnapshots.get(snapshotKey) : undefined;
+    setItems(savedItems ?? []);
+    setIsLoading(!savedItems);
     setErrorMessage('');
 
-    fetchItems(serverUrl, session.userId, viewId, session.accessToken, {
+    fetchItems(serverUrl, sessionUserId, viewId, sessionAccessToken, {
       sortMode: settings.librarySortMode,
     })
       .then((nextItems) => {
         if (!cancelled && libraryGenerationRef.current.isCurrent(generation)) {
           setItems(nextItems);
+          if (settings.cache.dataCacheEnabled) librarySessionSnapshots.set(snapshotKey, nextItems);
           setIsLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled && libraryGenerationRef.current.isCurrent(generation)) {
-          setErrorMessage('Could not load this library.');
+          setErrorMessage(savedItems
+            ? 'Could not refresh this library. Showing saved content.'
+            : 'Could not load this library.');
           setIsLoading(false);
         }
       });
@@ -2021,7 +2039,7 @@ function LibraryItemsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, session, settings.librarySortMode, viewId]);
+  }, [serverUrl, sessionUserId, sessionAccessToken, settings.librarySortMode, settings.cache.dataCacheEnabled, viewId, snapshotKey]);
 
   return (
     <AuthenticatedLayout title={libraryName}>
@@ -2351,6 +2369,7 @@ function SettingsRoute() {
 
     if (imageCacheResolutionChanged) {
       await window.embyDesktop.imageCache.clear();
+      invalidateCachedImageUrls();
       setImageCacheBytes(0);
     }
 
@@ -2359,6 +2378,7 @@ function SettingsRoute() {
       maxDimension: getImageCacheMaxDimension(next.imageCacheResolution),
       maxBytes: next.imageCacheMaxBytes,
     });
+    invalidateCachedImageUrls();
     updateSettings(settingsPatch);
   }
 
@@ -2366,11 +2386,13 @@ function SettingsRoute() {
     await window.embyDesktop.storage.write({
       clearHomeCache: true,
     });
+    librarySessionSnapshots.invalidate(() => true);
     setDataCacheBytes(0);
   }
 
   async function handleClearImageCache() {
     await window.embyDesktop.imageCache.clear();
+    invalidateCachedImageUrls();
     await refreshCacheStats();
   }
 
@@ -2405,6 +2427,17 @@ function SettingsRoute() {
 
 export function AppRouter() {
   const { settings } = useAuth();
+  const imageCacheSettingsRef = useRef(settings.cache);
+
+  useEffect(() => {
+    const previous = imageCacheSettingsRef.current;
+    if (previous.imageCacheEnabled !== settings.cache.imageCacheEnabled ||
+        previous.imageCacheResolution !== settings.cache.imageCacheResolution ||
+        previous.imageCacheMaxBytes !== settings.cache.imageCacheMaxBytes) {
+      invalidateCachedImageUrls();
+    }
+    imageCacheSettingsRef.current = settings.cache;
+  }, [settings.cache]);
 
   useEffect(() => {
     const previousTheme = document.documentElement.getAttribute('data-theme');

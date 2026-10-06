@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { LibraryImageCandidate } from '@shared/models/library';
-import { useCachedImageUrl } from './useCachedImageUrl';
+import { invalidateCachedImageUrls, useCachedImageUrl } from './useCachedImageUrl';
 
 interface PosterCardProps {
   title: string;
@@ -72,6 +72,8 @@ export function PosterCard({
 
   const activePosterUrl = candidates[candidateIndex] ?? null;
   const resolvedPosterUrl = useCachedImageUrl(activePosterUrl);
+  const [failedCachedUrl, setFailedCachedUrl] = useState<string | null>(null);
+  const displayedPosterUrl = failedCachedUrl && failedCachedUrl === resolvedPosterUrl ? activePosterUrl : resolvedPosterUrl;
   const normalizedProgressPercent =
     typeof progressPercent === 'number' && Number.isFinite(progressPercent)
       ? Math.min(100, Math.max(0, progressPercent))
@@ -90,10 +92,15 @@ export function PosterCard({
           <img
             className={`poster-card__image ${landscape ? 'poster-card__image--landscape' : ''}`}
             alt={title}
-            src={resolvedPosterUrl ?? activePosterUrl}
+            src={displayedPosterUrl ?? undefined}
             loading="lazy"
             decoding="async"
             onError={() => {
+              if (resolvedPosterUrl?.startsWith('taluxa-image-cache://') && failedCachedUrl !== resolvedPosterUrl) {
+                invalidateCachedImageUrls(activePosterUrl ?? undefined);
+                setFailedCachedUrl(resolvedPosterUrl);
+                return;
+              }
               setCandidateIndex((currentIndex) => currentIndex + 1);
             }}
           />

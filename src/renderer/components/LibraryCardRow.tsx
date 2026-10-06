@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { HomeLibraryCard } from '@shared/api/emby/home';
-import { useCachedImageUrl } from './useCachedImageUrl';
+import { invalidateCachedImageUrls, useCachedImageUrl } from './useCachedImageUrl';
 
 interface LibraryCardRowProps {
   title: string;
@@ -36,15 +36,23 @@ function LibraryCardCollageImage({
   onError: () => void;
 }) {
   const resolvedUrl = useCachedImageUrl(url);
+  const [failedCachedUrl, setFailedCachedUrl] = useState<string | null>(null);
 
   return (
     <img
       className="library-card__collage-image"
       alt={alt}
-      src={resolvedUrl ?? url}
+      src={(failedCachedUrl && failedCachedUrl === resolvedUrl ? url : resolvedUrl) ?? undefined}
       loading="lazy"
       decoding="async"
-      onError={onError}
+      onError={() => {
+        if (resolvedUrl?.startsWith('taluxa-image-cache://') && failedCachedUrl !== resolvedUrl) {
+          invalidateCachedImageUrls(url);
+          setFailedCachedUrl(resolvedUrl);
+          return;
+        }
+        onError();
+      }}
     />
   );
 }
