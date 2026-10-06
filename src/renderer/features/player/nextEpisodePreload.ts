@@ -58,7 +58,7 @@ export class NextEpisodePreloadCoordinator<T> {
     }
 
     if (event.phase === 'stopped') {
-      if (event.itemId === record.registration.currentItemId &&
+      if (event.reason !== 'eof' && event.itemId === record.registration.currentItemId &&
           (!record.playbackId || record.playbackId === event.playbackId)) {
         this.releaseSession(event.playerSessionId);
       }

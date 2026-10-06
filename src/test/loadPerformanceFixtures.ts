@@ -218,6 +218,7 @@ export function createControllablePlayerBridge() {
     })),
     load,
     reportStartupFailure: vi.fn().mockResolvedValue(undefined),
+    preloadNextEpisode: vi.fn().mockResolvedValue(undefined),
     onEpisodeSelect: vi.fn((listener: (event: { playerSessionId: number; itemId: string }) => void) => {
       episodeSelectListeners.add(listener);
       return () => episodeSelectListeners.delete(listener);

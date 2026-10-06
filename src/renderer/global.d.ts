@@ -16,6 +16,7 @@ import type { ImageCacheConfig, ImageCacheStats } from '../electron/main/image/i
 import type { PlayerPlaybackEvent } from '@shared/models/playback';
 import type { ReportPlaybackProgressInput } from '@shared/api/emby/playback';
 import type { PlayerStoryMarkerUpdate, StoryMarkerDiagnostic } from '@shared/models/storyLandmark';
+import type { NextEpisodeMediaPreloadInput } from '@shared/models/mediaPreload';
 import type {
   PlayerLoadInput,
   PlayerOpenInput,
@@ -44,6 +45,7 @@ declare global {
         reportStopped: (input: ReportPlaybackProgressInput) => Promise<void>;
       };
       player: {
+        preloadNextEpisode?: (input: NextEpisodeMediaPreloadInput) => Promise<void>;
         reportStoryMarkerDiagnostic?: (input: StoryMarkerDiagnostic) => Promise<void>;
         setStoryMarkers: (input: PlayerStoryMarkerUpdate) => Promise<void>;
         launch: (input: PlayerLaunchInput) => Promise<PlayerLaunchResult>;

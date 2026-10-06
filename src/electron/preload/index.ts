@@ -10,6 +10,7 @@ import type { ImageCacheConfig, ImageCacheStats } from '../main/image/imageCache
 import { isPlayerPlaybackEvent, type PlayerPlaybackEvent } from '../../shared/models/playback';
 import type { ReportPlaybackProgressInput } from '../../shared/api/emby/playback';
 import type { PlayerStoryMarkerUpdate, StoryMarkerDiagnostic } from '../../shared/models/storyLandmark';
+import type { NextEpisodeMediaPreloadInput } from '../../shared/models/mediaPreload';
 import {
   isPlayerRetryRequest,
   isPlayerStartupEvent,
@@ -77,6 +78,8 @@ contextBridge.exposeInMainWorld('embyDesktop', {
       ipcRenderer.invoke('playback:report-stopped', input) as Promise<void>,
   },
   player: {
+    preloadNextEpisode: (input: NextEpisodeMediaPreloadInput) =>
+      ipcRenderer.invoke('player:preload-next-episode', input) as Promise<void>,
     reportStoryMarkerDiagnostic: (input: StoryMarkerDiagnostic) =>
       ipcRenderer.invoke('player:story-marker-diagnostic', input) as Promise<void>,
     setStoryMarkers: (input: PlayerStoryMarkerUpdate) =>

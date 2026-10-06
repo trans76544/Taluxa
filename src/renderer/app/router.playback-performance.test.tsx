@@ -1024,12 +1024,43 @@ describe('playback performance route behavior', () => {
     await waitFor(() => expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: 'episode-2' })
     ));
+    await waitFor(() => expect(bridge.preloadNextEpisode).toHaveBeenCalledWith(expect.objectContaining({
+      playerSessionId: 1, currentItemId: 'episode-1', itemId: 'episode-2',
+      streamUrl: expect.any(String),
+    })));
+    expect(bridge.switchEpisode).not.toHaveBeenCalled();
 
     act(() => bridge.emitEpisodeSelect('episode-2'));
     await waitFor(() => expect(bridge.switchEpisode).toHaveBeenCalledWith(expect.objectContaining({
       playerSessionId: 1, itemId: 'episode-2',
     })));
     expect(fetchPlaybackStreamSourceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefetches video at the same account-scoped local resume position used for episode playback', async () => {
+    const bridge = renderSeriesRoute();
+    fireEvent.click(await screen.findByRole('button', { name: /^▶\s*播放$/u }));
+    await waitFor(() => expect(bridge.load).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'episode-1' })));
+    const account = createSavedAccount();
+    vi.mocked(window.embyDesktop.storage.read).mockResolvedValue({ ...createPersistedState({
+      accounts: [account], activeAccountId: account.id,
+      progressByItemId: {
+        [`account-progress::${account.id}::episode-2`]: {
+          itemId: 'episode-2', positionSeconds: 12,
+        } as PersistedState['progressByItemId'][string],
+      },
+    }), activeAccountId: account.id });
+    act(() => bridge.emitPlaybackEvent({
+      playerSessionId: 1, playbackId: '1:1', sequence: 1, phase: 'progress',
+      itemId: 'episode-1', positionSeconds: 90, durationSeconds: 100,
+    }));
+    await waitFor(() => expect(bridge.preloadNextEpisode).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'episode-2', startSeconds: 12,
+    })));
+    act(() => bridge.emitEpisodeSelect('episode-2'));
+    await waitFor(() => expect(bridge.switchEpisode).toHaveBeenCalledWith(expect.objectContaining({
+      itemId: 'episode-2', startSeconds: 12,
+    })));
   });
 
   it('falls back to the normal source request when an in-flight next-episode preparation fails', async () => {

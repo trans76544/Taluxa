@@ -590,7 +590,27 @@ function ItemDetailsRoute() {
       currentItemId,
       targetItemId: targetEpisode.id,
       fingerprint: descriptor.key,
-      prepare: () => resolvePlaybackSourceFromDescriptor(descriptor),
+      prepare: async () => {
+        const [source, persistedState] = await Promise.all([
+          resolvePlaybackSourceFromDescriptor(descriptor),
+          window.embyDesktop.storage.read().catch(() => null),
+        ]);
+        const progress = persistedState
+          ? getPersistedProgressByItemIdForAccount(persistedState.progressByItemId, resolvedActiveAccountId)
+          : {};
+        await window.embyDesktop.player.preloadNextEpisode?.({
+          playerSessionId,
+          currentItemId,
+          itemId: targetEpisode.id,
+          streamUrl: source.streamUrl,
+          httpHeaders: source.httpHeaders,
+          startSeconds: getResumePositionSeconds({
+            savedPositionSeconds: progress[targetEpisode.id]?.positionSeconds ?? null,
+            serverPositionTicks: targetEpisode.serverPositionTicks,
+          }),
+        }).catch(() => undefined);
+        return source;
+      },
     });
   }
 

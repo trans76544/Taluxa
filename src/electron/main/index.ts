@@ -17,6 +17,9 @@ import {
   type MpvWindowBounds,
 } from './player/mpvController';
 import { HlsProxyServer } from './player/hlsProxy';
+import { MediaPreloadProxy } from './player/mediaPreloadProxy';
+import { NextEpisodeMediaCache } from './player/nextEpisodeMediaCache';
+import { createPlayerMediaPreloadHandlers, registerPlayerMediaPreloadIpc } from './ipc/playerMediaPreload';
 import { fetchDandanplayDanmaku } from './player/danmaku';
 import { createMainWindow } from './window';
 import {
@@ -50,10 +53,12 @@ function sendPlayerProgress(snapshot: MpvProgressSnapshot) {
 }
 
 function sendPlayerPlaybackEvent(event: PlayerPlaybackEvent) {
+  nextEpisodeMediaCache.handlePlaybackEvent(event);
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('player:playback-event', event);
 }
 
 function sendPlayerStartupEvent(event: PlayerStartupEvent) {
+  if (event.phase === 'closed') nextEpisodeMediaCache.releaseSession(event.playerSessionId);
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('player:startup-event', event);
 }
 
@@ -89,6 +94,10 @@ function getMpvWindowMaximizeBounds(): MpvWindowBounds | null {
   return display.workArea;
 }
 
+const nextEpisodeMediaCache = new NextEpisodeMediaCache(
+  new MediaPreloadProxy((url, init) => session.defaultSession.fetch(url, init))
+);
+const mediaPreloadHandlers = createPlayerMediaPreloadHandlers(nextEpisodeMediaCache);
 const mpvController = new MpvController({
   isPackaged: app.isPackaged,
   fetchDanmaku: (input, servers) =>
@@ -145,6 +154,10 @@ function resizeCachedImage(bytes: Buffer, contentType: string, maxDimension: num
 }
 
 async function prepareLaunchInput<T extends LaunchMpvInput>(input: T): Promise<T> {
+  if ('playerSessionId' in input && typeof input.playerSessionId === 'number') {
+    const cached = mediaPreloadHandlers.prepareSelection({ ...input, playerSessionId: input.playerSessionId });
+    if (cached.streamUrl !== input.streamUrl) return cached;
+  }
   if (!input.streamUrl.toLowerCase().includes('.m3u8')) {
     return input;
   }
@@ -360,6 +373,7 @@ app.whenReady().then(() => {
         );
       });
       registerStoryMarkerIpc(mpvController);
+      registerPlayerMediaPreloadIpc(ipcMain, nextEpisodeMediaCache);
       ipcMain.handle(
         'player:preflight',
         (_event, input: Pick<LaunchMpvInput, 'httpHeaders' | 'streamUrl'>) =>
@@ -391,4 +405,5 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   mpvController.stopAll();
   hlsProxyServer.close();
+  nextEpisodeMediaCache.close();
 });

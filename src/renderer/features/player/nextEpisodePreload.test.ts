@@ -142,4 +142,14 @@ describe('NextEpisodePreloadCoordinator', () => {
       fingerprint: 'fingerprint',
     })).toBeNull();
   });
+
+  it('retains the prepared source after eof so a next click can still reuse the media cache identity', async () => {
+    const { coordinator } = createCoordinator();
+    coordinator.handleEvent(playbackEvent());
+    await vi.waitFor(() => expect(coordinator.getState(1)).toBe('ready'));
+    coordinator.handleEvent({ ...playbackEvent(), phase: 'stopped', reason: 'eof', completed: true });
+    expect(coordinator.consume({
+      playerSessionId: 1, currentItemId: 'episode-1', targetItemId: 'episode-2', fingerprint: 'account::server::episode-2',
+    })).not.toBeNull();
+  });
 });
